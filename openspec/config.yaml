@@ -1,0 +1,52 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: false
+
+context: |
+  Revision: 2026-09-02.
+  Project: BCRA Mini-RAG (BCRAMiniRag). Showcase RAG over Argentine FX regulation.
+  Institution: Banco Central de la República Argentina (BCRA) only. Never Banxico / Banco de México.
+  Domain: circular family CAMEX (Operaciones Cambiarias y Movimientos de Fondos y Valores con el Exterior).
+  Corpus: official Comunicaciones "A" tagged CAMEX (A13/1981 → present) plus texto ordenado Exterior y Cambios (t-excbio.pdf).
+  Dump dates: last_refresh (dump) and to_as_of (TO). Do not use corpus_as_of.
+  Job: a payments/FX/compliance person asks what a circular says and gets a cited clause (Com. A number + punto) or honest silencio.
+  Stack: Python 3.11+ via uv; pydantic v2; FastAPI; pytest + pytest-asyncio + pytest-bdd + pytest-cov; structlog; ruff; mypy.
+  Architecture: thin hexagon — five ports (Catalog, Extractor, Index, Llm, SessionStore); composition root; no DI container, no Redis, no CQRS.
+  UI: Gradio mounted on FastAPI. Not Next.js in v1.
+  Dump: living tree data/bcra/current/ + data/index/. Refresh on the deploy host, not a GitHub-hosted runner or GitHub-hosted vector index.
+  Principles: SOLID, clean code, KISS, DRY, YAGNI. RFC 2119 in specs. Behavior in specs; how in design.md.
+  README: keep "## How to run" listing every current setup/build/run/test/debug/ingest/report command, one brief line each. Same change that adds, changes, or removes a command updates that section; if a cycle step has no command yet, say so.
+  Tests: new functionality MUST have unit tests; run them and fix until green; src coverage MUST be >= 80%.
+  Non-goals: PSP/SINAP/QR corpus, login, design system, LlamaIndex, second FAISS index, filling 1990-97 catalog hole, HITL/multi-agent (Project 2), GitHub-hosted vector index, deontic-scan as a v1 MUST.
+
+rules:
+  proposal:
+    - "Include Why, What Changes, Capabilities, Non-goals, and Impact."
+    - "Non-goals MUST list Banxico, Next.js v1, LlamaIndex, Redis, the 1990-97 catalog hole, and GitHub-hosted vector index."
+    - "Keep the intent to one sentence: cited CAMEX clauses with visible guardrails and L1 numbers."
+  specs:
+    - "Each capability spec MUST start with Purpose then ADDED Requirements (greenfield)."
+    - "Requirements use RFC 2119 (MUST/SHALL/SHOULD/MAY). One user-facing contract per Requirement heading (a field list counts as one contract)."
+    - "Scenarios use GIVEN / WHEN / THEN. Cover silencio, named Com. A, vigente vs superseded, and /clear where relevant."
+    - "Do not name class names, file paths, or libraries in requirements except in evals-l1, which MAY name L1 metrics (citation-id, hit@k, MRR, RAGAS)."
+    - "Dump timestamps are last_refresh and to_as_of only."
+  design:
+    - "Document the five ports, composition root, ingest/refresh pipeline, router, chunking A/B, session memory, and host-side refresh."
+    - "Record IBM 1-4 take/leave and the slip order. Deontic scan stays slip-first in design only."
+    - "Keep implementation names here, not in specs."
+  tasks:
+    - "Group by capability. Number 1.1, 1.2, and so on."
+    - "Each task is one sitting. New functionality MUST get unit tests in the same group; the task is not done until those tests pass."
+    - "Do not include a paid L1 eval run as a CI-blocking task."
+    - 'If a command is added, changed, or removed, include a task that updates README.md "## How to run".'
+
+operations:
+  apply:
+    guidance:
+      - Implement from tasks.md; do not invent extra circular families or a second UI.
+      - After new functionality, add unit tests, run them, and fix until green; do not finish while src coverage is below 80%. Run unit tests and Gherkin before any paid L1 eval run.
+      - Keep pdftotext/poppler and polite BCRA downloads in ingest; resume from MANIFEST.
+      - 'Keep README.md "## How to run" in sync with added, changed, or removed commands.'
+  archive:
+    guidance:
+      - Summarize which capabilities merged and that main specs were empty before this change.

@@ -1,0 +1,15 @@
+[Unit]
+Description=BCRA Mini-RAG API
+After=network-online.target
+
+[Service]
+Type=simple
+User=__DEPLOY_USER__
+WorkingDirectory=__DEPLOY_DIR__
+EnvironmentFile=__DEPLOY_DIR__/.env
+ExecStart=__DEPLOY_DIR__/.venv/bin/uvicorn bcra_rag.api.app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

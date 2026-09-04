@@ -1,0 +1,23 @@
+{
+  "unpublished": true,
+  "sample": true,
+  "headline_metric": "citation_id_exact",
+  "citation_id_exact": 0.0,
+  "hit_at_5": 0.0,
+  "mrr": 0.0,
+  "chunking": {
+    "A": 0,
+    "B": 0,
+    "b_documents": ["texto_ordenado"]
+  },
+  "slices": {
+    "definicion": 0.0,
+    "obligacion": 0.0,
+    "silencio": 0.0,
+    "cross-ref": 0.0,
+    "superseded": 0.0,
+    "post-to": 0.0
+  },
+  "ragas": null,
+  "n": 30
+}

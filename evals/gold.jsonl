@@ -1,0 +1,30 @@
+{"id":"g01","bucket":"definicion","question":"Qué es el MULC?","gold_ids":["texto_ordenado"],"gold_puntos":["1"],"finding":"definicion","answerable":true}
+{"id":"g02","bucket":"definicion","question":"Qué es el tipo de cambio de referencia?","gold_ids":["A8359","texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g03","bucket":"definicion","question":"Qué son las restricciones cambiarias (cepo) en CAMEX?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g04","bucket":"definicion","question":"Qué es el texto ordenado de Exterior y Cambios?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g05","bucket":"obligacion","question":"qué se exige hoy para liquidar el cobro de exportaciones","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}
+{"id":"g06","bucket":"obligacion","question":"Los residentes deben liquidar las divisas de exportación?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}
+{"id":"g07","bucket":"obligacion","question":"Qué obligaciones hay para acceder al MULC hoy?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"obligacion","answerable":true}
+{"id":"g08","bucket":"obligacion","question":"Puedo operar en el mercado de cambios sin conformidad?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"prohibicion","answerable":true}
+{"id":"g09","bucket":"procedimiento","question":"Cuál es el procedimiento del punto 3.8.5 del texto ordenado?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"procedimiento","answerable":true}
+{"id":"g10","bucket":"procedimiento","question":"Cómo se liquida el cobro de exportaciones según el TO?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"procedimiento","answerable":true}
+{"id":"g11","bucket":"procedimiento","question":"Qué plazo prevé el texto ordenado para liquidar divisas?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"procedimiento","answerable":true}
+{"id":"g12","bucket":"procedimiento","question":"Dónde se publica el tipo de cambio de referencia?","gold_ids":["A8359","A3500"],"gold_puntos":[],"finding":"procedimiento","answerable":true}
+{"id":"g13","bucket":"silencio","question":"Qué dice la Comunicación A 9999?","gold_ids":[],"gold_puntos":[],"finding":"silencio","answerable":false}
+{"id":"g14","bucket":"silencio","question":"Cuál es la Comunicación A 8888 sobre el MULC?","gold_ids":[],"gold_puntos":[],"finding":"silencio","answerable":false}
+{"id":"g15","bucket":"silencio","question":"Qué dice Banxico sobre el tipo de cambio?","gold_ids":[],"gold_puntos":[],"finding":"silencio","answerable":false}
+{"id":"g16","bucket":"cross-ref","question":"La cláusula que remite a Com. A 3500, qué dice esa comunicación?","gold_ids":["A3500"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g17","bucket":"cross-ref","question":"Qué dice la norma que véase Com. A 7777 si no está en el dump?","gold_ids":[],"gold_puntos":[],"finding":"silencio","answerable":false}
+{"id":"g18","bucket":"cross-ref","question":"Si el TO responde y además véase Com. A 7777, cuál es la regla vigente de liquidación?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}
+{"id":"g19","bucket":"superseded","question":"Sigue vigente la Comunicación A de 2001-2002 sobre el cepo como regla actual?","gold_ids":["texto_ordenado","A8359"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g20","bucket":"superseded","question":"Es A 3500 (2002) la regla vigente hoy del tipo de cambio de referencia?","gold_ids":["A8359","texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g21","bucket":"superseded","question":"Puedo citar solo una comunicación de 2002 como normativa vigente hoy?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g22","bucket":"post-to","question":"Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?","gold_ids":["A8359","texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g23","bucket":"post-to","question":"Qué adecuación posterior al TO hay sobre tipo de cambio de referencia?","gold_ids":["A8359"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g24","bucket":"post-to","question":"A 8359 modifica el tipo de cambio de referencia después de A 8307?","gold_ids":["A8359"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g25","bucket":"english","question":"What is required today to liquidate export proceeds?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}
+{"id":"g26","bucket":"english","question":"What does Comunicación A 3500 say about the reference exchange rate?","gold_ids":["A3500"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g27","bucket":"english","question":"What is the current MULC definition in the texto ordenado?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g28","bucket":"vigente","question":"qué se exige hoy para liquidar según el texto ordenado","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}
+{"id":"g29","bucket":"vigente","question":"Cuál es la normativa vigente del MULC?","gold_ids":["texto_ordenado"],"gold_puntos":[],"finding":"definicion","answerable":true}
+{"id":"g30","bucket":"vigente","question":"Qué dice el TO sobre liquidar exportaciones hoy?","gold_ids":["texto_ordenado"],"gold_puntos":["3.8.5"],"finding":"obligacion","answerable":true}

@@ -1,0 +1,9 @@
+[Unit]
+Description=BCRA Mini-RAG one-shot ingest
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__DEPLOY_DIR__
+TimeoutStartSec=infinity
+ExecStart=__DEPLOY_DIR__/deploy/ingest.sh
