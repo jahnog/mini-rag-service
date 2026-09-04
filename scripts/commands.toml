@@ -1,0 +1,191 @@
+# Local-dev / test command catalog for scripts/devtui.py.
+# host = true rows generate README only; the picker never runs them.
+
+[[command]]
+id = "sync"
+group = "Setup"
+block = "setup"
+title = "Install deps"
+summary = "Install Python deps (dev group is default)."
+argv = ["uv", "sync"]
+
+[[command]]
+id = "serve"
+group = "Run"
+block = "run"
+title = "Serve API + UI"
+summary = "API + Gradio on FastAPI, one worker. Replaces this TUI."
+argv = ["uv", "run", "uvicorn", "bcra_rag.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+tty = true
+
+[[command]]
+id = "deploy"
+group = "Deploy"
+block = "deploy"
+title = "Deploy"
+summary = "SSH install to the dump host. Reads deploy/local.env. Does not wipe data/ or .env."
+argv = ["./scripts/deploy.sh"]
+readme_line = "DEPLOY_HOST=user@dump-host ./scripts/deploy.sh"
+confirm = true
+
+[[command]]
+id = "ssh-forward"
+group = "Deploy"
+block = "ssh-forward"
+title = "SSH UI forward"
+summary = "Local-forward to the dump host loopback UI (127.0.0.1:8000). Replaces this TUI."
+argv = ["ssh", "-L", "8000:127.0.0.1:8000"]
+readme_line = "ssh -L 8000:127.0.0.1:8000 user@dump-host"
+tty = true
+confirm = true
+needs_deploy_host = true
+
+[[command]]
+id = "deploy-ingest"
+group = "Deploy"
+block = "deploy-ingest"
+title = "Deploy and ingest"
+summary = "SSH install plus one-time ingest. Embedding server at EMBEDDING_BASE_URL must be up."
+argv = ["./scripts/deploy.sh", "--ingest"]
+readme_line = "DEPLOY_HOST=user@dump-host ./scripts/deploy.sh --ingest"
+confirm = true
+
+[[command]]
+id = "unit-start"
+group = "Deploy"
+block = "systemctl"
+title = "Start unit"
+summary = "Dump-host systemd. Docs only — not run by this TUI."
+argv = ["sudo", "systemctl", "start", "bcra-rag"]
+host = true
+
+[[command]]
+id = "unit-stop"
+group = "Deploy"
+block = "systemctl"
+title = "Stop unit"
+summary = "Dump-host systemd. Docs only — not run by this TUI."
+argv = ["sudo", "systemctl", "stop", "bcra-rag"]
+host = true
+
+[[command]]
+id = "unit-status"
+group = "Deploy"
+block = "systemctl"
+title = "Status unit"
+summary = "Dump-host systemd. Docs only — not run by this TUI."
+argv = ["sudo", "systemctl", "status", "bcra-rag"]
+host = true
+
+[[command]]
+id = "ingest-unit"
+group = "Deploy"
+block = "systemctl"
+title = "Start ingest unit"
+summary = "Dump-host systemd. Docs only — not run by this TUI."
+argv = ["sudo", "systemctl", "start", "bcra-rag-ingest"]
+host = true
+
+[[command]]
+id = "refresh-unit"
+group = "Deploy"
+block = "systemctl"
+title = "Start refresh unit"
+summary = "Dump-host systemd. Docs only — not run by this TUI."
+argv = ["sudo", "systemctl", "start", "bcra-rag-refresh"]
+host = true
+
+[[command]]
+id = "lint"
+group = "Test"
+block = "test-unit"
+title = "Lint"
+summary = "ruff check ."
+argv = ["uv", "run", "ruff", "check", "."]
+
+[[command]]
+id = "types"
+group = "Test"
+block = "test-unit"
+title = "Types"
+summary = "mypy src"
+argv = ["uv", "run", "mypy", "src"]
+
+[[command]]
+id = "unit"
+group = "Test"
+block = "test-unit"
+title = "Unit tests"
+summary = "pytest with fakes; no live BCRA or embedding API."
+argv = ["uv", "run", "pytest", "-q"]
+
+[[command]]
+id = "integration"
+group = "Test"
+block = "test-integration"
+title = "Integration tests"
+summary = "Live ingest/refresh PDFs; needs poppler and network."
+argv = ["uv", "run", "pytest", "--run-integration", "-m", "integration", "-q"]
+confirm = true
+
+[[command]]
+id = "ingest-pdf"
+group = "Test"
+block = "test-integration"
+title = "Ingest PDF smoke"
+summary = "One real texto ordenado PDF via the ingest command."
+argv = ["uv", "run", "pytest", "--run-integration", "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf", "-q"]
+confirm = true
+
+[[command]]
+id = "refresh-pdf"
+group = "Test"
+block = "test-integration"
+title = "Refresh PDF smoke"
+summary = "One real texto ordenado PDF via the refresh command."
+argv = ["uv", "run", "pytest", "--run-integration", "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf", "-q"]
+confirm = true
+
+[[command]]
+id = "pdb"
+group = "Debug"
+block = "debug"
+title = "pytest --pdb"
+summary = "Drop into pdb on the first test failure. Replaces this TUI."
+argv = ["uv", "run", "pytest", "--pdb"]
+tty = true
+
+[[command]]
+id = "ingest"
+group = "Ingest"
+block = "ingest"
+title = "One-time ingest"
+summary = "Load the CAMEX catalog plus current texto ordenado. Confirm first."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.ingest"]
+confirm = true
+
+[[command]]
+id = "refresh"
+group = "Ingest"
+block = "ingest"
+title = "Refresh"
+summary = "Append new A's; replace the TO only when its checksum changed."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
+confirm = true
+
+[[command]]
+id = "coverage"
+group = "Reports"
+block = "reports"
+title = "Coverage"
+summary = "pytest with src coverage; fails below 80%."
+argv = ["uv", "run", "pytest", "-q", "--cov=src", "--cov-report=term-missing", "--cov-report=xml"]
+
+[[command]]
+id = "l1"
+group = "Reports"
+block = "reports"
+title = "L1 eval"
+summary = "Offline L1 operator command (not CI). Confirm first."
+argv = ["uv", "run", "python", "evals/run_l1.py"]
+confirm = true

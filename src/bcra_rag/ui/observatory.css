@@ -104,6 +104,16 @@ footer.svelte-1ax1toq,
   gap: 1rem !important;
 }
 
+#layout-toggle {
+  align-items: flex-start !important;
+  gap: 0.75rem !important;
+}
+
+#layout-toggle-help p {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
 #observatory-stage,
 #observatory-side {
   animation: rise-in 0.48s ease-out both;

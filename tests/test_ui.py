@@ -7,15 +7,21 @@ from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResp
 from bcra_rag.ui.config import (
     CANNED_PROMPTS,
     L1_ACCORDION_OPEN_DEFAULT,
+    LAYOUT_HELP,
+    LAYOUT_STAFF,
+    LAYOUT_USER,
     abstain_visible,
     append_messages,
+    apply_layout,
     banner_markdown,
     citation_card_markdown,
     citation_cards,
     inspector_payload,
     is_sample_l1,
     l1_markdown,
+    layout_updates,
     load_l1,
+    title_markdown,
     topbar_markdown,
     trust_markdown,
     trust_payload,
@@ -91,6 +97,7 @@ def test_banner_and_canned_prompts() -> None:
     )
     banner = banner_markdown(health)
     topbar = topbar_markdown(health)
+    title = title_markdown(health)
     assert TO_AS_OF in banner
     assert LAST_REFRESH in banner
     assert "A8464" in banner
@@ -101,6 +108,10 @@ def test_banner_and_canned_prompts() -> None:
     assert "A8464" in topbar
     assert "10" in topbar
     assert "no oficial" in topbar.lower()
+    assert "no oficial" in title.lower()
+    assert TO_AS_OF not in title
+    assert LAST_REFRESH not in title
+    assert "A8464" not in title
     assert len(CANNED_PROMPTS) == 4
     assert any("A 9999" in p for p in CANNED_PROMPTS)
     assert any("A 3500" in p and "A 8359" in p for p in CANNED_PROMPTS)
@@ -223,6 +234,9 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "citation-card",
         "trust-panel",
         "observatory-footer",
+        "layout-toggle",
+        "layout-toggle-help",
+        "observatory-freeze",
     ):
         assert elem_id in ids, elem_id
     widgets = list(getattr(blocks, "blocks", {}).values())
@@ -244,6 +258,69 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert "primary" in variants
     assert "secondary" in variants
+    freeze = _widget_by_elem_id(blocks, "observatory-freeze")
+    side = _widget_by_elem_id(blocks, "observatory-side")
+    help_box = _widget_by_elem_id(blocks, "layout-toggle-help")
+    assert freeze is not None and getattr(freeze, "visible", True) is True
+    assert side is not None and getattr(side, "visible", True) is True
+    assert help_box is not None
+    radios = [
+        widget
+        for widget in widgets
+        if type(widget).__name__ == "Radio" and getattr(widget, "label", None) == "Vista"
+    ]
+    assert radios
+    vista = radios[0]
+    choices = list(getattr(vista, "choices", []) or [])
+    choice_vals = [item[0] if isinstance(item, (list, tuple)) else item for item in choices]
+    assert LAYOUT_STAFF in choice_vals
+    assert LAYOUT_USER in choice_vals
+    assert getattr(vista, "value", None) == LAYOUT_STAFF
+    css = observatory_css_path().read_text(encoding="utf-8")
+    assert "#layout-toggle" in css
+    assert "#layout-toggle-help" in css
+
+
+def test_layout_toggle_visibility() -> None:
+    hide_freeze, hide_side = layout_updates(False)
+    show_freeze, show_side = layout_updates(True)
+    assert _update_visible(hide_freeze) is False
+    assert _update_visible(hide_side) is False
+    assert _update_visible(show_freeze) is True
+    assert _update_visible(show_side) is True
+    user = apply_layout(LAYOUT_USER)
+    staff = apply_layout(LAYOUT_STAFF)
+    assert len(user) == 2
+    assert len(staff) == 2
+    assert _update_visible(user[0]) is False
+    assert _update_visible(user[1]) is False
+    assert _update_visible(staff[0]) is True
+    assert _update_visible(staff[1]) is True
+    assert LAYOUT_STAFF in LAYOUT_HELP
+    assert LAYOUT_USER in LAYOUT_HELP
+    assert "inspector de citas" in LAYOUT_HELP
+    assert "Enviar" in LAYOUT_HELP
+
+
+def _update_visible(update: object) -> bool | None:
+    if isinstance(update, dict):
+        value = update.get("visible")
+        return value if isinstance(value, bool) else None
+    value = getattr(update, "visible", None)
+    if isinstance(value, bool):
+        return value
+    payload = getattr(update, "__dict__", {}) or {}
+    flag = payload.get("visible")
+    return flag if isinstance(flag, bool) else None
+
+
+def _widget_by_elem_id(blocks: object, elem_id: str) -> object | None:
+    mapping = getattr(blocks, "blocks", None)
+    if isinstance(mapping, dict):
+        for widget in mapping.values():
+            if getattr(widget, "elem_id", None) == elem_id:
+                return widget
+    return None
 
 
 def _collect_elem_ids(blocks: object) -> set[str]:
