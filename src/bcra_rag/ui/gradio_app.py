@@ -16,15 +16,20 @@ from bcra_rag.settings import Settings
 from bcra_rag.ui.config import (
     CANNED_PROMPTS,
     L1_ACCORDION_OPEN_DEFAULT,
+    LAYOUT_HELP,
+    LAYOUT_STAFF,
+    LAYOUT_USER,
     abstain_visible,
     append_messages,
+    apply_layout,
+    banner_markdown,
     citation_card_markdown,
     citation_cards,
     footer_text,
     inspector_payload,
     l1_markdown,
     load_l1,
-    topbar_markdown,
+    title_markdown,
     trust_markdown,
     trust_payload,
 )
@@ -125,7 +130,19 @@ def build_blocks(
         session_state = gr.State(None)
         cards_state = gr.State([])
         with gr.Column(elem_id="observatory-shell"):
-            gr.Markdown(topbar_markdown(health), elem_id="observatory-topbar")
+            with gr.Column(elem_id="observatory-topbar"):
+                gr.Markdown(title_markdown(health))
+                with gr.Row(elem_id="layout-toggle"):
+                    layout_choice = gr.Radio(
+                        label="Vista",
+                        choices=[LAYOUT_STAFF, LAYOUT_USER],
+                        value=LAYOUT_STAFF,
+                    )
+                    gr.Markdown(LAYOUT_HELP, elem_id="layout-toggle-help")
+                freeze_box = gr.Markdown(
+                    banner_markdown(health),
+                    elem_id="observatory-freeze",
+                )
             with gr.Row(elem_id="observatory-layout"):
                 with gr.Column(scale=3, min_width=0, elem_id="observatory-stage"):
                     abstain_box = gr.Markdown("", elem_id="abstain-banner")
@@ -149,7 +166,8 @@ def build_blocks(
                                 lambda value=prompt: value,
                                 outputs=[msg],
                             )
-                with gr.Column(scale=2, min_width=320, elem_id="observatory-side"):
+                side = gr.Column(scale=2, min_width=320, elem_id="observatory-side")
+                with side:
                     citation_choice = gr.Radio(
                         label="Citation cards",
                         choices=[],
@@ -195,6 +213,11 @@ def build_blocks(
             _select_card,
             inputs=[citation_choice, cards_state],
             outputs=[inspector, copy_id, card_md],
+        )
+        layout_choice.change(  # type: ignore[attr-defined]
+            apply_layout,
+            inputs=[layout_choice],
+            outputs=[freeze_box, side],
         )
     queued = demo.queue()
     return queued  # type: ignore[no-any-return]

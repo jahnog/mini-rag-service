@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import gradio as gr
+
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT, disclaimer_for
 from bcra_rag.schemas import ChatResponse, HealthResponse
 
@@ -16,6 +18,14 @@ CANNED_PROMPTS: tuple[str, ...] = (
 
 L1_ACCORDION_OPEN_DEFAULT = False
 
+LAYOUT_STAFF = "Staff (IA)"
+LAYOUT_USER = "Usuario"
+LAYOUT_HELP = (
+    "Staff (IA) muestra el inspector de citas, el log de guardrails, "
+    "Calidad L1 y las fechas del dump. Usuario deja solo la pregunta, "
+    "la respuesta, Enviar, Clear y los ejemplos."
+)
+
 
 def banner_markdown(health: HealthResponse) -> str:
     return (
@@ -25,12 +35,25 @@ def banner_markdown(health: HealthResponse) -> str:
     )
 
 
-def topbar_markdown(health: HealthResponse) -> str:
+def title_markdown(health: HealthResponse) -> str:
+    del health
     return (
         "*BCRA Mini-RAG · extracto no oficial CAMEX*\n\n"
         "# Preguntá por una cláusula. Recibí cita o silencio.\n\n"
-        + banner_markdown(health)
     )
+
+
+def topbar_markdown(health: HealthResponse) -> str:
+    return title_markdown(health) + banner_markdown(health)
+
+
+def layout_updates(staff: bool) -> tuple[Any, Any]:
+    update = gr.update(visible=staff)
+    return update, update
+
+
+def apply_layout(choice: str | None) -> tuple[Any, Any]:
+    return layout_updates(choice == LAYOUT_STAFF)
 
 
 def load_l1(path: Path) -> dict[str, Any]:
