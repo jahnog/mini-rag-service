@@ -6,6 +6,8 @@ from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
     CANNED_PROMPTS,
+    EMPTY_CITATION_CARD,
+    EMPTY_TRUST,
     L1_ACCORDION_OPEN_DEFAULT,
     LAYOUT_HELP,
     LAYOUT_STAFF,
@@ -16,6 +18,8 @@ from bcra_rag.ui.config import (
     banner_markdown,
     citation_card_markdown,
     citation_cards,
+    dump_date,
+    freeze_chips_html,
     inspector_payload,
     is_sample_l1,
     l1_markdown,
@@ -27,7 +31,12 @@ from bcra_rag.ui.config import (
     trust_payload,
 )
 from bcra_rag.ui.gradio_app import build_blocks, mount_ui
-from bcra_rag.ui.theme import observatory_css_path, observatory_head, observatory_theme
+from bcra_rag.ui.theme import (
+    observatory_css_path,
+    observatory_head,
+    observatory_js,
+    observatory_theme,
+)
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
 
@@ -37,6 +46,10 @@ def test_observatory_css_tokens() -> None:
     assert "#72d6cb" in css
     assert "28px" in css
     assert "color-scheme: dark" in css
+    assert ".obs-chip" in css
+    assert "#observatory-pills" in css
+    assert "overflow: visible" in css
+    assert "status-tracker" in css
 
 
 def test_observatory_theme_helpers() -> None:
@@ -48,6 +61,13 @@ def test_observatory_theme_helpers() -> None:
     assert "#04111d" in head
     theme = observatory_theme()
     assert theme is not None
+    assert theme.body_background_fill_dark == "#04111d"
+    assert "neutral_100" not in str(theme.input_background_fill)
+    assert str(theme.button_secondary_text_color).lower() != "black"
+    assert "#04111d" in str(theme.body_background_fill)
+    js = observatory_js()
+    assert "lang = \"es\"" in js or "lang='es'" in js
+    assert "classList.add(\"dark\")" in js or "classList.add('dark')" in js
 
 
 def test_mount_ui_passes_observatory_presentation() -> None:
@@ -66,6 +86,7 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["footer_links"] == []
     assert kwargs["run_history"] is False
     assert kwargs["theme"] is not None
+    assert kwargs["js"] == observatory_js()
 
 
 def test_append_messages_accepts_none_history() -> None:
@@ -109,9 +130,18 @@ def test_banner_and_canned_prompts() -> None:
     assert "10" in topbar
     assert "no oficial" in topbar.lower()
     assert "no oficial" in title.lower()
+    assert not title.lstrip().startswith("*")
     assert TO_AS_OF not in title
     assert LAST_REFRESH not in title
     assert "A8464" not in title
+    chips = freeze_chips_html(health)
+    assert "obs-chip" in chips
+    assert TO_AS_OF in chips
+    assert LAST_REFRESH in chips
+    assert dump_date(LAST_REFRESH) in chips
+    assert "A8464" in chips
+    assert "10" in chips
+    assert dump_date(LAST_REFRESH) == "2026-09-01"
     assert len(CANNED_PROMPTS) == 4
     assert any("A 9999" in p for p in CANNED_PROMPTS)
     assert any("A 3500" in p and "A 8359" in p for p in CANNED_PROMPTS)
@@ -178,8 +208,15 @@ def test_inspector_copy_id_and_trust() -> None:
     chips = trust_markdown(trust)
     assert "scope" in chips
     assert "pass" in chips
+    assert 'class="obs-chip pass"' in chips
     assert "warn" in trust_markdown([{"rule": "x", "verdict": "warn", "detail": ""}])
     assert "block" in trust_markdown([{"rule": "y", "verdict": "block", "detail": ""}])
+    assert 'class="obs-chip warn"' in trust_markdown(
+        [{"rule": "x", "verdict": "warn", "detail": ""}]
+    )
+    assert EMPTY_CITATION_CARD == citation_card_markdown(None)
+    assert "obs-empty" in trust_markdown(None)
+    assert "guardrails" in EMPTY_TRUST.lower()
     silencio = ChatResponse(
         answer="silencio last_refresh=x to_as_of=y",
         finding=Finding.SILENCIO,
@@ -237,6 +274,8 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "layout-toggle",
         "layout-toggle-help",
         "observatory-freeze",
+        "observatory-pills",
+        "l1-panel",
     ):
         assert elem_id in ids, elem_id
     widgets = list(getattr(blocks, "blocks", {}).values())
@@ -248,6 +287,20 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert copy_boxes
     assert "copy" in (copy_boxes[0].buttons or [])
+    assert getattr(copy_boxes[0], "visible", True) is False
+    chatbots = [widget for widget in widgets if type(widget).__name__ == "Chatbot"]
+    assert chatbots
+    assert list(getattr(chatbots[0], "buttons", None) or []) == []
+    abstain = _widget_by_elem_id(blocks, "abstain-banner")
+    assert abstain is not None
+    assert getattr(abstain, "visible", True) is False
+    citas = [
+        widget
+        for widget in widgets
+        if type(widget).__name__ == "Radio" and getattr(widget, "label", None) == "Citas"
+    ]
+    assert citas
+    assert getattr(citas[0], "visible", True) is False
     json_widgets = [widget for widget in widgets if type(widget).__name__ == "JSON"]
     assert json_widgets
     assert all(getattr(widget, "visible", True) is False for widget in json_widgets)
