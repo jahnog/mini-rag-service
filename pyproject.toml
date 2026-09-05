@@ -1,6 +1,6 @@
 [project]
 name = "bcra-rag"
-version = "0.6.1"
+version = "0.6.2"
 description = "BCRA CAMEX mini-RAG"
 readme = "README.md"
 requires-python = ">=3.11"
