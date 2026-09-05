@@ -12,7 +12,7 @@ from bcra_rag.schemas import ChatResponse, HealthResponse
 
 CANNED_PROMPTS: tuple[str, ...] = (
     "Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
-    "qué se exige hoy para liquidar el cobro de exportaciones",
+    "Qué se exige hoy para liquidar el cobro de exportaciones",
     "Sigue vigente la Comunicación A de 2001-2002 sobre el cepo como regla actual?",
     "Qué dice la Comunicación A 9999?",
 )
@@ -26,8 +26,8 @@ LAYOUT_STAFF = "Staff (IA)"
 LAYOUT_USER = "Usuario"
 LAYOUT_HELP = (
     "Staff (IA) muestra el inspector de citas, el log de guardrails, "
-    "Calidad L1 y las fechas del dump. Usuario deja solo la pregunta, "
-    "la respuesta, Enviar, Clear y los ejemplos."
+    "Calidad L1 y las fechas del dump.\n\n"
+    "Usuario deja solo la pregunta, la respuesta, Enviar, Clear y los ejemplos."
 )
 
 
@@ -43,7 +43,7 @@ def title_markdown(health: HealthResponse) -> str:
     del health
     return (
         "BCRA Mini-RAG · extracto no oficial CAMEX\n\n"
-        "# Preguntá por una cláusula. Recibí cita o silencio.\n\n"
+        "# Preguntá por una cláusula. Recibí cita o silencio."
     )
 
 
@@ -111,14 +111,17 @@ def l1_markdown(data: dict[str, Any]) -> str:
             "**Números unpublished/sample** — no son una corrida de operador.\n\n"
         )
     headline = data.get("headline_metric", "citation_id_exact")
-    b_docs = data.get("chunking", {}).get("b_documents") or data.get("b_documents") or []
+    chunking = data.get("chunking") if isinstance(data.get("chunking"), dict) else {}
+    a_score = chunking.get("A", data.get("A", "—"))
+    b_score = chunking.get("B", data.get("B", "—"))
+    b_docs = chunking.get("b_documents") or data.get("b_documents") or []
     slices = data.get("slices") or {}
     slice_lines = "\n".join(f"- {key}: {value}" for key, value in slices.items())
     return (
         f"{label}"
         f"Headline **{headline}**: {data.get('citation_id_exact')}\n\n"
         f"hit@5: {data.get('hit_at_5')} · MRR: {data.get('mrr')}\n\n"
-        f"A vs B: {data.get('chunking', {})}\n"
+        f"A vs B: A {a_score} · B {b_score}\n\n"
         f"Strategy B documents: {', '.join(str(x) for x in b_docs) or '(none)'}\n\n"
         f"Slices:\n{slice_lines or '- (none)'}"
     )
