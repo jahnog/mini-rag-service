@@ -111,7 +111,8 @@ def l1_markdown(data: dict[str, Any]) -> str:
             "**Números unpublished/sample** — no son una corrida de operador.\n\n"
         )
     headline = data.get("headline_metric", "citation_id_exact")
-    chunking = data.get("chunking") if isinstance(data.get("chunking"), dict) else {}
+    raw_chunking = data.get("chunking")
+    chunking: dict[str, Any] = raw_chunking if isinstance(raw_chunking, dict) else {}
     a_score = chunking.get("A", data.get("A", "—"))
     b_score = chunking.get("B", data.get("B", "—"))
     b_docs = chunking.get("b_documents") or data.get("b_documents") or []
