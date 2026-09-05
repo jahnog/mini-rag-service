@@ -106,7 +106,7 @@ uv run pytest --run-integration tests/test_jobs_integration.py::test_refresh_com
 
 ### Debug
 
-Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`).
+Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). An L1 operator run still overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`).
 
 <!-- commands:debug -->
 ```bash

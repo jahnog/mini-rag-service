@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from bcra_rag.adapters.index_fake import FakeIndex
+from bcra_rag.logconfig import configure_logging
 from bcra_rag.use_cases.run_l1 import (
     L1_SCHEMA_KEYS,
     _citation_exact,
@@ -79,6 +80,56 @@ def test_operator_script_does_not_boot_gradio() -> None:
     assert "build_app" not in text
     assert "ChromaIndex" in text
     assert "dump_health" in text
+    assert "configure_logging" in text
+    assert "l1.log" in text
+
+
+def _l1_events(text: str) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("event") == "l1_run":
+            events.append(data)
+    return events
+
+
+def test_l1_run_appends_published_metrics(tmp_path: Path) -> None:
+    log_file = tmp_path / "logs" / "l1.log"
+    configure_logging(log_file=log_file)
+    out = tmp_path / "l1.json"
+    run_l1(
+        gold_path=GOLD,
+        output_path=out,
+        index=FakeIndex(),
+        unpublished=True,
+    )
+    first = _l1_events(log_file.read_text(encoding="utf-8"))
+    assert first
+    event = first[-1]
+    assert event["headline_metric"] == "citation_id_exact"
+    assert "hit_at_5" in event
+    assert "mrr" in event
+    assert "slices" in event
+    assert event["unpublished"] is True
+    assert event["sample"] is True
+    assert event["n"] == 30
+    run_l1(
+        gold_path=GOLD,
+        output_path=out,
+        index=FakeIndex(),
+        unpublished=False,
+    )
+    later = _l1_events(log_file.read_text(encoding="utf-8"))
+    assert len(later) >= 2
+    assert later[0]["unpublished"] is True
+    assert later[-1]["unpublished"] is False
+    overwritten = json.loads(out.read_text(encoding="utf-8"))
+    assert overwritten["unpublished"] is False
 
 
 def test_shipped_l1_fixture_is_sample() -> None:

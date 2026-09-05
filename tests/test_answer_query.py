@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,9 @@ import pytest
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
+from bcra_rag.domain.guardrails import V1_RULES
+from bcra_rag.domain.models import Chunk
+from bcra_rag.logconfig import configure_logging
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery
@@ -346,4 +350,136 @@ async def test_oversized_never_hits_llm(tmp_path: Path) -> None:
     )
     assert response.finding is Finding.SILENCIO
     assert response.abstain_reason == "message_too_long"
+    assert llm.calls == []
+
+
+def _chat_events(text: str) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("event") == "chat_turn":
+            events.append(data)
+    return events
+
+
+def _configure_chat_log(tmp_path: Path) -> Path:
+    log_file = tmp_path / "logs" / "chat.log"
+    configure_logging(log_file=log_file)
+    return log_file
+
+
+def _assert_stdout_matches_file(
+    capsys: pytest.CaptureFixture[str], log_file: Path
+) -> dict[str, object]:
+    stored = _chat_events(log_file.read_text(encoding="utf-8"))
+    stdout = _chat_events(capsys.readouterr().out)
+    assert stored
+    assert stdout
+    assert stored[-1]["message"] == stdout[-1]["message"]
+    assert stored[-1]["finding"] == stdout[-1]["finding"]
+    return stored[-1]
+
+
+@pytest.mark.asyncio
+async def test_in_corpus_turn_is_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    use_case, _ = _uc(tmp_path)
+    question = "qué se exige hoy para liquidar el cobro de exportaciones"
+    response = await use_case.run(ChatRequest(message=question), request_id="req-log")
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["message"] == question
+    assert event["answer"] == response.answer
+    assert event["finding"] == response.finding.value
+    citations = event["citations"]
+    assert isinstance(citations, list) and citations
+    assert any(item["id"] in {"texto_ordenado", "A8359", "A3500"} for item in citations)
+    guardrails = event["guardrails"]
+    assert isinstance(guardrails, list)
+    assert {item["rule"] for item in guardrails} >= set(V1_RULES)
+
+
+@pytest.mark.asyncio
+async def test_named_a3500_turn_is_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    use_case, _ = _uc(tmp_path)
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-a3500",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    citations = event["citations"]
+    assert isinstance(citations, list)
+    assert any(item["id"] == "A3500" for item in citations)
+
+
+@pytest.mark.asyncio
+async def test_no_advice_block_is_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    use_case, llm = _uc(tmp_path)
+    question = "Debería comprar dólares?"
+    response = await use_case.run(ChatRequest(message=question), request_id="req-adv")
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["message"] == question
+    assert event["finding"] == Finding.SILENCIO.value
+    assert response.finding is Finding.SILENCIO
+    guardrails = event["guardrails"]
+    assert isinstance(guardrails, list)
+    assert any(item["rule"] == "no-advice" and item["verdict"] == "block" for item in guardrails)
+    assert llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_clear_turn_is_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    sessions = InMemorySessionStore()
+    use_case, llm = _uc(tmp_path, sessions=sessions)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="r1",
+    )
+    capsys.readouterr()
+    await use_case.run(
+        ChatRequest(message="/clear", session_id=first.session_id),
+        request_id="r2",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["message"] == "/clear"
+    assert event["citations"] == []
+    assert event["finding"] == Finding.SILENCIO.value
+    assert len(llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_retrieval_silencio_is_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    settings, _, _ = seed_ready(tmp_path)
+    index = FakeIndex()
+    index.upsert(
+        "texto_ordenado",
+        [Chunk("to:emptyish", "zzzz unrelated token", {"doc_kind": "texto_ordenado"})],
+    )
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm, index=index, settings=settings)
+    await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="req-empty-log",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["finding"] == Finding.SILENCIO.value
+    assert event["citations"] == []
     assert llm.calls == []

@@ -5,12 +5,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.use_cases.rebuild_ab import rebuild_structured_slice
+
+log = structlog.get_logger(__name__)
 
 L1_SCHEMA_KEYS = (
     "unpublished",
@@ -121,6 +125,7 @@ def run_l1(
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    log.info("l1_run", **payload)
     return payload
 
 
