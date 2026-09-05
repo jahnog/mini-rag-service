@@ -4,6 +4,8 @@ import re
 from typing import Literal
 from uuid import uuid4
 
+import structlog
+
 from bcra_rag.domain.disclaimer import disclaimer_for
 from bcra_rag.domain.finding import demote_finding
 from bcra_rag.domain.guardrails import (
@@ -36,6 +38,7 @@ from bcra_rag.settings import Settings
 
 FOLLOW_RE = re.compile(r"^\s*(y|and|ese|esa|eso|that|el punto)\b", re.IGNORECASE)
 CLEAR_RE = re.compile(r"^\s*/clear\s*$", re.IGNORECASE)
+log = structlog.get_logger(__name__)
 
 
 class AnswerQuery:
@@ -52,6 +55,11 @@ class AnswerQuery:
         self._sessions = sessions
 
     async def run(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
+        response = await self._respond(request, request_id=request_id)
+        _log_turn(request, response)
+        return response
+
+    async def _respond(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
         session_id = request.session_id or self._sessions.mint()
         health = dump_health(self._settings, self._index)
         last_refresh = health.last_refresh
@@ -260,6 +268,16 @@ class AnswerQuery:
             session_id=session_id,
             disclaimer=disclaimer,
         )
+
+
+def _log_turn(request: ChatRequest, response: ChatResponse) -> None:
+    log.info(
+        "chat_turn",
+        message=request.message,
+        k=request.k,
+        filters=None if request.filters is None else request.filters.model_dump(),
+        **response.model_dump(),
+    )
 
 
 def _all_pass(detail: str) -> list[GuardrailVerdict]:

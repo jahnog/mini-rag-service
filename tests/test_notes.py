@@ -38,6 +38,11 @@ def test_readme_operator_bullets() -> None:
     assert "--pdb" in readme
     assert "DATA_DIR/logs/ingest.log" in readme
     assert "data/logs/ingest.log" in readme
+    assert "DATA_DIR/logs/chat.log" in readme
+    assert "data/logs/chat.log" in readme
+    assert "DATA_DIR/logs/l1.log" in readme
+    assert "data/logs/l1.log" in readme
+    assert "evals/l1.json" in readme
     assert "--cov-report" in readme
     assert "below 80%" in readme
     assert "poppler" in readme.lower() or "pdftotext" in readme
