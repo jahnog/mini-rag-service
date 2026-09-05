@@ -48,8 +48,14 @@ def test_observatory_css_tokens() -> None:
     assert "color-scheme: dark" in css
     assert ".obs-chip" in css
     assert "#observatory-pills" in css
+    assert "#observatory-chat" in css
     assert "overflow: visible" in css
     assert "status-tracker" in css
+    assert "flex: 0 0 auto" in css
+    assert "flex-wrap: nowrap" in css
+    assert 'content: "Citas"' in css
+    assert 'content: "Guardrails"' in css
+    assert "min-height: 44px" in css
 
 
 def test_observatory_theme_helpers() -> None:
@@ -59,6 +65,8 @@ def test_observatory_theme_helpers() -> None:
     head = observatory_head()
     assert 'name="theme-color"' in head
     assert "#04111d" in head
+    assert 'rel="icon"' in head
+    assert "data:image/svg+xml" in head
     theme = observatory_theme()
     assert theme is not None
     assert theme.body_background_fill_dark == "#04111d"
@@ -158,6 +166,9 @@ def test_l1_fixture_is_labeled_sample(tmp_path: Path) -> None:
     assert "unpublished" in text.lower() or "sample" in text.lower()
     lowered = text.lower()
     assert "citation_id_exact" in text or "citation-id" in lowered or "headline" in lowered
+    assert "A vs B: A " in text
+    assert "'A':" not in text
+    assert "{" not in text
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
 
@@ -275,6 +286,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "layout-toggle-help",
         "observatory-freeze",
         "observatory-pills",
+        "observatory-chat",
         "l1-panel",
     ):
         assert elem_id in ids, elem_id
@@ -291,6 +303,19 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     chatbots = [widget for widget in widgets if type(widget).__name__ == "Chatbot"]
     assert chatbots
     assert list(getattr(chatbots[0], "buttons", None) or []) == []
+    assert getattr(chatbots[0], "height", None) == "100%"
+    assert getattr(chatbots[0], "min_height", None) == 480
+    topbar = _widget_by_elem_id(blocks, "observatory-topbar")
+    assert topbar is not None
+    assert getattr(topbar, "scale", None) == 0
+    pregunta = [
+        widget
+        for widget in widgets
+        if type(widget).__name__ == "Textbox" and getattr(widget, "label", None) == "Pregunta"
+    ]
+    assert pregunta
+    assert getattr(pregunta[0], "max_lines", None) == 4
+    assert getattr(pregunta[0], "show_label", True) is False
     abstain = _widget_by_elem_id(blocks, "abstain-banner")
     assert abstain is not None
     assert getattr(abstain, "visible", True) is False
@@ -353,6 +378,10 @@ def test_layout_toggle_visibility() -> None:
     assert LAYOUT_USER in LAYOUT_HELP
     assert "inspector de citas" in LAYOUT_HELP
     assert "Enviar" in LAYOUT_HELP
+    help_lines = [line.strip() for line in LAYOUT_HELP.splitlines() if line.strip()]
+    assert len(help_lines) == 2
+    assert help_lines[0].startswith("Staff")
+    assert help_lines[1].startswith("Usuario")
 
 
 def _update_visible(update: object) -> bool | None:
