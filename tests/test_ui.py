@@ -6,22 +6,37 @@ from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
     CANNED_PROMPTS,
+    EMPTY_CITATION_CARD,
+    EMPTY_TRUST,
     L1_ACCORDION_OPEN_DEFAULT,
+    LAYOUT_HELP,
+    LAYOUT_STAFF,
+    LAYOUT_USER,
     abstain_visible,
     append_messages,
+    apply_layout,
     banner_markdown,
     citation_card_markdown,
     citation_cards,
+    dump_date,
+    freeze_chips_html,
     inspector_payload,
     is_sample_l1,
     l1_markdown,
+    layout_updates,
     load_l1,
+    title_markdown,
     topbar_markdown,
     trust_markdown,
     trust_payload,
 )
 from bcra_rag.ui.gradio_app import build_blocks, mount_ui
-from bcra_rag.ui.theme import observatory_css_path, observatory_head, observatory_theme
+from bcra_rag.ui.theme import (
+    observatory_css_path,
+    observatory_head,
+    observatory_js,
+    observatory_theme,
+)
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
 
@@ -31,6 +46,10 @@ def test_observatory_css_tokens() -> None:
     assert "#72d6cb" in css
     assert "28px" in css
     assert "color-scheme: dark" in css
+    assert ".obs-chip" in css
+    assert "#observatory-pills" in css
+    assert "overflow: visible" in css
+    assert "status-tracker" in css
 
 
 def test_observatory_theme_helpers() -> None:
@@ -42,6 +61,13 @@ def test_observatory_theme_helpers() -> None:
     assert "#04111d" in head
     theme = observatory_theme()
     assert theme is not None
+    assert theme.body_background_fill_dark == "#04111d"
+    assert "neutral_100" not in str(theme.input_background_fill)
+    assert str(theme.button_secondary_text_color).lower() != "black"
+    assert "#04111d" in str(theme.body_background_fill)
+    js = observatory_js()
+    assert "lang = \"es\"" in js or "lang='es'" in js
+    assert "classList.add(\"dark\")" in js or "classList.add('dark')" in js
 
 
 def test_mount_ui_passes_observatory_presentation() -> None:
@@ -60,6 +86,7 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["footer_links"] == []
     assert kwargs["run_history"] is False
     assert kwargs["theme"] is not None
+    assert kwargs["js"] == observatory_js()
 
 
 def test_append_messages_accepts_none_history() -> None:
@@ -91,6 +118,7 @@ def test_banner_and_canned_prompts() -> None:
     )
     banner = banner_markdown(health)
     topbar = topbar_markdown(health)
+    title = title_markdown(health)
     assert TO_AS_OF in banner
     assert LAST_REFRESH in banner
     assert "A8464" in banner
@@ -101,6 +129,19 @@ def test_banner_and_canned_prompts() -> None:
     assert "A8464" in topbar
     assert "10" in topbar
     assert "no oficial" in topbar.lower()
+    assert "no oficial" in title.lower()
+    assert not title.lstrip().startswith("*")
+    assert TO_AS_OF not in title
+    assert LAST_REFRESH not in title
+    assert "A8464" not in title
+    chips = freeze_chips_html(health)
+    assert "obs-chip" in chips
+    assert TO_AS_OF in chips
+    assert LAST_REFRESH in chips
+    assert dump_date(LAST_REFRESH) in chips
+    assert "A8464" in chips
+    assert "10" in chips
+    assert dump_date(LAST_REFRESH) == "2026-09-01"
     assert len(CANNED_PROMPTS) == 4
     assert any("A 9999" in p for p in CANNED_PROMPTS)
     assert any("A 3500" in p and "A 8359" in p for p in CANNED_PROMPTS)
@@ -167,8 +208,15 @@ def test_inspector_copy_id_and_trust() -> None:
     chips = trust_markdown(trust)
     assert "scope" in chips
     assert "pass" in chips
+    assert 'class="obs-chip pass"' in chips
     assert "warn" in trust_markdown([{"rule": "x", "verdict": "warn", "detail": ""}])
     assert "block" in trust_markdown([{"rule": "y", "verdict": "block", "detail": ""}])
+    assert 'class="obs-chip warn"' in trust_markdown(
+        [{"rule": "x", "verdict": "warn", "detail": ""}]
+    )
+    assert EMPTY_CITATION_CARD == citation_card_markdown(None)
+    assert "obs-empty" in trust_markdown(None)
+    assert "guardrails" in EMPTY_TRUST.lower()
     silencio = ChatResponse(
         answer="silencio last_refresh=x to_as_of=y",
         finding=Finding.SILENCIO,
@@ -223,6 +271,11 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "citation-card",
         "trust-panel",
         "observatory-footer",
+        "layout-toggle",
+        "layout-toggle-help",
+        "observatory-freeze",
+        "observatory-pills",
+        "l1-panel",
     ):
         assert elem_id in ids, elem_id
     widgets = list(getattr(blocks, "blocks", {}).values())
@@ -234,6 +287,20 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert copy_boxes
     assert "copy" in (copy_boxes[0].buttons or [])
+    assert getattr(copy_boxes[0], "visible", True) is False
+    chatbots = [widget for widget in widgets if type(widget).__name__ == "Chatbot"]
+    assert chatbots
+    assert list(getattr(chatbots[0], "buttons", None) or []) == []
+    abstain = _widget_by_elem_id(blocks, "abstain-banner")
+    assert abstain is not None
+    assert getattr(abstain, "visible", True) is False
+    citas = [
+        widget
+        for widget in widgets
+        if type(widget).__name__ == "Radio" and getattr(widget, "label", None) == "Citas"
+    ]
+    assert citas
+    assert getattr(citas[0], "visible", True) is False
     json_widgets = [widget for widget in widgets if type(widget).__name__ == "JSON"]
     assert json_widgets
     assert all(getattr(widget, "visible", True) is False for widget in json_widgets)
@@ -244,6 +311,69 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert "primary" in variants
     assert "secondary" in variants
+    freeze = _widget_by_elem_id(blocks, "observatory-freeze")
+    side = _widget_by_elem_id(blocks, "observatory-side")
+    help_box = _widget_by_elem_id(blocks, "layout-toggle-help")
+    assert freeze is not None and getattr(freeze, "visible", True) is True
+    assert side is not None and getattr(side, "visible", True) is True
+    assert help_box is not None
+    radios = [
+        widget
+        for widget in widgets
+        if type(widget).__name__ == "Radio" and getattr(widget, "label", None) == "Vista"
+    ]
+    assert radios
+    vista = radios[0]
+    choices = list(getattr(vista, "choices", []) or [])
+    choice_vals = [item[0] if isinstance(item, (list, tuple)) else item for item in choices]
+    assert LAYOUT_STAFF in choice_vals
+    assert LAYOUT_USER in choice_vals
+    assert getattr(vista, "value", None) == LAYOUT_STAFF
+    css = observatory_css_path().read_text(encoding="utf-8")
+    assert "#layout-toggle" in css
+    assert "#layout-toggle-help" in css
+
+
+def test_layout_toggle_visibility() -> None:
+    hide_freeze, hide_side = layout_updates(False)
+    show_freeze, show_side = layout_updates(True)
+    assert _update_visible(hide_freeze) is False
+    assert _update_visible(hide_side) is False
+    assert _update_visible(show_freeze) is True
+    assert _update_visible(show_side) is True
+    user = apply_layout(LAYOUT_USER)
+    staff = apply_layout(LAYOUT_STAFF)
+    assert len(user) == 2
+    assert len(staff) == 2
+    assert _update_visible(user[0]) is False
+    assert _update_visible(user[1]) is False
+    assert _update_visible(staff[0]) is True
+    assert _update_visible(staff[1]) is True
+    assert LAYOUT_STAFF in LAYOUT_HELP
+    assert LAYOUT_USER in LAYOUT_HELP
+    assert "inspector de citas" in LAYOUT_HELP
+    assert "Enviar" in LAYOUT_HELP
+
+
+def _update_visible(update: object) -> bool | None:
+    if isinstance(update, dict):
+        value = update.get("visible")
+        return value if isinstance(value, bool) else None
+    value = getattr(update, "visible", None)
+    if isinstance(value, bool):
+        return value
+    payload = getattr(update, "__dict__", {}) or {}
+    flag = payload.get("visible")
+    return flag if isinstance(flag, bool) else None
+
+
+def _widget_by_elem_id(blocks: object, elem_id: str) -> object | None:
+    mapping = getattr(blocks, "blocks", None)
+    if isinstance(mapping, dict):
+        for widget in mapping.values():
+            if getattr(widget, "elem_id", None) == elem_id:
+                return widget
+    return None
 
 
 def _collect_elem_ids(blocks: object) -> set[str]:

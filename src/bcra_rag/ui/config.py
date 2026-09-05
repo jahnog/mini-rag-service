@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
 from typing import Any
 
-from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT, disclaimer_for
+import gradio as gr
+
+from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
 from bcra_rag.schemas import ChatResponse, HealthResponse
 
 CANNED_PROMPTS: tuple[str, ...] = (
@@ -15,6 +18,17 @@ CANNED_PROMPTS: tuple[str, ...] = (
 )
 
 L1_ACCORDION_OPEN_DEFAULT = False
+EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
+EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
+_TRUST_VERDICTS = frozenset({"pass", "warn", "block"})
+
+LAYOUT_STAFF = "Staff (IA)"
+LAYOUT_USER = "Usuario"
+LAYOUT_HELP = (
+    "Staff (IA) muestra el inspector de citas, el log de guardrails, "
+    "Calidad L1 y las fechas del dump. Usuario deja solo la pregunta, "
+    "la respuesta, Enviar, Clear y los ejemplos."
+)
 
 
 def banner_markdown(health: HealthResponse) -> str:
@@ -25,12 +39,49 @@ def banner_markdown(health: HealthResponse) -> str:
     )
 
 
-def topbar_markdown(health: HealthResponse) -> str:
+def title_markdown(health: HealthResponse) -> str:
+    del health
     return (
-        "*BCRA Mini-RAG · extracto no oficial CAMEX*\n\n"
+        "BCRA Mini-RAG · extracto no oficial CAMEX\n\n"
         "# Preguntá por una cláusula. Recibí cita o silencio.\n\n"
-        + banner_markdown(health)
     )
+
+
+def dump_date(last_refresh: str | None) -> str:
+    if not last_refresh:
+        return "desconocido"
+    if len(last_refresh) >= 10 and last_refresh[4] == "-" and last_refresh[7] == "-":
+        return last_refresh[:10]
+    return last_refresh
+
+
+def freeze_chips_html(health: HealthResponse) -> str:
+    iso = html.escape(health.last_refresh or "")
+    date = html.escape(dump_date(health.last_refresh))
+    to_as_of = html.escape(str(health.to_as_of or "—"))
+    last_a = html.escape(str(health.last_comm_id or "—"))
+    n_docs = html.escape(str(health.n_docs))
+    return (
+        '<div class="obs-chips">'
+        f'<span class="obs-chip">TO {to_as_of}</span>'
+        f'<span class="obs-chip" title="{iso}">Dump {date}</span>'
+        f'<span class="obs-chip">Última A {last_a}</span>'
+        f'<span class="obs-chip">{n_docs} docs</span>'
+        "</div>"
+    )
+
+
+def topbar_markdown(health: HealthResponse) -> str:
+    return title_markdown(health) + banner_markdown(health)
+
+
+def layout_updates(staff: bool) -> tuple[Any, Any]:
+    update = gr.update(visible=staff)
+    return update, update
+
+
+def apply_layout(choice: str | None) -> tuple[Any, Any]:
+    return layout_updates(choice == LAYOUT_STAFF)
 
 
 def load_l1(path: Path) -> dict[str, Any]:
@@ -74,7 +125,12 @@ def l1_markdown(data: dict[str, Any]) -> str:
 
 
 def footer_text(last_refresh: str | None) -> str:
-    return disclaimer_for(last_refresh) if last_refresh else DISCLAIMER_TEXT
+    if not last_refresh:
+        return DISCLAIMER_TEXT
+    return (
+        "Extracto no oficial. No es el BCRA, no es asesoramiento legal ni de inversión. "
+        f"Fecha de dump {dump_date(last_refresh)}."
+    )
 
 
 def append_messages(
@@ -90,7 +146,7 @@ def append_messages(
 
 def citation_card_markdown(card: dict[str, Any] | None) -> str:
     if not card:
-        return ""
+        return EMPTY_CITATION_CARD
     punto = card.get("punto") or "—"
     fecha = card.get("fecha") or "—"
     url = card.get("url") or ""
@@ -145,17 +201,23 @@ def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
 
 def trust_markdown(rows: list[dict[str, str]] | None) -> str:
     if not rows:
-        return ""
-    lines: list[str] = []
+        return EMPTY_TRUST
+    parts: list[str] = ['<div class="obs-trust">']
     for item in rows:
-        rule = str(item.get("rule") or "")
-        verdict = str(item.get("verdict") or "")
-        detail = str(item.get("detail") or "").strip()
-        line = f"- `{verdict}` **{rule}**"
+        rule = html.escape(str(item.get("rule") or ""))
+        verdict = html.escape(str(item.get("verdict") or ""))
+        detail = html.escape(str(item.get("detail") or "").strip())
+        cls = verdict if verdict in _TRUST_VERDICTS else "pass"
+        row = (
+            '<div class="obs-trust-row">'
+            f'<span class="obs-chip {cls}">{verdict} {rule}</span>'
+        )
         if detail:
-            line += f" — {detail}"
-        lines.append(line)
-    return "\n".join(lines)
+            row += f'<span class="obs-trust-detail">{detail}</span>'
+        row += "</div>"
+        parts.append(row)
+    parts.append("</div>")
+    return "".join(parts)
 
 
 def abstain_visible(response: ChatResponse | None) -> bool:

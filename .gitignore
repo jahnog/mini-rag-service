@@ -758,4 +758,8 @@ data/index/
 # Operator-only deploy overlay (hostnames, users, paths)
 deploy/local.env
 
+# Operator-only data-publish overlay (SSH target)
+scripts/publish-data.local
+
+
 

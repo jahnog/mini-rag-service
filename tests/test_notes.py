@@ -58,6 +58,7 @@ def test_readme_operator_bullets() -> None:
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme
+    assert "./run.sh" in readme
     assert "./scripts/deploy.sh" in readme
     assert "ssh -L 8000:127.0.0.1:8000" in readme
     assert "--ingest" in readme
