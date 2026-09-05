@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_OVERLAY="$SCRIPT_DIR/publish-data.local"
-DEFAULT_DIR="/var/lib/bcra-mini-rag/production/data"
+DEFAULT_DIR="/srv/bcra-mini-rag/production/current/data"
 
 usage() {
   cat <<EOF >&2
@@ -48,33 +48,33 @@ DRY_RUN=0
 ARGV_HOST=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dry-run) DRY_RUN=1 ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --)
-      shift
-      if [ $# -gt 0 ]; then
-        usage
-        echo "unknown argument: $1" >&2
-        exit 2
-      fi
-      break
-      ;;
-    -*)
+  --dry-run) DRY_RUN=1 ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    if [ $# -gt 0 ]; then
       usage
       echo "unknown argument: $1" >&2
       exit 2
-      ;;
-    *)
-      if [ -n "$ARGV_HOST" ]; then
-        usage
-        echo "unknown argument: $1" >&2
-        exit 2
-      fi
-      ARGV_HOST="$1"
-      ;;
+    fi
+    break
+    ;;
+  -*)
+    usage
+    echo "unknown argument: $1" >&2
+    exit 2
+    ;;
+  *)
+    if [ -n "$ARGV_HOST" ]; then
+      usage
+      echo "unknown argument: $1" >&2
+      exit 2
+    fi
+    ARGV_HOST="$1"
+    ;;
   esac
   shift
 done
@@ -104,11 +104,11 @@ if [ -z "${PUBLISH_HOST:-}" ]; then
 fi
 
 case "$PUBLISH_DIR" in
-  /*) ;;
-  *)
-    echo "PUBLISH_DIR must be an absolute path: $PUBLISH_DIR" >&2
-    exit 2
-    ;;
+/*) ;;
+*)
+  echo "PUBLISH_DIR must be an absolute path: $PUBLISH_DIR" >&2
+  exit 2
+  ;;
 esac
 
 if [ "$PUBLISH_DIR" = "/" ]; then
