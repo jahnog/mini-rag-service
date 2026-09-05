@@ -157,7 +157,7 @@ def build_blocks(
         session_state = gr.State(None)
         cards_state = gr.State([])
         with gr.Column(elem_id="observatory-shell"):
-            with gr.Column(elem_id="observatory-topbar"):
+            with gr.Column(scale=0, elem_id="observatory-topbar"):
                 gr.Markdown(title_markdown(health))
                 with gr.Row(elem_id="layout-toggle"):
                     layout_choice = gr.Radio(
@@ -184,13 +184,18 @@ def build_blocks(
                     chatbot = gr.Chatbot(
                         label="Chat",
                         show_label=False,
-                        height=480,
+                        elem_id="observatory-chat",
+                        height="100%",
+                        min_height=480,
                         buttons=[],
                         feedback_options=[],
                         placeholder="La conversación aparece acá.",
                     )
                     msg = gr.Textbox(
                         label="Pregunta",
+                        show_label=False,
+                        lines=1,
+                        max_lines=4,
                         placeholder="Preguntá por una cláusula CAMEX…",
                     )
                     with gr.Row(elem_id="observatory-actions"):
