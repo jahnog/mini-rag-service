@@ -8,7 +8,7 @@ import pytest
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
-from bcra_rag.domain.guardrails import V1_RULES
+from bcra_rag.composition import default_pipeline
 from bcra_rag.domain.models import Chunk
 from bcra_rag.logconfig import configure_logging
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
@@ -27,11 +27,13 @@ def _uc(
 ) -> tuple[AnswerQuery, FakeLlm]:
     seeded_settings, seeded_index, _ = seed_ready(tmp_path)
     resolved_llm = llm or FakeLlm(IN_CORPUS_DRAFT)
+    resolved_settings = settings or seeded_settings
     use_case = AnswerQuery(
-        settings or seeded_settings,
+        resolved_settings,
         index if index is not None else seeded_index,
         resolved_llm,
         sessions or InMemorySessionStore(),
+        default_pipeline(resolved_settings),
     )
     return use_case, resolved_llm
 
@@ -190,13 +192,19 @@ async def test_jailbreak_does_not_leak_hidden_instructions(tmp_path: Path) -> No
     assert "Quoted clauses stay in Spanish" not in response.answer
     assert "hidden" not in response.answer.lower() or "prompt" not in response.answer.lower()
     assert llm.calls == []
+    assert any(g.rule == "injection" and g.verdict == "block" for g in response.guardrails)
+    assert any(g.rule == "retrieve" and g.verdict == "skipped" for g in response.guardrails)
+    assert any(g.rule == "generate" and g.verdict == "skipped" for g in response.guardrails)
+    assert any(g.rule == "freeze-honesty" and g.verdict != "skipped" for g in response.guardrails)
 
 
 @pytest.mark.asyncio
 async def test_index_not_ready_no_llm(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path)
     llm = FakeLlm(IN_CORPUS_DRAFT)
-    use_case = AnswerQuery(settings, FakeIndex(), llm, InMemorySessionStore())
+    use_case = AnswerQuery(
+        settings, FakeIndex(), llm, InMemorySessionStore(), default_pipeline(settings)
+    )
     response = await use_case.run(
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
         request_id="req-nr",
@@ -247,7 +255,9 @@ async def test_llm_failure_is_silencio_not_exception_text(tmp_path: Path) -> Non
     from bcra_rag.adapters.llm_fake import UnavailableLlm
 
     settings, index, _ = seed_ready(tmp_path)
-    use_case = AnswerQuery(settings, index, UnavailableLlm(), InMemorySessionStore())
+    use_case = AnswerQuery(
+        settings, index, UnavailableLlm(), InMemorySessionStore(), default_pipeline(settings)
+    )
     response = await use_case.run(
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="llm",
@@ -277,7 +287,13 @@ async def test_date_filter_drops_missing_fecha(tmp_path: Path) -> None:
             )
         ],
     )
-    use_case = AnswerQuery(settings, index, FakeLlm(IN_CORPUS_DRAFT), InMemorySessionStore())
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
     response = await use_case.run(
         ChatRequest(
             message="Qué dice la Comunicación A 3500?",
@@ -343,7 +359,9 @@ async def test_oversized_never_hits_llm(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     settings = settings.model_copy(update={"max_message_chars": 20})
     llm = FakeLlm(IN_CORPUS_DRAFT)
-    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore())
+    use_case = AnswerQuery(
+        settings, index, llm, InMemorySessionStore(), default_pipeline(settings)
+    )
     response = await use_case.run(
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
         request_id="big",
@@ -402,7 +420,13 @@ async def test_in_corpus_turn_is_logged(
     assert any(item["id"] in {"texto_ordenado", "A8359", "A3500"} for item in citations)
     guardrails = event["guardrails"]
     assert isinstance(guardrails, list)
-    assert {item["rule"] for item in guardrails} >= set(V1_RULES)
+    assert {item["rule"] for item in guardrails} >= {
+        "no-advice",
+        "injection",
+        "scope",
+        "cite-or-abstain",
+        "freeze-honesty",
+    }
 
 
 @pytest.mark.asyncio

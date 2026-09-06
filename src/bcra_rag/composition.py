@@ -10,8 +10,12 @@ from bcra_rag.adapters.extractor_pdftotext import PdfExtractor
 from bcra_rag.adapters.index_chroma import ChromaIndex
 from bcra_rag.adapters.llm_fake import UnavailableLlm
 from bcra_rag.adapters.llm_openai import LlmAdapter
+from bcra_rag.adapters.otel import build_tracer
+from bcra_rag.adapters.policy_yaml import default_policy_path, load_policy
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.api.routes import create_fastapi
+from bcra_rag.domain.guardrails import GuardrailPipeline, NoOpTracer
+from bcra_rag.domain.guardrails.registry import assemble_pipeline
 from bcra_rag.ports.catalog import CatalogPort
 from bcra_rag.ports.extractor import ExtractorPort
 from bcra_rag.ports.index import IndexPort
@@ -34,7 +38,17 @@ class ChatApp:
     index: IndexPort
     llm: LlmPort
     sessions: SessionStore
+    pipeline: GuardrailPipeline
     fastapi: FastAPI
+
+
+def default_pipeline(settings: Settings | None = None) -> GuardrailPipeline:
+    resolved = settings or Settings()
+    return assemble_pipeline(
+        load_policy(resolved.guardrails_policy_path or default_policy_path()),
+        resolved,
+        NoOpTracer(),
+    )
 
 
 def build_ingest(settings: Settings | None = None) -> IngestApp:
@@ -53,6 +67,7 @@ def build_app(
     index: IndexPort | None = None,
     llm: LlmPort | None = None,
     sessions: SessionStore | None = None,
+    pipeline: GuardrailPipeline | None = None,
 ) -> ChatApp:
     resolved = settings or Settings()
     resolved_index = index or ChromaIndex(resolved)
@@ -60,17 +75,24 @@ def build_app(
         LlmAdapter(resolved) if resolved.llm_api_key else UnavailableLlm()
     )
     resolved_sessions = sessions or InMemorySessionStore()
+    resolved_pipeline = pipeline or assemble_pipeline(
+        load_policy(resolved.guardrails_policy_path or default_policy_path()),
+        resolved,
+        build_tracer(resolved),
+    )
     api = create_fastapi(
         settings=resolved,
         index=resolved_index,
         llm=resolved_llm,
         sessions=resolved_sessions,
+        pipeline=resolved_pipeline,
     )
     return ChatApp(
         settings=resolved,
         index=resolved_index,
         llm=resolved_llm,
         sessions=resolved_sessions,
+        pipeline=resolved_pipeline,
         fastapi=api,
     )
 

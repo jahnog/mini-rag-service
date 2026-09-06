@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     llm_model: str = "grok-4-1-fast"
     demo_api_key: str = ""
     max_message_chars: int = Field(default=4000, ge=1)
+    max_context_chars: int = Field(default=12000, ge=256)
+    llm_timeout_s: float = Field(default=60.0, ge=1.0)
+    guardrails_policy_path: Path | None = None
     default_k: int = Field(default=5, ge=1)
     max_k: int = Field(default=8, ge=1)
     rate_limit_requests: int = Field(default=20, ge=1)

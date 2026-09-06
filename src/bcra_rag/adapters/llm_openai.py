@@ -126,6 +126,7 @@ class LlmAdapter:
             self._client = AsyncOpenAI(
                 api_key=self._settings.llm_api_key,
                 base_url=self._settings.llm_base_url,
+                timeout=self._settings.llm_timeout_s,
             )
         return self._client
 
