@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)
     llm_timeout_s: float = Field(default=60.0, ge=1.0)
+    llm_enable_thinking: bool = True
     guardrails_policy_path: Path | None = None
     default_k: int = Field(default=5, ge=1)
     max_k: int = Field(default=8, ge=1)

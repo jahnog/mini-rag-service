@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort
+from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatFilters, ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
@@ -29,6 +29,7 @@ async def handle_turn(
     request_id: str,
     client_id: str,
     demo_key: str | None,
+    on_thinking: OnThinking | None = None,
 ) -> ChatResponse:
     if settings.demo_api_key and demo_key != settings.demo_api_key:
         raise HTTPException(status_code=401, detail="invalid demo key")
@@ -40,6 +41,7 @@ async def handle_turn(
     return await use_case.run(
         ChatRequest(message=message, session_id=session_id, k=k, filters=filters),
         request_id=request_id,
+        on_thinking=on_thinking,
     )
 
 

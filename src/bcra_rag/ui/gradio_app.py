@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +15,9 @@ from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort
+from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
+from bcra_rag.schemas import ChatResponse
 from bcra_rag.settings import Settings
 from bcra_rag.ui.config import (
     CANNED_PROMPTS,
@@ -20,8 +25,10 @@ from bcra_rag.ui.config import (
     LAYOUT_HELP,
     LAYOUT_STAFF,
     LAYOUT_USER,
+    THOUGHT_PUBLISH_S,
     abstain_visible,
     append_messages,
+    append_pending,
     apply_layout,
     citation_card_markdown,
     citation_cards,
@@ -30,6 +37,7 @@ from bcra_rag.ui.config import (
     inspector_payload,
     l1_markdown,
     load_l1,
+    thought_publish_ready,
     title_markdown,
     trust_markdown,
     trust_payload,
@@ -59,6 +67,122 @@ def _abstain_update(text: str, *, visible: bool) -> Any:
     return gr.update(value=text, visible=visible)
 
 
+TurnRunner = Callable[..., Awaitable[ChatResponse]]
+
+
+async def iter_observatory_turn(
+    message: str,
+    history: list[dict[str, Any]] | None,
+    session_id: str | None,
+    *,
+    run_turn: TurnRunner,
+) -> AsyncIterator[tuple[Any, ...]]:
+    snapshot = list(history or [])
+    started = time.perf_counter()
+    yield (append_pending(snapshot, message), session_id, *_skipped_inspector())
+    latest = [""]
+    held = [""]
+    last_pub = [0.0]
+    event = asyncio.Event()
+    box: list[ChatResponse | BaseException] = []
+
+    async def on_thinking(text: str) -> None:
+        held[0] = text
+        now = time.monotonic()
+        if last_pub[0] == 0.0:
+            last_pub[0] = now
+        if thought_publish_ready(text) or now - last_pub[0] >= THOUGHT_PUBLISH_S:
+            latest[0] = text
+            last_pub[0] = now
+            event.set()
+
+    async def produce() -> None:
+        try:
+            box.append(
+                await run_turn(
+                    message=message,
+                    session_id=session_id,
+                    on_thinking=on_thinking,
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            box.append(exc)
+        finally:
+            if held[0]:
+                latest[0] = held[0]
+            event.set()
+
+    task = asyncio.create_task(produce())
+    try:
+        while True:
+            await event.wait()
+            event.clear()
+            trace = latest[0]
+            if trace:
+                yield (
+                    append_pending(snapshot, message, thinking=trace),
+                    session_id,
+                    *_skipped_inspector(),
+                )
+            if task.done():
+                if latest[0] and latest[0] != trace:
+                    yield (
+                        append_pending(snapshot, message, thinking=latest[0]),
+                        session_id,
+                        *_skipped_inspector(),
+                    )
+                break
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    if not box:
+        return
+    outcome = box[0]
+    if isinstance(outcome, HTTPException):
+        notice = "Solicitud rechazada."
+        if outcome.status_code == 401:
+            notice = "Se requiere DEMO_API_KEY."
+        elif outcome.status_code == 429:
+            notice = "Demasiadas solicitudes."
+        rows = append_messages(snapshot, message, notice)
+        yield (rows, session_id, *_empty_inspector())
+        return
+    if isinstance(outcome, BaseException):
+        raise outcome
+    duration = time.perf_counter() - started
+    thinking = (outcome.thinking or "").strip() or None
+    rows = append_messages(
+        snapshot,
+        message,
+        outcome.answer,
+        thinking=thinking,
+        duration=duration,
+    )
+    cards = citation_cards(outcome)
+    inspector = inspector_payload(outcome)
+    trust = trust_payload(outcome)
+    banner = "Silencio / abstain" if abstain_visible(outcome) else ""
+    copy_id = str(inspector.get("copy_id") or "")
+    choices = [str(card["id"]) for card in cards]
+    yield (
+        rows,
+        outcome.session_id,
+        inspector,
+        trust,
+        _abstain_update(banner, visible=bool(banner)),
+        _copy_update(copy_id),
+        _choice_update(choices),
+        cards,
+        citation_card_markdown(inspector),
+        trust_markdown(trust),
+    )
+
+
 def _empty_inspector() -> tuple[Any, ...]:
     return (
         {},
@@ -70,6 +194,11 @@ def _empty_inspector() -> tuple[Any, ...]:
         citation_card_markdown(None),
         trust_markdown(None),
     )
+
+
+def _skipped_inspector() -> tuple[Any, ...]:
+    skip = gr.skip()
+    return (skip, skip, skip, skip, skip, skip, skip, skip)
 
 
 def build_blocks(
@@ -87,15 +216,20 @@ def build_blocks(
 
     async def _turn(
         message: str,
-        history: list[dict[str, str]],
+        history: list[dict[str, Any]],
         session_id: str | None,
         demo_key: str | None,
         request: gr.Request,
-    ) -> tuple[Any, ...]:
-        history = list(history or [])
+    ) -> AsyncIterator[tuple[Any, ...]]:
         key = (demo_key or "").strip() or demo_key_for(request)
-        try:
-            response = await handle_turn(
+
+        async def run_turn(
+            *,
+            message: str,
+            session_id: str | None,
+            on_thinking: OnThinking | None = None,
+        ) -> ChatResponse:
+            return await handle_turn(
                 settings=settings,
                 index=index,
                 llm=llm,
@@ -109,34 +243,13 @@ def build_blocks(
                 request_id=new_request_id(),
                 client_id=client_id_for(request),
                 demo_key=key or None,
+                on_thinking=on_thinking,
             )
-        except HTTPException as exc:
-            notice = "Solicitud rechazada."
-            if exc.status_code == 401:
-                notice = "Se requiere DEMO_API_KEY."
-            elif exc.status_code == 429:
-                notice = "Demasiadas solicitudes."
-            history = append_messages(history, message, notice)
-            return (history, session_id, *_empty_inspector())
-        history = append_messages(history, message, response.answer)
-        cards = citation_cards(response)
-        inspector = inspector_payload(response)
-        trust = trust_payload(response)
-        banner = "Silencio / abstain" if abstain_visible(response) else ""
-        copy_id = str(inspector.get("copy_id") or "")
-        choices = [str(card["id"]) for card in cards]
-        return (
-            history,
-            response.session_id,
-            inspector,
-            trust,
-            _abstain_update(banner, visible=bool(banner)),
-            _copy_update(copy_id),
-            _choice_update(choices),
-            cards,
-            citation_card_markdown(inspector),
-            trust_markdown(trust),
-        )
+
+        async for item in iter_observatory_turn(
+            message, history, session_id, run_turn=run_turn
+        ):
+            yield item
 
     def _clear(
         session_id: str | None,
@@ -159,7 +272,10 @@ def build_blocks(
     with gr.Blocks(title="BCRA Mini-RAG", fill_height=True) as demo:
         session_state = gr.State(None)
         cards_state = gr.State([])
-        with gr.Column(elem_id="observatory-shell"):
+        with gr.Column(
+            elem_id="observatory-shell",
+            elem_classes=["layout-staff"],
+        ) as shell:
             with gr.Column(scale=0, elem_id="observatory-topbar"):
                 gr.Markdown(title_markdown(health))
                 with gr.Row(elem_id="layout-toggle"):
@@ -193,6 +309,7 @@ def build_blocks(
                         buttons=[],
                         feedback_options=[],
                         placeholder="La conversación aparece acá.",
+                        group_consecutive_messages=False,
                     )
                     msg = gr.Textbox(
                         label="Pregunta",
@@ -282,7 +399,7 @@ def build_blocks(
         layout_choice.change(  # type: ignore[attr-defined]
             apply_layout,
             inputs=[layout_choice],
-            outputs=[freeze_box, side],
+            outputs=[freeze_box, side, shell],
         )
     queued = demo.queue()
     return queued  # type: ignore[no-any-return]
