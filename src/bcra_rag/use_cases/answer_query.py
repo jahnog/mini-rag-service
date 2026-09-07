@@ -10,11 +10,12 @@ import structlog
 from bcra_rag.domain.disclaimer import disclaimer_for
 from bcra_rag.domain.finding import demote_finding
 from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext, RailResult, step
+from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router
-from bcra_rag.domain.urls import TO_DOC_ID, TO_PDF_URL, constructed_pdf_url, normalize_comm_id
+from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
@@ -25,6 +26,7 @@ from bcra_rag.schemas import (
     Citation,
     Finding,
     HitScore,
+    LlmDraft,
     Sidecar,
 )
 from bcra_rag.settings import Settings
@@ -53,7 +55,6 @@ class AnswerQuery:
 
     async def run(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
         response = await self._respond(request, request_id=request_id)
-        _log_turn(request, response)
         return response
 
     async def _respond(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
@@ -96,6 +97,7 @@ class AnswerQuery:
                 disclaimer=disclaimer,
                 abstain_reason="cleared",
                 remember=False,
+                request=request,
                 user_message=request.message,
             )
 
@@ -121,6 +123,7 @@ class AnswerQuery:
                     "message_too_long" if blocked.rule == "length" else blocked.rule
                 ),
                 remember=False,
+                request=request,
                 user_message=request.message,
             )
 
@@ -147,6 +150,7 @@ class AnswerQuery:
                     "message_too_long" if blocked.rule == "length" else blocked.rule
                 ),
                 remember=False,
+                request=request,
                 user_message=request.message,
             )
 
@@ -167,6 +171,7 @@ class AnswerQuery:
                 disclaimer=disclaimer,
                 abstain_reason="index_not_ready",
                 remember=False,
+                request=request,
                 user_message=request.message,
             )
 
@@ -196,6 +201,7 @@ class AnswerQuery:
                 disclaimer=disclaimer,
                 abstain_reason=reason,
                 remember=True,
+                request=request,
                 user_message=request.message,
                 sidecar=_sidecar(routed.hits, []),
             )
@@ -219,6 +225,7 @@ class AnswerQuery:
                 disclaimer=disclaimer,
                 abstain_reason=reason,
                 remember=True,
+                request=request,
                 user_message=request.message,
                 sidecar=_sidecar(routed.hits, []),
             )
@@ -245,17 +252,12 @@ class AnswerQuery:
                 disclaimer=disclaimer,
                 abstain_reason="llm_unavailable",
                 remember=False,
+                request=request,
                 user_message=request.message,
             )
 
         generate_log = [step("generate", "generate", "pass", "llm called")]
-        citations = _citations_from_hits(ctx.hits, manifest)
-        if draft.citations:
-            by_id = {item.id: item for item in citations}
-            for item in draft.citations:
-                if item.id in dump_ids and item.id in ctx.turn_ids:
-                    by_id[item.id] = item
-            citations = list(by_id.values())
+        citations = _citations_from_model(draft, ctx.hits, ctx.turn_ids)
         ctx.draft = draft
         ctx.finding = draft.finding
         ctx.answer = draft.answer
@@ -265,11 +267,6 @@ class AnswerQuery:
             ctx.citations = _apply_http_filters(ctx.citations, request.filters)
             if not ctx.citations:
                 ctx.finding = Finding.SILENCIO
-
-        if ctx.citations and "Fuente:" not in ctx.answer and ctx.finding is not Finding.SILENCIO:
-            ctx.answer = ctx.answer.rstrip() + f"\nFuente: {ctx.citations[0].id}"
-            if ctx.citations[0].punto:
-                ctx.answer += f" punto {ctx.citations[0].punto}"
 
         output_log = pipe.run_named(output_ids, ctx, short_circuit=False)
         if ctx.finding is not Finding.SILENCIO:
@@ -291,6 +288,10 @@ class AnswerQuery:
                 "No puedo responder"
             ):
                 ctx.answer = "No hay una cláusula citada en el dump CAMEX."
+        elif ctx.citations and "Fuente:" not in ctx.answer:
+            ctx.answer = ctx.answer.rstrip() + f"\nFuente: {ctx.citations[0].id}"
+            if ctx.citations[0].punto:
+                ctx.answer += f" punto {ctx.citations[0].punto}"
 
         sidecar = _sidecar(ctx.hits, ctx.citations)
         return self._finalize(
@@ -304,6 +305,7 @@ class AnswerQuery:
                 "cite-or-abstain" if ctx.finding is Finding.SILENCIO else None
             ),
             remember=True,
+            request=request,
             user_message=request.message,
             sidecar=sidecar,
             extra_log=output_log,
@@ -315,6 +317,7 @@ class AnswerQuery:
         prior: list[RailResult],
         output_ids: list[str],
         *,
+        request: ChatRequest,
         request_id: str,
         session_id: str,
         disclaimer: str,
@@ -347,6 +350,7 @@ class AnswerQuery:
         )
         if remember:
             self._remember(session_id, user_message, response.answer)
+        _log_turn(request, response, ctx, results, self._pipeline)
         return response
 
     def _remember(self, session_id: str, user: str, assistant: str) -> None:
@@ -361,11 +365,23 @@ def _first_block(results: list[RailResult]) -> RailResult | None:
     )
 
 
-def _log_turn(request: ChatRequest, response: ChatResponse) -> None:
+def _log_turn(
+    request: ChatRequest,
+    response: ChatResponse,
+    ctx: RailContext,
+    results: list[RailResult],
+    pipeline: GuardrailPipeline,
+) -> None:
     payload = response.model_dump()
+    payload["answer"] = redact_secrets(str(payload.get("answer") or ""))
+    payload["guardrails"] = [
+        {**item, "detail": redact_secrets(str(item.get("detail") or ""))}
+        for item in payload.get("guardrails") or []
+        if isinstance(item, dict)
+    ]
     log.info(
         "chat_turn",
-        message=request.message,
+        message=redact_secrets(request.message or ""),
         k=request.k,
         filters=None if request.filters is None else request.filters.model_dump(),
         llm_called=any(
@@ -380,6 +396,10 @@ def _log_turn(request: ChatRequest, response: ChatResponse) -> None:
             ),
             None,
         ),
+        policy_version=pipeline.policy_version,
+        guardrail_latency_ms={item.rule: round(item.latency_ms, 3) for item in results},
+        survived_ids=sorted(id_ for id_ in ctx.turn_ids if id_),
+        dropped_ids=list(ctx.dropped_ids),
         **payload,
     )
 
@@ -425,33 +445,25 @@ def _prompt(
     )
 
 
-def _citations_from_hits(hits: list[Chunk], manifest: Manifest) -> list[Citation]:
-    seen: set[str] = set()
-    citations: list[Citation] = []
+def _citations_from_model(
+    draft: LlmDraft, hits: list[Chunk], turn_ids: set[str]
+) -> list[Citation]:
+    by_doc: dict[str, Chunk] = {}
     for chunk in hits:
         doc_id = str(chunk.metadata.get("doc_id") or "")
-        if not doc_id or doc_id in seen:
+        if doc_id and doc_id not in by_doc:
+            by_doc[doc_id] = chunk
+    citations: list[Citation] = []
+    seen: set[str] = set()
+    for item in draft.citations:
+        if item.id not in turn_ids or item.id in seen:
             continue
-        seen.add(doc_id)
-        kind = str(chunk.metadata.get("doc_kind") or "")
-        tipo: Literal["A", "TO"] = (
-            "TO" if doc_id == TO_DOC_ID or kind == "texto_ordenado" else "A"
-        )
-        entry = manifest.documents.get(doc_id) or {}
-        url = str(entry.get("url") or "")
-        if not url:
-            url = TO_PDF_URL if doc_id == TO_DOC_ID else constructed_pdf_url(doc_id)
-        punto = chunk.metadata.get("punto")
-        citations.append(
-            Citation(
-                id=doc_id,
-                tipo=tipo,
-                fecha=str(chunk.metadata.get("fecha") or entry.get("fecha") or "") or None,
-                punto=str(punto) if punto else None,
-                snippet=chunk.text[:280],
-                url=url,
-            )
-        )
+        seen.add(item.id)
+        snippet = (item.snippet or "").strip()
+        if not snippet and item.id in by_doc:
+            snippet = by_doc[item.id].text[:280]
+        tipo: Literal["A", "TO"] = "TO" if item.id == TO_DOC_ID else item.tipo
+        citations.append(item.model_copy(update={"snippet": snippet, "tipo": tipo}))
     return citations
 
 

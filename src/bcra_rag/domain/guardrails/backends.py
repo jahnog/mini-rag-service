@@ -4,7 +4,11 @@ import re
 
 INJECTION = re.compile(
     r"ignore (all )?(previous|prior|above) instructions|"
+    r"ignora(r)? (las |tus |todas las )?(instrucciones|reglas)|"
+    r"disregard (all )?(previous|prior|above) (instructions|rules)|"
+    r"forget (everything|all) (above|before)|"
     r"reveal (the )?(system |hidden )?prompt|"
+    r"(print|show|dump) (me )?(your |the )?(system |hidden )?prompt|"
     r"jailbreak|you are now|"
     r"olvid(a|á|e) (las |tus )?instrucciones|"
     r"mostr(a|á|ar) (el )?prompt|"

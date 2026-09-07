@@ -6,6 +6,7 @@ import unicodedata
 from bcra_rag.domain.guardrails.types import (
     InjectionBackend,
     RailContext,
+    RailPatch,
     RailResult,
     Stage,
 )
@@ -13,7 +14,7 @@ from bcra_rag.domain.guardrails.types import (
 CAMEX_HINTS = re.compile(
     r"\b(bcra|camex|mulc|cepo|cambi(o|os|arias)|comunicaci[oó]n|communication|"
     r"texto ordenado|divisa|exportaci|export|importaci|liquidar|liquidate|"
-    r"punto|tipo de cambio|mercado (único|unico)|fx\b|foreign exchange|"
+    r"tipo de cambio|mercado (único|unico)|fx\b|foreign exchange|"
     r"exterior y cambios|a\s*\d{3,5}|cobro de exportaciones|proceeds|"
     r"reference rate)\b",
     re.IGNORECASE,
@@ -23,12 +24,28 @@ OUT_OF_SCOPE = re.compile(
     r"netflix|python tutorial)\b",
     re.IGNORECASE,
 )
-NO_ADVICE = re.compile(
-    r"(deber[ií]a|should i|conv[ie]ene)\s+(comprar|buy|invertir)|"
-    r"comprar d[oó]lares|buy dollars|park (my )?pesos|"
+FOLLOW_UP = re.compile(r"^\s*(y|and|ese|esa|eso|that|el punto)\b", re.IGNORECASE)
+ADVICE_CUES = re.compile(
+    r"(deber[ií]a|should i)\s+(comprar|buy|invertir|dolar)|"
+    r"y si compr|"
+    r"dolariz|"
+    r"te recomiend|"
+    r"\brecomendo\b|\brecommande\b|\braccomando\b|"
+    r"devrait([- ]je)?|"
+    r"deveria|"
+    r"\bsollte\b|"
+    r"comprar d[oó]lares|buy dollars|acheter des dollars|"
+    r"park (my )?pesos|"
     r"d[oó]nde (pongo|estaciono|dejo) (los )?pesos|"
     r"pr[áa]ctica de mercado|investment advice|"
     r"asesoramiento (financiero|de inversi[oó]n)",
+    re.IGNORECASE,
+)
+DEONTIC_VETO = re.compile(
+    r"deber[aá]n|no podr[aá]n|queda prohibido|"
+    r"\bdeber[aá]\b|"
+    r"liquidar (el )?cobro|mulc|comunicaci[oó]n\s*a|"
+    r"texto ordenado|\bresidentes\b|\bexportador",
     re.IGNORECASE,
 )
 SECRETS = re.compile(r"\b(sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,})\b")
@@ -40,6 +57,22 @@ _ZW = dict.fromkeys(
         "\u2066\u2067\u2068\u2069",
     )
 )
+
+
+def normalize_text(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).translate(_ZW)
+
+
+def redact_secrets(text: str) -> str:
+    return SECRETS.sub("[secret]", text)
+
+
+def is_advice(text: str) -> bool:
+    if not ADVICE_CUES.search(text or ""):
+        return False
+    if DEONTIC_VETO.search(text or ""):
+        return False
+    return True
 
 
 class _Rail:
@@ -73,10 +106,13 @@ class NormalizeRail(_Rail):
     stage: Stage = "input"
 
     def run(self, ctx: RailContext) -> RailResult:
-        ctx.text = unicodedata.normalize("NFKC", ctx.raw).translate(_ZW)
-        ctx.raw = unicodedata.normalize("NFKC", ctx.raw).translate(_ZW)
+        folded = normalize_text(ctx.raw)
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="NFKC"
+            rule=self.id,
+            stage=self.stage,
+            verdict="pass",
+            detail="NFKC",
+            patch=RailPatch(raw=folded, text=folded),
         )
 
 
@@ -117,16 +153,23 @@ class NoAdviceRail(_Rail):
             self.stage = "output"
 
     def run(self, ctx: RailContext) -> RailResult:
-        blob = ctx.answer if self._field == "answer" else ctx.text
-        if NO_ADVICE.search(blob or ""):
+        blob = ctx.answer if self._field == "answer" else ctx.raw
+        if not is_advice(blob or ""):
+            return RailResult(
+                rule=self.id, stage=self.stage, verdict="pass", detail="not advice"
+            )
+        if self._field == "answer" and _advice_quoted(blob, ctx):
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
-                verdict="block",
-                detail="investment advice is out of scope",
+                verdict="pass",
+                detail="advice quoted from this-turn hit",
             )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="not advice"
+            rule=self.id,
+            stage=self.stage,
+            verdict="block",
+            detail="investment advice is out of scope",
         )
 
 
@@ -157,16 +200,24 @@ class ScopeRail(_Rail):
     stage: Stage = "input"
 
     def run(self, ctx: RailContext) -> RailResult:
-        if OUT_OF_SCOPE.search(ctx.text) and not CAMEX_HINTS.search(ctx.text):
+        latest = ctx.raw or ""
+        if OUT_OF_SCOPE.search(latest):
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="block",
                 detail="outside BCRA CAMEX / Argentine FX",
             )
-        if CAMEX_HINTS.search(ctx.text):
+        if CAMEX_HINTS.search(latest):
             return RailResult(
                 rule=self.id, stage=self.stage, verdict="pass", detail="in CAMEX scope"
+            )
+        if FOLLOW_UP.search(latest):
+            return RailResult(
+                rule=self.id,
+                stage=self.stage,
+                verdict="pass",
+                detail="in-session follow-up",
             )
         return RailResult(
             rule=self.id,
@@ -174,3 +225,17 @@ class ScopeRail(_Rail):
             verdict="block",
             detail="outside BCRA CAMEX / Argentine FX",
         )
+
+
+def _advice_quoted(blob: str, ctx: RailContext) -> bool:
+    match = ADVICE_CUES.search(blob or "")
+    if match is None:
+        return False
+    span = match.group(0).lower()
+    for chunk in ctx.hits:
+        if span in (chunk.text or "").lower():
+            return True
+    for citation in ctx.citations:
+        if span in (citation.snippet or "").lower():
+            return True
+    return False

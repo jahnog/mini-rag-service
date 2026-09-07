@@ -7,14 +7,14 @@ from bcra_rag.domain.guardrails.types import (
     ChunkResult,
     InjectionBackend,
     RailContext,
+    RailPatch,
     RailResult,
     Stage,
 )
 from bcra_rag.domain.models import Chunk
 
 ROLE_NOISE = re.compile(
-    r"(?is)(?:SYSTEM\s*:|<<\s*SYS\s*>>|<\|im_start\|>|<\|im_end\|>|"
-    r"<!--.*?-->|ignore previous instructions)"
+    r"(?is)(?:SYSTEM\s*:|<<\s*SYS\s*>>|<\|im_start\|>|<\|im_end\|>|<!--.*?-->)"
 )
 
 
@@ -74,7 +74,6 @@ class ContextBudgetRail:
                 continue
             kept.append(chunk)
             used += extra
-        ctx.hits = kept
         if dropped:
             return RailResult(
                 rule=self.id,
@@ -82,6 +81,7 @@ class ContextBudgetRail:
                 verdict="redact",
                 detail=f"dropped {dropped} tail chunks",
                 enforced=self.enforce,
+                patch=RailPatch(hits=kept),
             )
         return RailResult(
             rule=self.id,
@@ -89,4 +89,5 @@ class ContextBudgetRail:
             verdict="pass",
             detail=f"kept {len(kept)} chunks",
             enforced=self.enforce,
+            patch=RailPatch(hits=kept),
         )

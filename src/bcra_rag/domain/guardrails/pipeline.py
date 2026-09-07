@@ -11,11 +11,14 @@ from bcra_rag.domain.guardrails.types import (
     ChunkResult,
     Rail,
     RailContext,
+    RailPatch,
     RailResult,
     Stage,
     Tracer,
 )
 from bcra_rag.domain.models import Chunk
+
+_ALWAYS_APPLY = frozenset({"normalize"})
 
 
 class _NullSpan:
@@ -62,9 +65,16 @@ class TracedRail:
 
 
 class GuardrailPipeline:
-    def __init__(self, rails: Sequence[Rail], *, global_enforce: bool = True) -> None:
+    def __init__(
+        self,
+        rails: Sequence[Rail],
+        *,
+        global_enforce: bool = True,
+        policy_version: int = 2,
+    ) -> None:
         self._rails = list(rails)
         self._global_enforce = global_enforce
+        self.policy_version = policy_version
 
     def enabled(self) -> list[Rail]:
         return list(self._rails)
@@ -90,7 +100,10 @@ class GuardrailPipeline:
             if short_circuit and blocked_by is not None:
                 results.append(_skipped(rail, f"blocked by {blocked_by}"))
                 continue
-            result = _apply_enforce(rail.run(ctx), rail, self._global_enforce)
+            raw = rail.run(ctx)
+            result = _apply_enforce(raw, rail, self._global_enforce)
+            if rail.id in _ALWAYS_APPLY or result.enforced:
+                _apply_patch(ctx, raw.patch)
             results.append(result)
             if result.enforced and result.verdict == "block":
                 blocked_by = result.rule
@@ -107,6 +120,25 @@ class GuardrailPipeline:
 
     def skip_stage(self, stage: Stage, reason: str) -> list[RailResult]:
         return [_skipped(rail, reason) for rail in self._rails if rail.stage == stage]
+
+
+def _apply_patch(ctx: RailContext, patch: RailPatch | None) -> None:
+    if patch is None:
+        return
+    if patch.raw is not None:
+        ctx.raw = patch.raw
+    if patch.text is not None:
+        ctx.text = patch.text
+    if patch.answer is not None:
+        ctx.answer = patch.answer
+    if patch.finding is not None:
+        ctx.finding = patch.finding
+    if patch.citations is not None:
+        ctx.citations = patch.citations
+    if patch.hits is not None:
+        ctx.hits = patch.hits
+    if patch.dropped_ids:
+        ctx.dropped_ids.extend(patch.dropped_ids)
 
 
 def _apply_enforce(result: RailResult, rail: Rail, global_enforce: bool) -> RailResult:
@@ -139,6 +171,7 @@ class ChunkMappingRail:
 
     def run(self, ctx: RailContext) -> RailResult:
         kept: list[Chunk] = []
+        dropped_ids: list[str] = []
         dropped = 0
         redacted = 0
         scanned = 0
@@ -147,21 +180,15 @@ class ChunkMappingRail:
             item = self.inspect(chunk, ctx)
             action: ChunkAction = item.action
             if action == "drop":
-                if self.enforce:
-                    dropped += 1
-                    doc_id = str(chunk.metadata.get("doc_id") or chunk.chunk_id)
-                    ctx.dropped_ids.append(doc_id)
-                    continue
-                kept.append(item.chunk)
                 dropped += 1
+                dropped_ids.append(str(chunk.metadata.get("doc_id") or chunk.chunk_id))
                 continue
             if action == "redact":
                 redacted += 1
                 kept.append(item.chunk)
                 continue
             kept.append(item.chunk)
-        ctx.hits = kept
-        if dropped and not kept and self.enforce:
+        if dropped and not kept:
             verdict: str = "block"
             detail = f"dropped {dropped} of {scanned}"
         elif dropped or redacted:
@@ -176,8 +203,9 @@ class ChunkMappingRail:
             verdict=verdict,  # type: ignore[arg-type]
             detail=detail,
             enforced=self.enforce,
-            would_block=dropped > 0 and not self.enforce,
+            would_block=bool(dropped and not kept),
             metrics={"scanned": scanned, "dropped": dropped, "redacted": redacted},
+            patch=RailPatch(hits=kept, dropped_ids=dropped_ids),
         )
 
 
@@ -197,5 +225,3 @@ def step(
         enforced=enforced,
         would_block=verdict == "block",
     )
-
-

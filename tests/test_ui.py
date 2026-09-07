@@ -231,6 +231,28 @@ def test_inspector_copy_id_and_trust() -> None:
     assert 'class="obs-chip warn"' in trust_markdown(
         [{"rule": "x", "verdict": "warn", "detail": ""}]
     )
+    assert "not enforced" in trust_markdown(
+        [
+            {
+                "rule": "injection",
+                "verdict": "pass",
+                "detail": "",
+                "enforced": "false",
+                "would_block": "true",
+            }
+        ]
+    )
+    assert "would-block" in trust_markdown(
+        [
+            {
+                "rule": "injection",
+                "verdict": "pass",
+                "detail": "",
+                "enforced": "false",
+                "would_block": "true",
+            }
+        ]
+    )
     assert EMPTY_CITATION_CARD == citation_card_markdown(None)
     assert "obs-empty" in trust_markdown(None)
     assert "guardrails" in EMPTY_TRUST.lower()

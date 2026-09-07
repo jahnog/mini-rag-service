@@ -1,4 +1,4 @@
-version: 2
+version: 3
 enforce: true
 rails:
   - { id: length,            stage: input,    enabled: true, enforce: true }
@@ -7,8 +7,8 @@ rails:
   - { id: no-advice,         stage: input,    enabled: true, enforce: true }
   - { id: injection,         stage: input,    enabled: true, enforce: true, params: { backend: regex } }
   - { id: scope,             stage: input,    enabled: true, enforce: true }
-  - { id: chunk-hygiene,     stage: retrieve, enabled: true, enforce: true }
   - { id: chunk-injection,   stage: retrieve, enabled: true, enforce: true, params: { backend: regex } }
+  - { id: chunk-hygiene,     stage: retrieve, enabled: true, enforce: true }
   - { id: context-budget,    stage: retrieve, enabled: true, enforce: true }
   - { id: cite-or-abstain,   stage: output,   enabled: true, enforce: true }
   - { id: freeze-honesty,    stage: output,   enabled: true, enforce: true }

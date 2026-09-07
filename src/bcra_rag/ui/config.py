@@ -203,6 +203,8 @@ def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
             "verdict": item.verdict,
             "detail": item.detail,
             "stage": item.stage,
+            "enforced": "true" if item.enforced else "false",
+            "would_block": "true" if item.would_block else "false",
         }
         for item in response.guardrails
     ]
@@ -228,6 +230,10 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         )
         if detail:
             row += f'<span class="obs-trust-detail">{detail}</span>'
+        if item.get("enforced") == "false":
+            row += '<span class="obs-trust-detail">not enforced</span>'
+        if item.get("would_block") == "true":
+            row += '<span class="obs-trust-detail">would-block</span>'
         row += "</div>"
         parts.append(row)
     parts.append("</div>")

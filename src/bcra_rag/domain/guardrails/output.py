@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from bcra_rag.domain.guardrails.types import RailContext, RailResult, Stage
+from bcra_rag.domain.guardrails.types import RailContext, RailPatch, RailResult, Stage
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding
 
@@ -35,13 +35,13 @@ class CiteOrAbstainRail:
 
     def run(self, ctx: RailContext) -> RailResult:
         if ctx.finding is Finding.SILENCIO:
-            ctx.citations = []
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
                 detail="silencio has no citations",
                 enforced=self.enforce,
+                patch=RailPatch(citations=[]),
             )
         allowed = ctx.turn_ids or {
             str(chunk.metadata.get("doc_id") or "") for chunk in ctx.hits
@@ -53,23 +53,25 @@ class CiteOrAbstainRail:
             if _quote_ok(citation, ctx.hits):
                 valid.append(citation)
         if valid:
-            ctx.citations = valid
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
                 detail="citations exist in this turn",
                 enforced=self.enforce,
+                patch=RailPatch(citations=valid),
             )
-        ctx.finding = Finding.SILENCIO
-        ctx.citations = []
-        ctx.answer = "No hay una cláusula citada en el dump CAMEX."
         return RailResult(
             rule=self.id,
             stage=self.stage,
             verdict="block",
             detail="no this-turn dump id or quote",
             enforced=self.enforce,
+            patch=RailPatch(
+                finding=Finding.SILENCIO,
+                citations=[],
+                answer="No hay una cláusula citada en el dump CAMEX.",
+            ),
         )
 
 
@@ -94,13 +96,14 @@ class FreezeHonestyRail:
                 enforced=self.enforce,
             )
         if VIGENTE_CLAIM.search(ctx.answer):
-            ctx.answer = ctx.answer.rstrip() + f" (last_refresh={refresh}; to_as_of={as_of})"
+            rewritten = ctx.answer.rstrip() + f" (last_refresh={refresh}; to_as_of={as_of})"
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="warn",
                 detail="rewrote answer to name last_refresh and to_as_of",
                 enforced=self.enforce,
+                patch=RailPatch(answer=rewritten),
             )
         return RailResult(
             rule=self.id,
@@ -154,13 +157,13 @@ class UnsafeOutputRail:
         cleaned = ANSI.sub("", original)
         cleaned = TOOL_SHAPE.sub("", cleaned)
         if cleaned != original:
-            ctx.answer = cleaned
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="redact",
                 detail="stripped ansi or tool-shaped tags",
                 enforced=self.enforce,
+                patch=RailPatch(answer=cleaned),
             )
         return RailResult(
             rule=self.id, stage=self.stage, verdict="pass", detail="clean"
@@ -177,8 +180,7 @@ class MarkdownSanitizeRail:
     def run(self, ctx: RailContext) -> RailResult:
         original = ctx.answer
         cleaned = _sanitize_markup(original)
-        ctx.answer = cleaned
-        ctx.citations = [
+        citations = [
             citation.model_copy(update={"snippet": _sanitize_markup(citation.snippet)})
             for citation in ctx.citations
         ]
@@ -189,9 +191,14 @@ class MarkdownSanitizeRail:
                 verdict="redact",
                 detail="sanitized markup",
                 enforced=self.enforce,
+                patch=RailPatch(answer=cleaned, citations=citations),
             )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="no markup"
+            rule=self.id,
+            stage=self.stage,
+            verdict="pass",
+            detail="no markup",
+            patch=RailPatch(citations=citations),
         )
 
 
@@ -212,15 +219,12 @@ def _sanitize_markup(text: str) -> str:
 def _quote_ok(citation: Citation, hits: list[Chunk]) -> bool:
     quote = _norm_span(citation.snippet or "")
     if not quote:
-        return True
+        return False
     for chunk in hits:
         if str(chunk.metadata.get("doc_id") or "") != citation.id:
             continue
         body = _norm_span(chunk.text)
         if quote in body:
-            return True
-        snippet = _norm_span(chunk.text[:280])
-        if quote in snippet or snippet in quote:
             return True
     return False
 

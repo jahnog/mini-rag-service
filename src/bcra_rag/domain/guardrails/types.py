@@ -28,6 +28,17 @@ class Policy:
 
 
 @dataclass
+class RailPatch:
+    raw: str | None = None
+    text: str | None = None
+    answer: str | None = None
+    finding: Finding | None = None
+    citations: list[Citation] | None = None
+    hits: list[Chunk] | None = None
+    dropped_ids: list[str] | None = None
+
+
+@dataclass
 class RailResult:
     rule: str
     stage: Stage
@@ -38,6 +49,7 @@ class RailResult:
     latency_ms: float = 0.0
     metrics: dict[str, object] = field(default_factory=dict)
     rewrite: str | None = None
+    patch: RailPatch | None = None
 
     def to_verdict(self) -> GuardrailVerdict:
         return GuardrailVerdict(
