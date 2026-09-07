@@ -143,6 +143,106 @@ def test_secrets_raw_only_token_does_not_block() -> None:
     assert _run(SecretsRail(), ctx).verdict == "pass"
 
 
+def test_secrets_answer_only_token_does_not_block() -> None:
+    ctx = RailContext(raw="liquidar el cobro", text="liquidar el cobro", answer=f"clave {SK}")
+    assert _run(SecretsRail(), ctx).verdict == "pass"
+
+
+def test_secrets_empty_passes() -> None:
+    assert _run(SecretsRail(), _ctx("")).verdict == "pass"
+
+
+def test_secrets_whitespace_passes() -> None:
+    assert _run(SecretsRail(), _ctx("   \n\t")).verdict == "pass"
+
+
+def test_secrets_token_at_start_blocks() -> None:
+    assert _run(SecretsRail(), _ctx(f"{SK} al inicio")).verdict == "block"
+
+
+def test_secrets_token_at_end_blocks() -> None:
+    assert _run(SecretsRail(), _ctx(f"al final {SK}")).verdict == "block"
+
+
+def test_secrets_token_on_its_own_line_blocks() -> None:
+    assert _run(SecretsRail(), _ctx(f"clave\n{SK}\nfin")).verdict == "block"
+
+
+def test_secrets_quoted_token_blocks() -> None:
+    assert _run(SecretsRail(), _ctx(f'usa "{SK}" en el cliente')).verdict == "block"
+
+
+def test_secrets_token_inside_camex_question_still_blocks() -> None:
+    ctx = _ctx(f"qué dice la A 3500 sobre liquidar el cobro {SK}")
+    assert _run(SecretsRail(), ctx).verdict == "block"
+
+
+def test_secrets_ghp_does_not_echo_token() -> None:
+    verdict = _run(SecretsRail(), _ctx(f"token {GHP}"))
+    assert verdict.verdict == "block"
+    assert GHP not in verdict.detail
+    assert "ghp_" not in verdict.detail
+
+
+def test_secrets_both_shapes_block_without_echo() -> None:
+    verdict = _run(SecretsRail(), _ctx(f"claves {SK} y {GHP}"))
+    assert verdict.verdict == "block"
+    assert SK not in verdict.detail
+    assert GHP not in verdict.detail
+    assert "sk-" not in verdict.detail
+    assert "ghp_" not in verdict.detail
+
+
+def test_secrets_bare_sk_prefix_is_not_a_token() -> None:
+    assert _run(SecretsRail(), _ctx("el prefijo es sk-")).verdict == "pass"
+
+
+def test_secrets_bare_ghp_prefix_is_not_a_token() -> None:
+    assert _run(SecretsRail(), _ctx("el prefijo es ghp_")).verdict == "pass"
+
+
+def test_secrets_skill_word_passes() -> None:
+    assert _run(SecretsRail(), _ctx("qué skill aplica al MULC")).verdict == "pass"
+
+
+def test_secrets_github_word_passes() -> None:
+    assert _run(SecretsRail(), _ctx("el dump está en github")).verdict == "pass"
+
+
+def test_secrets_block_names_rule_and_input_stage() -> None:
+    verdict = _run(SecretsRail(), _ctx(f"mi clave es {SK}"))
+    assert verdict.rule == "secrets"
+    assert verdict.stage == "input"
+    assert verdict.enforced is True
+    assert verdict.would_block is True
+
+
+def test_secrets_clean_pass_does_not_would_block() -> None:
+    verdict = _run(SecretsRail(), _ctx("liquidar el cobro de exportaciones"))
+    assert verdict.verdict == "pass"
+    assert verdict.rule == "secrets"
+    assert verdict.would_block is False
+
+
+def test_secrets_does_not_rewrite_text_on_block() -> None:
+    ctx = _ctx(f"mi clave es {SK}")
+    before = ctx.text
+    _run(SecretsRail(), ctx)
+    assert ctx.text == before
+    assert ctx.raw == before
+
+
+def test_secrets_shadow_does_not_enforce_or_echo() -> None:
+    ctx = _ctx(f"mi clave es {SK}")
+    verdict = _run(SecretsRail(enforce=False), ctx)
+    assert verdict.verdict == "pass"
+    assert verdict.enforced is False
+    assert verdict.would_block is True
+    assert SK not in verdict.detail
+    assert "sk-" not in verdict.detail
+    assert ctx.text == f"mi clave es {SK}"
+
+
 # --- no-advice ---
 
 
@@ -574,6 +674,88 @@ def test_secrets_output_clean_answer_passes() -> None:
 def test_secrets_output_token_only_in_text_does_not_block() -> None:
     ctx = RailContext(raw="q", text=f"clave {SK}", answer="Los residentes deberán liquidar")
     assert _run(SecretsRail(field="answer"), ctx).verdict == "pass"
+
+
+def test_secrets_output_raw_only_token_does_not_block() -> None:
+    ctx = RailContext(raw=f"clave {SK}", text="q", answer="Los residentes deberán liquidar")
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "pass"
+
+
+def test_secrets_output_empty_answer_passes() -> None:
+    ctx = _ctx("q", answer="")
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "pass"
+
+
+def test_secrets_output_token_inside_camex_answer_blocks() -> None:
+    ctx = _ctx("q", answer=f"Los residentes deberán liquidar. clave {SK}")
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "block"
+
+
+def test_secrets_output_quoted_token_blocks() -> None:
+    ctx = _ctx("q", answer=f'no uses "{GHP}"')
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "block"
+
+
+def test_secrets_output_does_not_echo_token() -> None:
+    ctx = _ctx("q", answer=f"clave {SK}")
+    verdict = _run(SecretsRail(field="answer"), ctx)
+    assert verdict.verdict == "block"
+    assert SK not in verdict.detail
+    assert "sk-" not in verdict.detail
+
+
+def test_secrets_output_names_rule_and_output_stage() -> None:
+    ctx = _ctx("q", answer=f"token {GHP}")
+    verdict = _run(SecretsRail(field="answer"), ctx)
+    assert verdict.rule == "secrets-output"
+    assert verdict.stage == "output"
+    assert verdict.enforced is True
+    assert verdict.would_block is True
+    assert GHP not in verdict.detail
+    assert "ghp_" not in verdict.detail
+
+
+def test_secrets_output_clean_pass_does_not_would_block() -> None:
+    ctx = _ctx("q", answer="Los residentes deberán liquidar")
+    verdict = _run(SecretsRail(field="answer"), ctx)
+    assert verdict.verdict == "pass"
+    assert verdict.rule == "secrets-output"
+    assert verdict.stage == "output"
+    assert verdict.would_block is False
+
+
+def test_secrets_output_ignores_token_in_citation_snippet() -> None:
+    ctx = _ctx(
+        "q",
+        answer="Los residentes deberán liquidar",
+        citations=[Citation(id="A3500", tipo="A", snippet=f"clave {SK}")],
+        hits=[_chunk(f"token {GHP}")],
+    )
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "pass"
+
+
+def test_secrets_output_bare_prefix_passes() -> None:
+    ctx = _ctx("q", answer="el prefijo es sk- o ghp_")
+    assert _run(SecretsRail(field="answer"), ctx).verdict == "pass"
+
+
+def test_secrets_output_does_not_rewrite_answer_on_block() -> None:
+    answer = f"clave {SK}"
+    ctx = _ctx("q", answer=answer)
+    _run(SecretsRail(field="answer"), ctx)
+    assert ctx.answer == answer
+
+
+def test_secrets_output_shadow_does_not_enforce_or_echo() -> None:
+    ctx = _ctx("q", answer=f"clave {SK}")
+    verdict = _run(SecretsRail(field="answer", enforce=False), ctx)
+    assert verdict.verdict == "pass"
+    assert verdict.enforced is False
+    assert verdict.would_block is True
+    assert verdict.rule == "secrets-output"
+    assert SK not in verdict.detail
+    assert "sk-" not in verdict.detail
+    assert ctx.answer == f"clave {SK}"
 
 
 # --- prompt-leak ---
