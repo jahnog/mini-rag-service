@@ -77,10 +77,10 @@ The system SHALL inspect each retrieved document before generation. A document t
 - **AND** the language model is not called when none survive
 
 ### Requirement: Secrets and unsafe output
-The system SHALL block secret-shaped tokens (API keys) in the question and in the answer without repeating the token in the guardrail detail. The system SHALL strip or neutralize ANSI control sequences, tool-shaped tags, raw HTML, `javascript:` / `data:` links, and markdown images in the visible answer. Links that are not official `bcra.gob.ar` HTTPS URLs SHALL be neutralized.
+The system SHALL block secret-shaped tokens (API keys) in the question and in the answer without repeating the token in the guardrail detail. Hyphen-prefixed shapes `sk-`, `lm-`, and `xai-` SHALL match with at least eight characters after the prefix. GitHub `ghp_` SHALL keep its existing length. The system SHALL strip or neutralize ANSI control sequences, tool-shaped tags, raw HTML, `javascript:` / `data:` links, and markdown images in the visible answer. Links that are not official `bcra.gob.ar` HTTPS URLs SHALL be neutralized.
 
 #### Scenario: Secret in the query is blocked
-- **GIVEN** the user question contains an `sk-` shaped token
+- **GIVEN** the user question contains an `sk-`, `lm-`, or `xai-` shaped token of at least eight characters after the prefix
 - **WHEN** the request is processed
 - **THEN** finding is silencio
 - **AND** the language model is not called

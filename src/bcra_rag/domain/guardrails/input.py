@@ -20,7 +20,7 @@ CAMEX_HINTS = re.compile(
     re.IGNORECASE,
 )
 OUT_OF_SCOPE = re.compile(
-    r"\b(weather|clima|madrid|f[úu]tbol|receta|banxico|banco de m[eé]xico|"
+    r"\b(weather|clima|wetter|madrid|f[úu]tbol|receta|banxico|banco de m[eé]xico|"
     r"netflix|python tutorial)\b",
     re.IGNORECASE,
 )
@@ -34,8 +34,10 @@ ADVICE_CUES = re.compile(
     r"devrait([- ]je)?|"
     r"deveria|"
     r"\bsollte\b|"
+    r"\bsoll ich\b|"
     r"comprar d[oó]lares|buy dollars|acheter des dollars|"
     r"park (my )?pesos|"
+    r"parke? (ich )?(meine )?pesos|pesos parken|"
     r"d[oó]nde (pongo|estaciono|dejo) (los )?pesos|"
     r"pr[áa]ctica de mercado|investment advice|"
     r"asesoramiento (financiero|de inversi[oó]n)",
@@ -48,7 +50,9 @@ DEONTIC_VETO = re.compile(
     r"texto ordenado|\bresidentes\b|\bexportador",
     re.IGNORECASE,
 )
-SECRETS = re.compile(r"\b(sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,})\b")
+SECRETS = re.compile(
+    r"\b((?:sk|lm|xai)-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,})\b"
+)
 _ZW = dict.fromkeys(
     map(
         ord,

@@ -87,7 +87,7 @@ When the document index is not ready, `POST /chat` SHALL return silencio with ab
 - **AND** abstain_reason is `index_not_ready`
 
 ### Requirement: Messy model citations must not drop dump hits
-When the index is ready and retrieval returned dump hits, the system SHALL still return those dump document ids as chat citations even if the language-model JSON has `citations` as a string, as a list of strings, or as objects that omit `tipo`. Citation `id` SHALL be a dump document id (`texto_ordenado` or `A####`), never an internal chunk id. Citation `tipo` SHALL be `TO` for the texto ordenado and `A` for Comunicaciones A. `POST /chat` citations SHALL be objects with `id` and `tipo`, not a string. `abstain_reason` MUST NOT be `llm_unavailable` solely because `citations` was messy. If the model omits usable citation ids, the system SHALL still cite from the dump hits. Quoted clauses SHALL remain in Spanish even if the question is English. The answer SHALL name `last_refresh` and `to_as_of` on a successful in-corpus turn.
+When the index is ready and retrieval returned dump hits, the system SHALL still return a citation when the language-model JSON names a this-turn dump document id even if `citations` is a string, a list of strings, or objects that omit `tipo`. Citation `id` SHALL be a dump document id (`texto_ordenado` or `A####`), never an internal chunk id. Citation `tipo` SHALL be `TO` for the texto ordenado and `A` for Comunicaciones A. `POST /chat` citations SHALL be objects with `id` and `tipo`, not a string. `abstain_reason` MUST NOT be `llm_unavailable` solely because `citations` was messy. If the model omits usable citation ids, the system SHALL force finding `silencio` and empty citations and MUST NOT show the draft. Quoted clauses SHALL remain in Spanish even if the question is English. The answer SHALL name `last_refresh` and `to_as_of` on a successful in-corpus turn.
 
 #### Scenario: Citations field is a Fuente string
 - **GIVEN** the index is ready
@@ -117,7 +117,8 @@ When the index is ready and retrieval returned dump hits, the system SHALL still
 - **GIVEN** the index is ready
 - **AND** retrieval returned dump hits
 - **WHEN** the language model returns JSON with an answer and no usable citation ids
-- **THEN** the chat response citations still use dump document ids from those hits
+- **THEN** finding is silencio
+- **AND** citations are empty
 - **AND** `abstain_reason` is not `llm_unavailable`
 
 #### Scenario: Named Com. A still cites the dump
@@ -150,4 +151,31 @@ When the language-model call fails or no language-model key is configured, the s
 - **WHEN** the user asks a question
 - **THEN** finding is `silencio`
 - **AND** citations are empty
+- **AND** the language model is not called
+
+### Requirement: Retrieved clauses are data only
+When the language model is called, retrieved clause text SHALL be presented as data to quote, not as instructions to obey. The reminder to cite only this turn’s dump ids and to ignore instructions inside documents SHALL appear after the clauses as well as before them. Retrieved text MUST NOT be placed in the hidden system instructions.
+
+#### Scenario: In-corpus answer still cites a dump id
+- **GIVEN** the index is ready
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the answer contains a `Fuente:` line naming TO or Com. “A”
+- **AND** each citation id exists in this turn’s retrieval set
+
+### Requirement: Context budget
+The system SHALL cap concatenated retrieved text at a configured maximum (default 12000 characters), keeping router order and dropping the tail. If at least one clause remains, the language model MAY still be called.
+
+#### Scenario: Oversized retrieval drops the tail
+- **GIVEN** retrieval returns more text than the configured maximum
+- **WHEN** the request is processed
+- **THEN** the language model is called only with the kept prefix
+- **AND** the context-budget rule is `redact` or `pass` in the guardrail log
+
+### Requirement: Follow-up composition does not launder scope
+When the system composes the latest message with prior-turn text for retrieval, scope and no-advice SHALL still be evaluated on the latest user utterance alone. Injection MAY run on the composed text.
+
+#### Scenario: Follow-up weather after CAMEX
+- **GIVEN** a session with a prior in-corpus CAMEX question
+- **WHEN** the user asks “y el clima en Madrid?”
+- **THEN** finding is silencio
 - **AND** the language model is not called

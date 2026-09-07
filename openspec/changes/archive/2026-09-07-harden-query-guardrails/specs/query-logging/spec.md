@@ -15,7 +15,7 @@ Each completed chat turn record SHALL include the policy version, and for every 
 - **AND** retrieve is `skipped`
 
 #### Scenario: Secret in the question is not stored
-- **GIVEN** the user question contains an `sk-` shaped token
+- **GIVEN** the user question contains an `sk-`, `lm-`, or `xai-` shaped token
 - **WHEN** the turn is logged
 - **THEN** the stored `message` does not contain that token
 - **AND** guardrail details do not contain that token
