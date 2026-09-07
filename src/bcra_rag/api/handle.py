@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
@@ -19,6 +20,7 @@ async def handle_turn(
     index: IndexPort,
     llm: LlmPort,
     sessions: SessionStore,
+    pipeline: GuardrailPipeline,
     limiter: RateLimiter,
     message: str,
     session_id: str | None,
@@ -34,7 +36,7 @@ async def handle_turn(
         raise HTTPException(status_code=429, detail="rate limit exceeded")
     if k is not None and k > settings.max_k:
         raise HTTPException(status_code=422, detail="k exceeds maximum")
-    use_case = AnswerQuery(settings, index, llm, sessions)
+    use_case = AnswerQuery(settings, index, llm, sessions, pipeline)
     return await use_case.run(
         ChatRequest(message=message, session_id=session_id, k=k, filters=filters),
         request_id=request_id,

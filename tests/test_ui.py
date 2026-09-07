@@ -222,8 +222,36 @@ def test_inspector_copy_id_and_trust() -> None:
     assert 'class="obs-chip pass"' in chips
     assert "warn" in trust_markdown([{"rule": "x", "verdict": "warn", "detail": ""}])
     assert "block" in trust_markdown([{"rule": "y", "verdict": "block", "detail": ""}])
+    assert "obs-chip skipped" in trust_markdown(
+        [{"rule": "retrieve", "verdict": "skipped", "detail": "blocked", "stage": "retrieve"}]
+    )
+    assert "obs-chip redact" in trust_markdown(
+        [{"rule": "markdown-sanitize", "verdict": "redact", "detail": "", "stage": "output"}]
+    )
     assert 'class="obs-chip warn"' in trust_markdown(
         [{"rule": "x", "verdict": "warn", "detail": ""}]
+    )
+    assert "not enforced" in trust_markdown(
+        [
+            {
+                "rule": "injection",
+                "verdict": "pass",
+                "detail": "",
+                "enforced": "false",
+                "would_block": "true",
+            }
+        ]
+    )
+    assert "would-block" in trust_markdown(
+        [
+            {
+                "rule": "injection",
+                "verdict": "pass",
+                "detail": "",
+                "enforced": "false",
+                "would_block": "true",
+            }
+        ]
     )
     assert EMPTY_CITATION_CARD == citation_card_markdown(None)
     assert "obs-empty" in trust_markdown(None)
@@ -261,11 +289,14 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     settings = settings.model_copy(update={"evals_dir": Path("evals")})
     llm = FakeLlm()
+    from bcra_rag.composition import default_pipeline
+
     blocks = build_blocks(
         settings=settings,
         index=index,
         llm=llm,
         sessions=InMemorySessionStore(),
+        pipeline=default_pipeline(settings),
         limiter=RateLimiter(max_requests=20, window_s=60),
     )
     assert blocks is not None

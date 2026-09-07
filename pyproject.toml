@@ -1,6 +1,6 @@
 [project]
 name = "bcra-rag"
-version = "0.6.4"
+version = "0.6.5"
 description = "BCRA CAMEX mini-RAG"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,9 +25,15 @@ packages = ["src/bcra_rag"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/bcra_rag/ui/observatory.css" = "bcra_rag/ui/observatory.css"
+"src/bcra_rag/guardrails/policy.yaml" = "bcra_rag/guardrails/policy.yaml"
 
 [project.optional-dependencies]
 l1 = ["ragas"]
+otel = [
+    "arize-phoenix-otel",
+    "openinference-instrumentation-openai",
+]
+phoenix-evals = ["arize-phoenix-evals"]
 
 [dependency-groups]
 dev = [
@@ -64,6 +70,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["gradio.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["phoenix.*", "openinference.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
