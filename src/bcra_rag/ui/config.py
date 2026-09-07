@@ -20,7 +20,7 @@ CANNED_PROMPTS: tuple[str, ...] = (
 L1_ACCORDION_OPEN_DEFAULT = False
 EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
 EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
-_TRUST_VERDICTS = frozenset({"pass", "warn", "block"})
+_TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
 
 LAYOUT_STAFF = "Staff (IA)"
 LAYOUT_USER = "Usuario"
@@ -111,7 +111,8 @@ def l1_markdown(data: dict[str, Any]) -> str:
             "**Números unpublished/sample** — no son una corrida de operador.\n\n"
         )
     headline = data.get("headline_metric", "citation_id_exact")
-    chunking = data.get("chunking") if isinstance(data.get("chunking"), dict) else {}
+    raw_chunking = data.get("chunking")
+    chunking: dict[str, Any] = raw_chunking if isinstance(raw_chunking, dict) else {}
     a_score = chunking.get("A", data.get("A", "—"))
     b_score = chunking.get("B", data.get("B", "—"))
     b_docs = chunking.get("b_documents") or data.get("b_documents") or []
@@ -197,7 +198,14 @@ def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
     if response is None:
         return []
     return [
-        {"rule": item.rule, "verdict": item.verdict, "detail": item.detail}
+        {
+            "rule": item.rule,
+            "verdict": item.verdict,
+            "detail": item.detail,
+            "stage": item.stage,
+            "enforced": "true" if item.enforced else "false",
+            "would_block": "true" if item.would_block else "false",
+        }
         for item in response.guardrails
     ]
 
@@ -206,7 +214,12 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
     if not rows:
         return EMPTY_TRUST
     parts: list[str] = ['<div class="obs-trust">']
+    current = ""
     for item in rows:
+        stage = str(item.get("stage") or "")
+        if stage and stage != current:
+            current = stage
+            parts.append(f'<div class="obs-trust-stage">{html.escape(stage)}</div>')
         rule = html.escape(str(item.get("rule") or ""))
         verdict = html.escape(str(item.get("verdict") or ""))
         detail = html.escape(str(item.get("detail") or "").strip())
@@ -217,6 +230,10 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         )
         if detail:
             row += f'<span class="obs-trust-detail">{detail}</span>'
+        if item.get("enforced") == "false":
+            row += '<span class="obs-trust-detail">not enforced</span>'
+        if item.get("would_block") == "true":
+            row += '<span class="obs-trust-detail">would-block</span>'
         row += "</div>"
         parts.append(row)
     parts.append("</div>")

@@ -106,7 +106,7 @@ uv run pytest --run-integration tests/test_jobs_integration.py::test_refresh_com
 
 ### Debug
 
-Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). An L1 operator run still overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`).
+Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). An L1 operator run still overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`). Optional per-turn traces: set `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` and run a sibling Phoenix process (`uvx --from arize-phoenix phoenix serve` with `PHOENIX_HOST=127.0.0.1` and `PHOENIX_WORKING_DIR=$PWD/data/phoenix`). Install the optional extra with `uv sync --extra otel`. Chat still answers if the collector is unset or down.
 
 <!-- commands:debug -->
 ```bash

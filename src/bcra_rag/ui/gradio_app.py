@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
@@ -77,6 +78,7 @@ def build_blocks(
     index: IndexPort,
     llm: LlmPort,
     sessions: SessionStore,
+    pipeline: GuardrailPipeline,
     limiter: RateLimiter,
 ) -> gr.Blocks:
     health = dump_health(settings, index)
@@ -98,6 +100,7 @@ def build_blocks(
                 index=index,
                 llm=llm,
                 sessions=sessions,
+                pipeline=pipeline,
                 limiter=limiter,
                 message=message,
                 session_id=session_id or None,

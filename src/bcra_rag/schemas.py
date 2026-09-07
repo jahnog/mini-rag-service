@@ -30,8 +30,11 @@ class GuardrailVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rule: str
-    verdict: Literal["pass", "warn", "block"]
+    verdict: Literal["pass", "warn", "block", "redact", "skipped"]
     detail: str = ""
+    stage: Literal["input", "retrieve", "generate", "output"] = "input"
+    enforced: bool = True
+    would_block: bool = False
 
 
 class HitScore(BaseModel):

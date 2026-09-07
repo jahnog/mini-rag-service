@@ -342,6 +342,24 @@ button.primary,
   color: var(--danger);
 }
 
+.obs-chip.redact {
+  border-color: rgba(255, 193, 109, 0.45);
+  color: var(--warning);
+}
+
+.obs-chip.skipped {
+  border-color: rgba(210, 228, 237, 0.2);
+  color: var(--text-secondary);
+}
+
+.obs-trust-stage {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .obs-trust {
   display: flex;
   flex-direction: column;

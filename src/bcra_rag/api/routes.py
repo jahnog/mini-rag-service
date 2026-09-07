@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
@@ -21,12 +22,14 @@ def create_fastapi(
     index: IndexPort,
     llm: LlmPort,
     sessions: SessionStore,
+    pipeline: GuardrailPipeline,
 ) -> FastAPI:
     api = FastAPI(title="BCRA Mini-RAG", version="0.1.0")
     api.state.settings = settings
     api.state.index = index
     api.state.llm = llm
     api.state.sessions = sessions
+    api.state.pipeline = pipeline
     api.state.limiter = RateLimiter(
         max_requests=settings.rate_limit_requests,
         window_s=settings.rate_limit_window_s,
@@ -55,6 +58,7 @@ def create_fastapi(
             index=index,
             llm=llm,
             sessions=sessions,
+            pipeline=pipeline,
             limiter=api.state.limiter,
             message=payload.message,
             session_id=payload.session_id,
@@ -72,6 +76,7 @@ def create_fastapi(
             index=index,
             llm=llm,
             sessions=sessions,
+            pipeline=pipeline,
             limiter=api.state.limiter,
             message="/clear",
             session_id=payload.session_id,
@@ -89,6 +94,7 @@ def create_fastapi(
         index=index,
         llm=llm,
         sessions=sessions,
+        pipeline=pipeline,
         limiter=api.state.limiter,
     )
     return cast(FastAPI, mount_ui(api, blocks))
