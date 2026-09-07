@@ -84,6 +84,7 @@ class LlmDraft(BaseModel):
     answer: str
     finding: Finding
     citations: list[Citation] = Field(default_factory=list)
+    thinking: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -101,6 +102,7 @@ class ChatResponse(BaseModel):
     request_id: str
     session_id: str
     disclaimer: str = ""
+    thinking: str | None = None
 
     @model_validator(mode="after")
     def _abstain_iff_silencio(self) -> Self:

@@ -27,3 +27,20 @@ def test_abstain_must_match_silencio() -> None:
             request_id="r",
             session_id="s",
         )
+
+
+def test_chat_request_rejects_thinking() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(message="hola", thinking="nope")  # type: ignore[call-arg]
+
+
+def test_chat_response_thinking_defaults_to_none() -> None:
+    response = ChatResponse(
+        answer="x",
+        finding=Finding.SILENCIO,
+        abstain=True,
+        request_id="r",
+        session_id="s",
+    )
+    assert response.thinking is None
+    assert model_has_field(ChatResponse, "thinking")

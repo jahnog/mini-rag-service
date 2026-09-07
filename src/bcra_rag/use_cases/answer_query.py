@@ -17,7 +17,7 @@ from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort
+from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import (
     ChatFilters,
@@ -53,11 +53,25 @@ class AnswerQuery:
         self._sessions = sessions
         self._pipeline = pipeline
 
-    async def run(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
-        response = await self._respond(request, request_id=request_id)
+    async def run(
+        self,
+        request: ChatRequest,
+        *,
+        request_id: str,
+        on_thinking: OnThinking | None = None,
+    ) -> ChatResponse:
+        response = await self._respond(
+            request, request_id=request_id, on_thinking=on_thinking
+        )
         return response
 
-    async def _respond(self, request: ChatRequest, *, request_id: str) -> ChatResponse:
+    async def _respond(
+        self,
+        request: ChatRequest,
+        *,
+        request_id: str,
+        on_thinking: OnThinking | None = None,
+    ) -> ChatResponse:
         session_id = request.session_id or self._sessions.mint()
         health = dump_health(self._settings, self._index)
         last_refresh = health.last_refresh
@@ -238,7 +252,7 @@ class AnswerQuery:
         ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
         prompt = _prompt(query, ctx.hits, last_refresh, to_as_of, ctx.delimiter)
         try:
-            draft = await self._llm.complete(prompt)
+            draft = await self._llm.complete(prompt, on_thinking=on_thinking)
         except Exception:
             ctx.finding = Finding.SILENCIO
             ctx.answer = "No hay modelo disponible para completar la respuesta."
@@ -294,6 +308,7 @@ class AnswerQuery:
                 ctx.answer += f" punto {ctx.citations[0].punto}"
 
         sidecar = _sidecar(ctx.hits, ctx.citations)
+        thinking = draft.thinking.strip() or None
         return self._finalize(
             ctx,
             pre + post + retrieve_log + generate_log,
@@ -309,6 +324,7 @@ class AnswerQuery:
             user_message=request.message,
             sidecar=sidecar,
             extra_log=output_log,
+            thinking=thinking,
         )
 
     def _finalize(
@@ -326,6 +342,7 @@ class AnswerQuery:
         user_message: str,
         sidecar: Sidecar | None = None,
         extra_log: list[RailResult] | None = None,
+        thinking: str | None = None,
     ) -> ChatResponse:
         if extra_log is None:
             dated = (
@@ -347,6 +364,7 @@ class AnswerQuery:
             request_id=request_id,
             session_id=session_id,
             disclaimer=disclaimer,
+            thinking=thinking,
         )
         if remember:
             self._remember(session_id, user_message, response.answer)
@@ -373,6 +391,7 @@ def _log_turn(
     pipeline: GuardrailPipeline,
 ) -> None:
     payload = response.model_dump()
+    payload.pop("thinking", None)
     payload["answer"] = redact_secrets(str(payload.get("answer") or ""))
     payload["guardrails"] = [
         {**item, "detail": redact_secrets(str(item.get("detail") or ""))}

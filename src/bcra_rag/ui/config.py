@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +25,11 @@ _TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
 
 LAYOUT_STAFF = "Staff (IA)"
 LAYOUT_USER = "Usuario"
+LAYOUT_STAFF_CLASS = "layout-staff"
+LAYOUT_USER_CLASS = "layout-user"
 LAYOUT_HELP = (
-    "Staff (IA) muestra el inspector de citas, el log de guardrails, "
-    "Calidad L1 y las fechas del dump.\n\n"
+    "Staff (IA) muestra el razonamiento, el inspector de citas, "
+    "el log de guardrails, Calidad L1 y las fechas del dump.\n\n"
     "Usuario deja solo la pregunta, la respuesta, Enviar, Clear y los ejemplos."
 )
 
@@ -80,8 +83,15 @@ def layout_updates(staff: bool) -> tuple[Any, Any]:
     return update, update
 
 
-def apply_layout(choice: str | None) -> tuple[Any, Any]:
-    return layout_updates(choice == LAYOUT_STAFF)
+def layout_shell_classes(staff: bool) -> list[str]:
+    return [LAYOUT_STAFF_CLASS if staff else LAYOUT_USER_CLASS]
+
+
+def apply_layout(choice: str | None) -> tuple[Any, Any, Any]:
+    staff = choice == LAYOUT_STAFF
+    freeze, side = layout_updates(staff)
+    shell = gr.update(elem_classes=layout_shell_classes(staff))
+    return freeze, side, shell
 
 
 def load_l1(path: Path) -> dict[str, Any]:
@@ -137,13 +147,105 @@ def footer_text(last_refresh: str | None) -> str:
     )
 
 
+THOUGHT_PENDING_TITLE = "Pensando…"
+ChatRow = dict[str, Any]
+_ATX_HEADING = re.compile(r"(?m)^(#{1,6})(?=\s|$)")
+_THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
+THOUGHT_PUBLISH_S = 0.12
+
+
+def thought_markdown(text: str) -> str:
+    """Keep CoT at body size: streaming `#` / `##` must not become Markdown headings."""
+    return _ATX_HEADING.sub(lambda match: "\\" + match.group(1), text)
+
+
+def thought_publish_ready(text: str) -> bool:
+    """True when the trace ends on a word/punctuation break (not mid-token)."""
+    if not text:
+        return False
+    return text[-1] in _THOUGHT_BREAK
+
+
+def thought_message(
+    content: str,
+    *,
+    title: str,
+    status: str | None = None,
+    duration: float | None = None,
+) -> ChatRow:
+    metadata: dict[str, Any] = {"title": title}
+    if status is not None:
+        metadata["status"] = status
+    if duration is not None:
+        metadata["duration"] = duration
+    return {
+        "role": "assistant",
+        "content": thought_markdown(content),
+        "metadata": metadata,
+    }
+
+
+def done_thought_title(duration: float | None) -> str:
+    if duration is None:
+        return "Pensó"
+    if duration >= 1:
+        return f"Pensó {int(round(duration))}s"
+    return f"Pensó {duration:.1f}s"
+
+
+def _copy_row(row: ChatRow) -> ChatRow:
+    copied = dict(row)
+    meta = copied.get("metadata")
+    if isinstance(meta, dict):
+        copied["metadata"] = dict(meta)
+    return copied
+
+
+def collapse_prior_thoughts(history: list[ChatRow] | None) -> list[ChatRow]:
+    rows: list[ChatRow] = []
+    for row in history or []:
+        copied = _copy_row(row)
+        meta = copied.get("metadata")
+        if isinstance(meta, dict) and meta.get("title"):
+            copied["metadata"] = {**meta, "status": "done"}
+        rows.append(copied)
+    return rows
+
+
+def append_pending(
+    history: list[ChatRow] | None,
+    user: str,
+    thinking: str = "",
+) -> list[ChatRow]:
+    rows = collapse_prior_thoughts(history)
+    rows.append({"role": "user", "content": user})
+    rows.append(
+        thought_message(
+            thinking, title=THOUGHT_PENDING_TITLE, status="pending"
+        )
+    )
+    return rows
+
+
 def append_messages(
-    history: list[dict[str, str]] | None,
+    history: list[ChatRow] | None,
     user: str,
     assistant: str,
-) -> list[dict[str, str]]:
-    rows = list(history or [])
+    *,
+    thinking: str | None = None,
+    duration: float | None = None,
+) -> list[ChatRow]:
+    rows = collapse_prior_thoughts(history)
     rows.append({"role": "user", "content": user})
+    trace = (thinking or "").strip()
+    if trace:
+        rows.append(
+            thought_message(
+                trace,
+                title=done_thought_title(duration),
+                duration=duration,
+            )
+        )
     rows.append({"role": "assistant", "content": assistant})
     return rows
 
