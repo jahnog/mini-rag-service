@@ -6,6 +6,15 @@ from bcra_rag.schemas import Finding
 from tests.chat_fixtures import make_client, seed_ready
 
 
+def test_chat_rejects_thinking_on_request(tmp_path: Path) -> None:
+    client, llm, _, _ = make_client(tmp_path)
+    response = client.post(
+        "/chat", json={"message": "Qué es el MULC?", "thinking": "nope"}
+    )
+    assert response.status_code == 422
+    assert llm.calls == []
+
+
 def test_chat_named_a3500(tmp_path: Path) -> None:
     client, llm, _, _ = make_client(tmp_path)
     response = client.post("/chat", json={"message": "Qué dice la Comunicación A 3500?"})

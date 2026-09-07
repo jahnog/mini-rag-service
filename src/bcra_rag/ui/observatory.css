@@ -225,6 +225,82 @@ footer.svelte-1ax1toq,
   border: 1px solid var(--border-soft) !important;
 }
 
+#observatory-chat .thought-group {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  border-left: 2px solid var(--accent);
+  padding-left: 0.7rem;
+  background: transparent;
+  animation: thought-pulse 1.4s ease-in-out infinite;
+}
+
+#observatory-chat .thought-group :is(
+    .md,
+    .prose,
+    .content,
+    .content-preview,
+    p,
+    li,
+    span,
+    a,
+    code,
+    pre,
+    blockquote,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6
+  ) {
+  font-size: 0.82rem !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: inherit !important;
+  font-family: inherit !important;
+}
+
+#observatory-chat .thought-group :is(h1, h2, h3, h4, h5, h6, p, pre, blockquote, ul, ol) {
+  margin: 0.15em 0 !important;
+}
+
+#observatory-chat .thought-group:has(.duration) {
+  animation: none;
+  opacity: 0.85;
+}
+
+#observatory-chat .bot:has(.thought-group),
+#observatory-chat .assistant:has(.thought-group) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+#observatory-chat .thought-group .content {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+#observatory-shell.layout-user .thought-group,
+#observatory-shell.layout-user .bot:has(.thought-group),
+#observatory-shell.layout-user .assistant:has(.thought-group),
+#observatory-shell.layout-user .message:has(.thought-group),
+#observatory-shell.layout-user .message-row:has(.thought-group) {
+  display: none !important;
+}
+
+@keyframes thought-pulse {
+  0%,
+  100% {
+    border-left-color: var(--accent);
+  }
+  50% {
+    border-left-color: var(--accent-strong);
+  }
+}
+
 #abstain-banner {
   color: var(--warning);
   border: 1px solid rgba(255, 193, 109, 0.35);

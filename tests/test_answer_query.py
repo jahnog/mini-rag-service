@@ -53,6 +53,7 @@ async def test_in_corpus_has_fuente_and_sidecar(tmp_path: Path) -> None:
     assert response.last_refresh == LAST_REFRESH
     assert response.to_as_of == TO_AS_OF
     assert llm.calls
+    assert response.thinking is None
     assert response.disclaimer
     assert {g.rule for g in response.guardrails} >= {
         "scope",
@@ -157,6 +158,7 @@ async def test_empty_hits_silencio_no_llm(tmp_path: Path) -> None:
     assert response.abstain is True
     assert response.citations == []
     assert LAST_REFRESH in response.answer
+    assert response.thinking is None
     assert llm.calls == []
 
 
@@ -202,6 +204,7 @@ async def test_weather_silencio_no_llm(tmp_path: Path) -> None:
     assert response.finding is Finding.SILENCIO
     assert response.abstain_reason == "scope"
     assert llm.calls == []
+    assert response.thinking is None
     assert any(g.rule == "scope" and g.verdict == "block" for g in response.guardrails)
 
 
@@ -236,6 +239,7 @@ async def test_index_not_ready_no_llm(tmp_path: Path) -> None:
     assert response.finding is Finding.SILENCIO
     assert response.abstain_reason == "index_not_ready"
     assert llm.calls == []
+    assert response.thinking is None
 
 
 @pytest.mark.asyncio
@@ -320,6 +324,7 @@ async def test_llm_failure_is_silencio_not_exception_text(tmp_path: Path) -> Non
     assert response.abstain_reason == "llm_unavailable"
     assert "RuntimeError" not in response.answer
     assert "LLM_API_KEY" not in response.answer
+    assert response.thinking is None
 
 
 @pytest.mark.asyncio
@@ -360,6 +365,59 @@ async def test_date_filter_drops_missing_fecha(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_corpus_thinking_is_copied_not_remembered(tmp_path: Path) -> None:
+    sessions = InMemorySessionStore()
+    draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft), sessions=sessions)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="think-1",
+    )
+    assert first.thinking == "voy a citar el TO"
+    assert "voy a citar el TO" not in first.answer
+    assert "Fuente:" in first.answer
+    history = sessions.get(first.session_id)
+    assert history
+    assert all("voy a citar el TO" not in text for _role, text in history)
+    second = await use_case.run(
+        ChatRequest(message="y ese punto?", session_id=first.session_id),
+        request_id="think-2",
+    )
+    assert second.citations
+
+
+@pytest.mark.asyncio
+async def test_in_corpus_thinking_callback_receives_trace(tmp_path: Path) -> None:
+    draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft, think_chunks=["voy ", "voy a citar el TO"]))
+    seen: list[str] = []
+
+    async def on_thinking(text: str) -> None:
+        seen.append(text)
+
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="think-live",
+        on_thinking=on_thinking,
+    )
+    assert seen == ["voy ", "voy a citar el TO"]
+    assert response.thinking == "voy a citar el TO"
+
+
+@pytest.mark.asyncio
+async def test_named_a_thinking_is_not_the_citation_id(tmp_path: Path) -> None:
+    draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "busco A3500 en el dump"})
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="a3500-think",
+    )
+    assert "A3500" in {c.id for c in response.citations}
+    assert response.thinking == "busco A3500 en el dump"
+    assert response.thinking != "A3500"
+
+
+@pytest.mark.asyncio
 async def test_follow_up_still_retrieves(tmp_path: Path) -> None:
     sessions = InMemorySessionStore()
     use_case, llm = _uc(tmp_path, sessions=sessions)
@@ -392,6 +450,7 @@ async def test_typed_clear_does_not_retrieve(tmp_path: Path) -> None:
     assert cleared.finding is Finding.SILENCIO
     assert sessions.get(first.session_id) == []
     assert len(llm.calls) == 1
+    assert cleared.thinking is None
 
 
 @pytest.mark.asyncio
@@ -481,6 +540,7 @@ async def test_in_corpus_turn_is_logged(
         "cite-or-abstain",
         "freeze-honesty",
     }
+    assert "thinking" not in event
 
 
 @pytest.mark.asyncio
@@ -497,6 +557,7 @@ async def test_named_a3500_turn_is_logged(
     citations = event["citations"]
     assert isinstance(citations, list)
     assert any(item["id"] == "A3500" for item in citations)
+    assert "thinking" not in event
 
 
 @pytest.mark.asyncio
@@ -557,6 +618,7 @@ async def test_clear_turn_is_logged(
     assert event["citations"] == []
     assert event["finding"] == Finding.SILENCIO.value
     assert len(llm.calls) == 1
+    assert "thinking" not in event
 
 
 @pytest.mark.asyncio
@@ -580,3 +642,24 @@ async def test_empty_retrieval_silencio_is_logged(
     assert event["finding"] == Finding.SILENCIO.value
     assert event["citations"] == []
     assert llm.calls == []
+    assert "thinking" not in event
+
+
+@pytest.mark.asyncio
+async def test_thinking_trace_is_not_logged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="req-think-log",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert response.thinking == "voy a citar el TO"
+    assert event["answer"] == response.answer
+    assert event["finding"] == response.finding.value
+    assert "thinking" not in event
+    dumped = log_file.read_text(encoding="utf-8")
+    assert "voy a citar el TO" not in dumped

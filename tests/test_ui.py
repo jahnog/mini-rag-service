@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
@@ -11,13 +14,17 @@ from bcra_rag.ui.config import (
     L1_ACCORDION_OPEN_DEFAULT,
     LAYOUT_HELP,
     LAYOUT_STAFF,
+    LAYOUT_STAFF_CLASS,
     LAYOUT_USER,
+    LAYOUT_USER_CLASS,
     abstain_visible,
     append_messages,
+    append_pending,
     apply_layout,
     banner_markdown,
     citation_card_markdown,
     citation_cards,
+    done_thought_title,
     dump_date,
     freeze_chips_html,
     inspector_payload,
@@ -25,12 +32,14 @@ from bcra_rag.ui.config import (
     l1_markdown,
     layout_updates,
     load_l1,
+    thought_markdown,
+    thought_publish_ready,
     title_markdown,
     topbar_markdown,
     trust_markdown,
     trust_payload,
 )
-from bcra_rag.ui.gradio_app import build_blocks, mount_ui
+from bcra_rag.ui.gradio_app import build_blocks, iter_observatory_turn, mount_ui
 from bcra_rag.ui.theme import (
     observatory_css_path,
     observatory_head,
@@ -56,6 +65,17 @@ def test_observatory_css_tokens() -> None:
     assert 'content: "Citas"' in css
     assert 'content: "Guardrails"' in css
     assert "min-height: 44px" in css
+    assert ".thought-group" in css
+    assert "thought-pulse" in css
+    assert "#observatory-chat .thought-group" in css
+    assert ":has(.thought-group)" in css
+    assert ".thought-group .content" in css
+    assert "layout-user" in css
+    assert "#observatory-shell.layout-user .thought-group" in css
+    thought_css = "".join(css.split(".thought-group")[1:])
+    assert "h1" in thought_css
+    assert "0.82rem" in thought_css
+    assert "svelte-" not in css.split(".thought-group")[1][:400]
 
 
 def test_observatory_theme_helpers() -> None:
@@ -105,6 +125,215 @@ def test_append_messages_accepts_none_history() -> None:
     ]
     again = append_messages(rows, "y ese punto?", "otra")
     assert len(again) == 4
+
+
+def test_append_pending_then_done_has_no_leftover_pending() -> None:
+    pending = append_pending(None, "hola")
+    assert pending[0] == {"role": "user", "content": "hola"}
+    assert pending[1]["metadata"]["title"] == "Pensando…"
+    assert pending[1]["metadata"]["status"] == "pending"
+    growing = append_pending(None, "hola", thinking="voy")
+    assert growing[1]["content"] == "voy"
+    assert growing[1]["metadata"]["status"] == "pending"
+    done = append_messages(
+        None, "hola", "Fuente: A8359", thinking="voy a citar", duration=1.4
+    )
+    statuses = [row.get("metadata", {}).get("status") for row in done]
+    assert "pending" not in statuses
+    assert "status" not in done[1]["metadata"]
+    assert done[1]["content"] == "voy a citar"
+    assert "Pensó" in done[1]["metadata"]["title"]
+    assert done[2] == {"role": "assistant", "content": "Fuente: A8359"}
+    silencio = append_messages(None, "clima", "No puedo responder (scope).")
+    assert len(silencio) == 2
+    assert "metadata" not in silencio[1]
+    denied = append_messages(None, "hola", "Se requiere DEMO_API_KEY.")
+    limited = append_messages(None, "hola", "Demasiadas solicitudes.")
+    assert "metadata" not in denied[1]
+    assert "metadata" not in limited[1]
+
+
+def test_prior_thoughts_collapse_without_mutating_history() -> None:
+    first = append_messages(
+        None, "q1", "Fuente: A8359", thinking="trace uno", duration=1
+    )
+    assert "status" not in first[1]["metadata"]
+    second = append_messages(
+        first, "q2", "Fuente: A3500", thinking="trace dos", duration=2
+    )
+    assert first[1]["metadata"].get("status") != "done"
+    assert second[1]["metadata"]["status"] == "done"
+    assert "status" not in second[4]["metadata"]
+    assert second[4]["content"] == "trace dos"
+    assert second[5]["content"] == "Fuente: A3500"
+
+
+def test_thought_publish_ready_waits_for_a_word_break() -> None:
+    assert thought_publish_ready("") is False
+    assert thought_publish_ready("h") is False
+    assert thought_publish_ready("hola") is False
+    assert thought_publish_ready("hola ") is True
+    assert thought_publish_ready("hola.") is True
+    assert thought_publish_ready("hola\n") is True
+
+
+def test_thought_markdown_does_not_promote_streaming_headings() -> None:
+    assert thought_markdown("# ") == "\\# "
+    assert thought_markdown("## paso") == "\\## paso"
+    assert thought_markdown("voy a citar") == "voy a citar"
+    assert thought_markdown("#") == "\\#"
+    rows = append_pending(None, "q", thinking="# foo")
+    assert rows[1]["content"] == "\\# foo"
+
+
+def test_done_thought_title_formats_seconds() -> None:
+    assert done_thought_title(None) == "Pensó"
+    assert done_thought_title(4.2) == "Pensó 4s"
+    assert done_thought_title(0.4) == "Pensó 0.4s"
+
+
+def test_turn_yields_pending_then_result() -> None:
+    import inspect
+
+    from bcra_rag.ui import gradio_app
+
+    source = inspect.getsource(gradio_app.build_blocks)
+    assert "iter_observatory_turn" in source
+    assert "on_thinking" in source
+
+
+def _turn_response(**kwargs: object) -> ChatResponse:
+    payload = {
+        "answer": "Fuente: A8359",
+        "finding": Finding.DEFINICION,
+        "citations": [],
+        "abstain": False,
+        "last_refresh": LAST_REFRESH,
+        "to_as_of": TO_AS_OF,
+        "guardrails": [],
+        "request_id": "r",
+        "session_id": "s1",
+        "disclaimer": "x",
+        "thinking": "voy a citar",
+    }
+    payload.update(kwargs)
+    return ChatResponse.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_yields_thinking_before_answer() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id
+        if on_thinking is not None:
+            await on_thinking("voy")
+            await on_thinking("voy a citar")
+        return _turn_response()
+
+    yields: list[tuple[object, ...]] = []
+    async for item in iter_observatory_turn(
+        "hola", None, None, run_turn=run_turn
+    ):
+        yields.append(item)
+    assert len(yields) >= 3
+    first_rows = yields[0][0]
+    assert first_rows[1]["metadata"]["status"] == "pending"
+    assert first_rows[1]["content"] == ""
+    live_rows = [item[0] for item in yields[1:-1]]
+    assert live_rows
+    assert any("voy" in rows[1]["content"] for rows in live_rows)
+    assert all(len(rows) == 2 for rows in live_rows)
+    assert all("Fuente:" not in rows[1]["content"] for rows in live_rows)
+    final_rows = yields[-1][0]
+    assert final_rows[1]["content"] == "voy a citar"
+    assert "status" not in final_rows[1]["metadata"]
+    assert final_rows[2]["content"] == "Fuente: A8359"
+    assert "Fuente:" not in final_rows[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_publishes_thinking_on_word_breaks() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id
+        acc = ""
+        for char in "hola mundo":
+            acc += char
+            if on_thinking is not None:
+                await on_thinking(acc)
+        return _turn_response(thinking="hola mundo")
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "q", None, None, run_turn=run_turn
+        )
+    ]
+    live = [item[0][1]["content"] for item in yields[1:-1]]
+    assert "h" not in live
+    assert "ho" not in live
+    assert "hol" not in live
+    assert any(item.startswith("hola") for item in live)
+    assert yields[-1][0][1]["content"] == "hola mundo"
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_http_error_drops_thought() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id, on_thinking
+        raise HTTPException(status_code=401, detail="invalid demo key")
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "hola", None, None, run_turn=run_turn
+        )
+    ]
+    final_rows = yields[-1][0]
+    assert len(final_rows) == 2
+    assert "metadata" not in final_rows[1]
+    assert "DEMO_API_KEY" in final_rows[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id, on_thinking
+        return _turn_response(
+            answer="No hay una cláusula citada en el dump CAMEX.",
+            finding=Finding.SILENCIO,
+            abstain=True,
+            abstain_reason="retrieve_empty",
+            thinking=None,
+        )
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "clima", None, None, run_turn=run_turn
+        )
+    ]
+    final_rows = yields[-1][0]
+    assert len(final_rows) == 2
+    assert "metadata" not in final_rows[1]
 
 
 def test_chatbot_uses_messages_not_tuples() -> None:
@@ -336,6 +565,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     assert list(getattr(chatbots[0], "buttons", None) or []) == []
     assert getattr(chatbots[0], "height", None) == "100%"
     assert getattr(chatbots[0], "min_height", None) == 480
+    assert getattr(chatbots[0], "group_consecutive_messages", True) is False
     topbar = _widget_by_elem_id(blocks, "observatory-topbar")
     assert topbar is not None
     assert getattr(topbar, "scale", None) == 0
@@ -369,6 +599,9 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     assert "secondary" in variants
     freeze = _widget_by_elem_id(blocks, "observatory-freeze")
     side = _widget_by_elem_id(blocks, "observatory-side")
+    shell = _widget_by_elem_id(blocks, "observatory-shell")
+    assert shell is not None
+    assert LAYOUT_STAFF_CLASS in list(getattr(shell, "elem_classes", None) or [])
     help_box = _widget_by_elem_id(blocks, "layout-toggle-help")
     assert freeze is not None and getattr(freeze, "visible", True) is True
     assert side is not None and getattr(side, "visible", True) is True
@@ -399,20 +632,37 @@ def test_layout_toggle_visibility() -> None:
     assert _update_visible(show_side) is True
     user = apply_layout(LAYOUT_USER)
     staff = apply_layout(LAYOUT_STAFF)
-    assert len(user) == 2
-    assert len(staff) == 2
+    assert len(user) == 3
+    assert len(staff) == 3
     assert _update_visible(user[0]) is False
     assert _update_visible(user[1]) is False
     assert _update_visible(staff[0]) is True
     assert _update_visible(staff[1]) is True
+    assert LAYOUT_USER_CLASS in _update_classes(user[2])
+    assert LAYOUT_STAFF_CLASS in _update_classes(staff[2])
     assert LAYOUT_STAFF in LAYOUT_HELP
     assert LAYOUT_USER in LAYOUT_HELP
     assert "inspector de citas" in LAYOUT_HELP
+    thought_rows = append_messages(None, "q", "Fuente: A8359", thinking="trace")
+    assert "status" not in thought_rows[1]["metadata"]
+    assert apply_layout(LAYOUT_USER)[1] is not thought_rows
     assert "Enviar" in LAYOUT_HELP
     help_lines = [line.strip() for line in LAYOUT_HELP.splitlines() if line.strip()]
     assert len(help_lines) == 2
     assert help_lines[0].startswith("Staff")
     assert help_lines[1].startswith("Usuario")
+
+
+def _update_classes(update: object) -> list[str]:
+    if isinstance(update, dict):
+        value = update.get("elem_classes")
+        return list(value) if isinstance(value, (list, tuple)) else []
+    value = getattr(update, "elem_classes", None)
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    payload = getattr(update, "__dict__", {}) or {}
+    classes = payload.get("elem_classes")
+    return list(classes) if isinstance(classes, (list, tuple)) else []
 
 
 def _update_visible(update: object) -> bool | None:
