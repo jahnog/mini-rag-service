@@ -4,7 +4,9 @@ from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from typing import Any
 
-from bcra_rag.adapters.otel import retriever_attributes
+import pytest
+
+from bcra_rag.adapters.otel import phoenix_register_kwargs, retriever_attributes
 from bcra_rag.domain.guardrails.pipeline import span_id_hex
 from bcra_rag.domain.models import Chunk
 
@@ -67,6 +69,24 @@ def test_span_id_hex_formats_otel_context() -> None:
 
     assert span_id_hex(_SpanWithCtx(0xAB)) == "00000000000000ab"
     assert span_id_hex(object()) is None
+
+
+def test_phoenix_register_kwargs_include_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
+    monkeypatch.delenv("PHOENIX_PROJECT_NAME", raising=False)
+    with_key = phoenix_register_kwargs("http://127.0.0.1:6006", api_key=" pk-test ")
+    assert with_key["api_key"] == "pk-test"
+    monkeypatch.setenv("PHOENIX_API_KEY", "pk-env")
+    from_env = phoenix_register_kwargs("http://127.0.0.1:6006")
+    assert from_env["api_key"] == "pk-env"
+    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
+    empty = phoenix_register_kwargs("http://127.0.0.1:6006", api_key="")
+    assert "api_key" not in empty
+    assert empty["endpoint"] == "http://127.0.0.1:6006"
+    assert empty["protocol"] == "http/protobuf"
+    assert empty["batch"] is True
 
 
 def test_record_retriever_sets_openinference_kind() -> None:

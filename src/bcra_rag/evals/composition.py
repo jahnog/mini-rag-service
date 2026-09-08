@@ -50,7 +50,9 @@ def build_evals(
     resolved_llm = llm or (
         LlmAdapter(resolved) if resolved.llm_api_key else UnavailableLlm()
     )
-    resolved_tracer = tracer or build_tracer(resolved)
+    resolved_tracer = tracer or build_tracer(
+        resolved, api_key=resolved_eval.phoenix_api_key
+    )
     resolved_pipeline = pipeline or assemble_pipeline(
         load_policy(resolved.guardrails_policy_path or default_policy_path()),
         resolved,
@@ -80,9 +82,9 @@ def build_evals(
 def _maybe_judge(eval_settings: EvalSettings) -> tuple[Judge | None, str | None]:
     if not eval_settings.resolved_judge_key():
         return None, "no_judge"
-    if find_spec("phoenix.evals") is None:
-        return None, "missing_extra"
     try:
+        if find_spec("phoenix.evals") is None:
+            return None, "missing_extra"
         from bcra_rag.evals.adapters.judge_phoenix import PhoenixJudge
 
         return PhoenixJudge(eval_settings), None
@@ -97,6 +99,10 @@ def _maybe_sink(eval_settings: EvalSettings) -> EvalSink:
     try:
         from bcra_rag.evals.adapters.sink_phoenix import PhoenixEvalSink
 
-        return PhoenixEvalSink(endpoint, eval_settings.phoenix_project_name)
+        return PhoenixEvalSink(
+            endpoint,
+            eval_settings.phoenix_project_name,
+            api_key=eval_settings.phoenix_api_key,
+        )
     except Exception:
         return NoOpEvalSink()

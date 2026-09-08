@@ -20,6 +20,7 @@ class EvalSettings(BaseSettings):
     llm_api_key: str = ""
     phoenix_collector_endpoint: str = ""
     phoenix_project_name: str = "bcra-rag"
+    phoenix_api_key: str = ""
 
     def resolved_judge_key(self) -> str:
         return (self.judge_api_key or self.llm_api_key).strip()

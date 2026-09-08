@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from bcra_rag.evals.adapters.sink_phoenix import PhoenixEvalSink, _collector_host
+from bcra_rag.evals.adapters.sink_phoenix import (
+    PhoenixEvalSink,
+    _collector_host,
+    phoenix_client_kwargs,
+)
 from bcra_rag.evals.domain.types import EvalReport, SuiteReport
 
 
@@ -58,6 +62,13 @@ def test_phoenix_sink_posts_namespaced_span_bound_annotations() -> None:
     assert by_name["retrieval.hit_at_5"]["annotator_kind"] == "CODE"
     assert by_name["generation.faithfulness"]["annotator_kind"] == "LLM"
     assert by_name["generation.citation_id_exact"]["annotator_kind"] == "CODE"
+
+
+def test_phoenix_client_kwargs_omit_empty_api_key() -> None:
+    with_key = phoenix_client_kwargs("http://127.0.0.1:6006", " secret ")
+    assert with_key == {"base_url": "http://127.0.0.1:6006", "api_key": "secret"}
+    empty = phoenix_client_kwargs("http://127.0.0.1:6006", "")
+    assert empty == {"base_url": "http://127.0.0.1:6006", "api_key": None}
 
 
 def test_phoenix_sink_skips_client_without_span_id() -> None:

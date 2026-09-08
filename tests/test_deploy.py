@@ -105,6 +105,39 @@ def test_job_helpers_flock_trap_cd_and_absolute_venv() -> None:
         )
 
 
+def test_l1_helper_flock_trap_cd_and_absolute_venv() -> None:
+    text = _read("l1.sh")
+    assert text.startswith("#!/bin/bash")
+    assert "exec 9>/run/bcra-rag-job.lock" in text
+    assert "flock 9" in text
+    assert "-n" not in text.split("flock", 1)[1].splitlines()[0]
+    assert "trap" in text
+    assert "systemctl start bcra-rag.service || true" in text
+    assert "systemctl stop bcra-rag.service || true" in text
+    assert f"cd {PLACEHOLDER_DIR}" in text
+    assert f"sudo -u {PLACEHOLDER_USER}" in text
+    assert f'{PLACEHOLDER_DIR}/.venv/bin/python evals/run_l1.py "$@"' in text
+    assert text.index("exec 9>") < text.index("flock")
+    assert text.index("flock") < text.index("trap")
+    assert text.index("trap") < text.index("systemctl stop")
+    assert text.index("systemctl stop") < text.index(f"cd {PLACEHOLDER_DIR}")
+    assert text.index(f"cd {PLACEHOLDER_DIR}") < text.index(
+        f"{PLACEHOLDER_DIR}/.venv/bin/python"
+    )
+    assert "Conflicts=" not in text
+    assert "[Install]" not in text
+    assert "$HOME/.local/bin/uv" not in text
+    assert "uv sync" not in text
+    assert "cron" not in text
+    rendered = _render(text)
+    assert f"cd {RENDER_DIR}" in rendered
+    assert f"sudo -u {RENDER_USER}" in rendered
+    assert f'{RENDER_DIR}/.venv/bin/python evals/run_l1.py "$@"' in rendered
+    assert not (DEPLOY / "bcra-rag-l1.service").exists()
+    cron = _read("bcra-rag-refresh.cron")
+    assert "l1" not in cron
+
+
 def test_refresh_cron_is_cron_d_not_a_timer() -> None:
     text = _read("bcra-rag-refresh.cron")
     assert "0 6 * * * root systemctl start bcra-rag-refresh.service" in text
@@ -130,9 +163,13 @@ def test_deploy_script_requires_host_excludes_uv_restart_and_ingest_flag() -> No
         "deploy/local.env",
         "coverage.xml",
         ".coverage",
+        "evals/l1.json",
     ):
         assert exclude in text
     assert "--delete-excluded" not in text
+    assert "unpublished" in text
+    assert "sample" in text
+    assert "deploy/l1.sh" in text
     assert "$HOME/.local/bin/uv" in text
     assert "uv sync --frozen --no-dev" in text
     assert "daemon-reload" in text
@@ -156,6 +193,18 @@ def test_deploy_script_requires_host_excludes_uv_restart_and_ingest_flag() -> No
     assert "DEPLOY_USER is required when DEPLOY_HOST has no user@" in text
 
 
+def test_deploy_seeds_unpublished_l1_json_only_when_dest_missing() -> None:
+    text = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    exclude_idx = text.index("evals/l1.json")
+    seed_idx = text.index("unpublished")
+    assert exclude_idx < seed_idx
+    assert "sample" in text[seed_idx : seed_idx + 400]
+    assert "test -f" in text
+    assert "--delete-excluded" not in text
+    assert "git show HEAD:evals/l1.json" not in text
+    assert "--ignore-existing" not in text
+
+
 def test_remote_env_seed_uses_loopback_embeddings_and_grok() -> None:
     text = _read("env.remote.example")
     assert "EMBEDDING_BASE_URL=http://127.0.0.1:8001/v1" in text
@@ -172,6 +221,27 @@ def test_remote_env_seed_uses_loopback_embeddings_and_grok() -> None:
         if line and not line.startswith("#") and "=" in line
     }
     assert lines["LLM_API_KEY"] == ""
+    assert lines["PHOENIX_API_KEY"] == ""
+
+
+def test_remote_env_seed_comments_judge_keys() -> None:
+    text = _read("env.remote.example")
+    assert "export" not in text
+    for key in (
+        "JUDGE_MODEL",
+        "JUDGE_BASE_URL",
+        "JUDGE_API_KEY",
+        "JUDGE_REASONING_EFFORT",
+    ):
+        assert key in text
+        assigned = [
+            line
+            for line in text.splitlines()
+            if line and not line.startswith("#") and line.startswith(f"{key}=")
+        ]
+        assert assigned == [] or all(
+            line.split("=", 1)[1] == "" for line in assigned
+        )
 
 
 def test_local_env_example_has_no_real_hosts() -> None:
@@ -180,6 +250,20 @@ def test_local_env_example_has_no_real_hosts() -> None:
     assert "DEPLOY_HOST=user@your-dump-host" in text
     assert "content" + "labstudy" not in text
     assert "chita" + "-ts" not in text
+
+
+def test_run_l1_script_resolves_host_and_forwards_argv() -> None:
+    text = (ROOT / "scripts" / "run-l1.sh").read_text(encoding="utf-8")
+    assert "DEPLOY_HOST is required" in text
+    assert "deploy/local.env" in text
+    assert "deploy/l1.sh" in text
+    assert '"$@"' in text
+    assert "shell=True" not in text
+    assert "content" + "labstudy" not in text
+    assert "chita" + "-ts" not in text
+    assert "/home/" + "redirect" not in text
+    assert "sudo" in text
+    assert 'printf %s "$HOME/bcra-mini-rag"' in text
 
 
 def test_extra_env_keys_do_not_break_load(monkeypatch, tmp_path: Path) -> None:
