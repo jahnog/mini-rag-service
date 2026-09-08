@@ -13,11 +13,15 @@ class EvalSettings(BaseSettings):
     )
 
     evals_dir: Path = Path("evals")
+
+    # L1 judge (empty judge_api_key falls back to llm_api_key)
     judge_model: str = "grok-4.3"
     judge_base_url: str = "https://api.x.ai/v1"
     judge_api_key: str = ""
     judge_reasoning_effort: str = "none"
     llm_api_key: str = ""
+
+    # Phoenix collector
     phoenix_collector_endpoint: str = ""
     phoenix_project_name: str = "bcra-rag"
     phoenix_api_key: str = ""

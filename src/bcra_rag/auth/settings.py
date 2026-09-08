@@ -14,14 +14,23 @@ class AuthSettings(BaseSettings):
         extra="ignore",
     )
 
+    # Secret / allowlist
     secret: str = ""
     allowed_emails: str = ""
+
+    # Session cookie
     cookie_name: str = "session"
     session_days: int = Field(default=7, ge=1)
+
+    # OTP
     otp_ttl_s: int = Field(default=300, ge=1)
     otp_digits: int = Field(default=6, ge=4, le=8)
+
+    # Request origin
     trust_proxy: bool = False
     public_origin: str = ""
+
+    # SMTP
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1)
     smtp_user: str = ""
@@ -29,6 +38,8 @@ class AuthSettings(BaseSettings):
     smtp_from: str = ""
     smtp_starttls: bool = True
     smtp_timeout_s: float = Field(default=10.0, ge=0.1)
+
+    # Auth rate limits
     max_distinct_emails_per_ip_day: int = Field(default=5, ge=1)
     max_sends_per_email_minute: int = Field(default=1, ge=1)
     max_sends_per_email_day: int = Field(default=10, ge=1)
