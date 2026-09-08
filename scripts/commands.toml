@@ -219,6 +219,16 @@ argv = ["uv", "run", "python", "evals/run_l1.py", "--generation-only"]
 confirm = true
 
 [[command]]
+id = "l1-host"
+group = "Evals"
+block = "evals"
+title = "Dump-host L1"
+summary = "SSH sudo the dump-host L1 helper. Serving is down for the run."
+argv = ["./scripts/run-l1.sh"]
+readme_line = "DEPLOY_HOST=user@dump-host ./scripts/run-l1.sh"
+confirm = true
+
+[[command]]
 id = "coverage"
 group = "Reports"
 block = "reports"

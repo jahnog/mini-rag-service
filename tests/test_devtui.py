@@ -54,6 +54,7 @@ def test_real_catalog_parses_and_matches_allowlist(devtui: Any) -> None:
         "l1-deterministic",
         "l1-retrieval",
         "l1-generation",
+        "l1-host",
         "deploy",
         "ssh-forward",
         "unit-start",

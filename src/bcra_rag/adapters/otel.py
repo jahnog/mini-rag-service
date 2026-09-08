@@ -11,12 +11,12 @@ from bcra_rag.settings import Settings
 _CONTENT_LIMIT = 2000
 
 
-def build_tracer(settings: Settings) -> Tracer:
+def build_tracer(settings: Settings, *, api_key: str = "") -> Tracer:
     endpoint = _collector_endpoint()
     if not endpoint:
         return NoOpTracer()
     try:
-        return _phoenix_tracer(settings, endpoint)
+        return _phoenix_tracer(settings, endpoint, api_key=api_key)
     except Exception:
         return NoOpTracer()
 
@@ -27,17 +27,34 @@ def _collector_endpoint() -> str:
     return (os.environ.get("PHOENIX_COLLECTOR_ENDPOINT") or "").strip()
 
 
-def _phoenix_tracer(settings: Settings, endpoint: str) -> Tracer:
+def _resolved_api_key(api_key: str = "") -> str:
+    import os
+
+    explicit = (api_key or "").strip()
+    if explicit:
+        return explicit
+    return (os.environ.get("PHOENIX_API_KEY") or "").strip()
+
+
+def phoenix_register_kwargs(endpoint: str, *, api_key: str = "") -> dict[str, str | bool]:
+    kwargs: dict[str, str | bool] = {
+        "project_name": _project_name(),
+        "endpoint": endpoint,
+        "protocol": "http/protobuf",
+        "batch": True,
+    }
+    key = _resolved_api_key(api_key)
+    if key:
+        kwargs["api_key"] = key
+    return kwargs
+
+
+def _phoenix_tracer(settings: Settings, endpoint: str, *, api_key: str = "") -> Tracer:
     del settings
     from openinference.instrumentation.openai import OpenAIInstrumentor
     from phoenix.otel import register
 
-    provider = register(
-        project_name=_project_name(),
-        endpoint=endpoint,
-        protocol="http/protobuf",
-        batch=True,
-    )
+    provider = register(**phoenix_register_kwargs(endpoint, api_key=api_key))
     OpenAIInstrumentor().instrument(tracer_provider=provider)
     tracer = provider.get_tracer("bcra_rag")
     return _OtelTracer(tracer)

@@ -61,3 +61,77 @@ def test_build_evals_does_not_require_judge_extra(
     assert app.judge is None
     assert app.judge_skip_reason == "no_judge"
     assert app.sink is not None
+
+
+def test_build_evals_forwards_phoenix_api_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bcra_rag.adapters.index_fake import FakeIndex
+    from bcra_rag.adapters.llm_fake import FakeLlm
+    from bcra_rag.domain.guardrails.pipeline import NoOpTracer
+    from bcra_rag.evals.composition import build_evals
+    from bcra_rag.evals.settings import EvalSettings
+
+    seen: dict[str, str] = {}
+
+    def _tracer(_settings: Settings, *, api_key: str = "") -> NoOpTracer:
+        seen["api_key"] = api_key
+        return NoOpTracer()
+
+    monkeypatch.setattr("bcra_rag.evals.composition.build_tracer", _tracer)
+    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    app = build_evals(
+        Settings(data_dir=tmp_path),
+        EvalSettings(_env_file=None, phoenix_api_key="pk-evals"),
+        index=FakeIndex(),
+        llm=FakeLlm(),
+    )
+    assert seen["api_key"] == "pk-evals"
+    assert app.tracer is not None
+
+
+def test_build_evals_skips_judge_when_find_spec_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bcra_rag.adapters.index_fake import FakeIndex
+    from bcra_rag.adapters.llm_fake import FakeLlm
+    from bcra_rag.evals.composition import build_evals
+    from bcra_rag.evals.settings import EvalSettings
+
+    def _boom(_name: str):
+        raise ModuleNotFoundError("urllib2")
+
+    monkeypatch.setattr("bcra_rag.evals.composition.find_spec", _boom)
+    app = build_evals(
+        Settings(data_dir=tmp_path),
+        EvalSettings(_env_file=None, judge_api_key="secret", llm_api_key=""),
+        index=FakeIndex(),
+        llm=FakeLlm(),
+    )
+    assert app.judge is None
+    assert app.judge_skip_reason == "missing_extra"
+
+
+def test_build_evals_passes_api_key_to_sink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bcra_rag.adapters.index_fake import FakeIndex
+    from bcra_rag.adapters.llm_fake import FakeLlm
+    from bcra_rag.evals.adapters.sink_phoenix import PhoenixEvalSink
+    from bcra_rag.evals.composition import build_evals
+    from bcra_rag.evals.settings import EvalSettings
+
+    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
+    app = build_evals(
+        Settings(data_dir=tmp_path),
+        EvalSettings(
+            _env_file=None,
+            phoenix_collector_endpoint="http://127.0.0.1:6006",
+            phoenix_api_key="pk-sink",
+        ),
+        index=FakeIndex(),
+        llm=FakeLlm(),
+    )
+    assert isinstance(app.sink, PhoenixEvalSink)
+    assert app.sink._api_key == "pk-sink"

@@ -20,10 +20,18 @@ _CODE_METRICS = frozenset(
 
 
 class PhoenixEvalSink:
-    def __init__(self, endpoint: str, project: str, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        project: str,
+        client: Any | None = None,
+        *,
+        api_key: str = "",
+    ) -> None:
         self._base = _collector_host(endpoint)
         self._project = project
         self._client = client
+        self._api_key = (api_key or "").strip()
 
     def record(
         self,
@@ -40,7 +48,7 @@ class PhoenixEvalSink:
         if client is None:
             from phoenix.client import Client
 
-            client = Client(base_url=self._base)
+            client = Client(**phoenix_client_kwargs(self._base, self._api_key))
         annotations: list[dict[str, object]] = []
         annotations.extend(
             _annotations("retrieval", report.retrieval.scores, span_id)
@@ -72,6 +80,10 @@ def _annotations(
             }
         )
     return items
+
+
+def phoenix_client_kwargs(base: str, api_key: str) -> dict[str, str | None]:
+    return {"base_url": base, "api_key": (api_key or "").strip() or None}
 
 
 def _collector_host(endpoint: str) -> str:

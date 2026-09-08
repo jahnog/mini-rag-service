@@ -102,6 +102,7 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "python", "evals/run_l1.py", "--generation-only"),
         ("./scripts/deploy.sh",),
         ("./scripts/deploy.sh", "--ingest"),
+        ("./scripts/run-l1.sh",),
         SSH_ARGV,
     }
 )
@@ -164,14 +165,14 @@ def _check_argv_strings(argv: Any) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _check_deploy_script(root: Path) -> None:
-    script = root / "scripts" / "deploy.sh"
+def _check_repo_script(root: Path, name: str) -> None:
+    script = root / "scripts" / name
     if script.is_symlink():
-        raise CatalogError("scripts/deploy.sh must not be a symlink")
+        raise CatalogError(f"scripts/{name} must not be a symlink")
     if not script.is_file():
-        raise CatalogError("scripts/deploy.sh is missing")
-    if script.resolve() != (root / "scripts" / "deploy.sh").resolve():
-        raise CatalogError("scripts/deploy.sh path escaped scripts/")
+        raise CatalogError(f"scripts/{name} is missing")
+    if script.resolve() != (root / "scripts" / name).resolve():
+        raise CatalogError(f"scripts/{name} path escaped scripts/")
 
 
 def command_from_table(raw: Mapping[str, Any], *, root: Path) -> Command:
@@ -222,8 +223,8 @@ def command_from_table(raw: Mapping[str, Any], *, root: Path) -> Command:
             raise CatalogError("sudo is not in the exec allowlist")
         if argv not in ALLOWED_RUNNABLE:
             raise CatalogError(f"argv not allowlisted: {argv!r}")
-        if argv[0] == "./scripts/deploy.sh":
-            _check_deploy_script(root)
+        if argv[0] in {"./scripts/deploy.sh", "./scripts/run-l1.sh"}:
+            _check_repo_script(root, Path(argv[0]).name)
         if needs_deploy_host and argv != SSH_ARGV:
             raise CatalogError("needs_deploy_host is only valid for ssh-forward")
     cmd = Command(

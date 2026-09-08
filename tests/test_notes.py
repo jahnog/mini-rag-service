@@ -63,6 +63,14 @@ def test_readme_operator_bullets() -> None:
     assert "citation-id" in readme
     assert "last_refresh" in readme
     assert "evals/run_l1.py" in readme
+    assert "./scripts/run-l1.sh" in readme
+    assert "Without ingest" in readme
+    assert "Serving is down for the run" in readme
+    assert "sessions do not survive" in readme
+    assert "API starts again on L1 failure" in readme
+    assert "banner follows the stored file" in readme
+    assert "missing_extra" in readme
+    assert "no cron L1" in readme
     assert "### Evals" in readme
     assert "JUDGE_MODEL" in readme
     assert "JUDGE_API_KEY" in readme
@@ -72,6 +80,7 @@ def test_readme_operator_bullets() -> None:
     assert "--generation-only" in readme
     assert "--generation-context" in readme
     assert "phoenix-evals" in readme
+    assert "PHOENIX_API_KEY" in readme
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme

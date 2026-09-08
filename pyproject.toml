@@ -28,6 +28,7 @@ packages = ["src/bcra_rag"]
 "src/bcra_rag/guardrails/policy.yaml" = "bcra_rag/guardrails/policy.yaml"
 
 [project.optional-dependencies]
+# Do not add the PyPI package named `phoenix` (2013 Habbo MUS client).
 otel = [
     "arize-phoenix-otel",
     "openinference-instrumentation-openai",
