@@ -136,7 +136,11 @@ def make_client(
     resolved_sessions = sessions or InMemorySessionStore()
     mailer = FakeMailer()
     resolved_auth = auth or build_auth(
-        settings=AuthSettings(secret=AUTH_SECRET, allowed_emails=AUTH_EMAIL),
+        settings=AuthSettings(
+            _env_file=None,
+            secret=AUTH_SECRET,
+            allowed_emails=AUTH_EMAIL,
+        ),
         mailer=mailer,
     )
     app = build_app(
@@ -159,7 +163,18 @@ def login_client(
     *,
     email: str = AUTH_EMAIL,
 ) -> None:
-    client.post("/auth/request", json={"email": email})
+    headers: dict[str, str] = {}
+    origin = auth.settings.public_origin.strip()
+    if origin:
+        headers["origin"] = origin
+    requested = client.post("/auth/request", json={"email": email}, headers=headers)
+    assert requested.status_code == 200
+    assert mailer.sent
     match = re.search(r"\b(\d{6})\b", mailer.sent[-1].body)
     assert match
-    client.post("/auth/verify", json={"email": email, "code": match.group(1)})
+    verified = client.post(
+        "/auth/verify",
+        json={"email": email, "code": match.group(1)},
+        headers=headers,
+    )
+    assert verified.status_code == 200

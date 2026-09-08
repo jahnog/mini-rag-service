@@ -26,7 +26,7 @@ def _client(
     resolved_mailer = mailer or FakeMailer()
     resolved_auth = build_auth(
         settings=auth_settings
-        or AuthSettings(secret=SECRET, allowed_emails=OPS),
+        or AuthSettings(_env_file=None, secret=SECRET, allowed_emails=OPS),
         mailer=resolved_mailer,
     )
     app = build_app(
@@ -40,6 +40,7 @@ def _client(
 
 
 def _code(mailer: FakeMailer) -> str:
+    assert mailer.sent
     match = re.search(r"\b(\d{6})\b", mailer.sent[-1].body)
     assert match
     return match.group(1)
@@ -83,7 +84,9 @@ def test_second_send_after_short_ttl_is_429(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     clock = Clock()
     mailer = FakeMailer()
-    auth_settings = AuthSettings(secret=SECRET, allowed_emails=OPS, otp_ttl_s=5)
+    auth_settings = AuthSettings(
+        _env_file=None, secret=SECRET, allowed_emails=OPS, otp_ttl_s=5
+    )
     service = AuthService(auth_settings, mailer, time_fn=clock)
     auth = AuthModule(settings=auth_settings, service=service, mailer=mailer)
     app = build_app(
@@ -108,6 +111,7 @@ def test_origin_mismatch_rejects_without_send(tmp_path: Path) -> None:
         tmp_path,
         mailer=mailer,
         auth_settings=AuthSettings(
+            _env_file=None,
             secret=SECRET,
             allowed_emails=OPS,
             public_origin="https://rag.example",
@@ -142,7 +146,9 @@ def test_logout_then_me_false(tmp_path: Path) -> None:
 def test_missing_secret_is_503(tmp_path: Path) -> None:
     client, mailer = _client(
         tmp_path,
-        auth_settings=AuthSettings(allowed_emails=OPS, secret="short"),
+        auth_settings=AuthSettings(
+            _env_file=None, allowed_emails=OPS, secret="short"
+        ),
     )
     response = client.post("/auth/request", json={"email": OPS})
     assert response.status_code == 503
@@ -157,7 +163,10 @@ def test_verify_sets_secure_cookie_when_public_origin_is_https(tmp_path: Path) -
     client, mailer = _client(
         tmp_path,
         auth_settings=AuthSettings(
-            secret=SECRET, allowed_emails=OPS, public_origin="https://rag.example"
+            _env_file=None,
+            secret=SECRET,
+            allowed_emails=OPS,
+            public_origin="https://rag.example",
         ),
     )
     client.post(
@@ -216,7 +225,7 @@ def test_verify_sets_secure_cookie_from_forwarded_proto_when_trust_proxy(
     client, mailer = _client(
         tmp_path,
         auth_settings=AuthSettings(
-            secret=SECRET, allowed_emails=OPS, trust_proxy=True
+            _env_file=None, secret=SECRET, allowed_emails=OPS, trust_proxy=True
         ),
     )
     client.post("/auth/request", json={"email": OPS})
@@ -245,6 +254,7 @@ def test_origin_http_rejected_when_public_origin_is_https(tmp_path: Path) -> Non
         tmp_path,
         mailer=mailer,
         auth_settings=AuthSettings(
+            _env_file=None,
             secret=SECRET,
             allowed_emails=OPS,
             public_origin="https://rag.example",
@@ -271,6 +281,7 @@ def test_origin_port_mismatch_rejected(tmp_path: Path) -> None:
         tmp_path,
         mailer=mailer,
         auth_settings=AuthSettings(
+            _env_file=None,
             secret=SECRET,
             allowed_emails=OPS,
             public_origin="https://rag.example:8443",
@@ -291,6 +302,7 @@ def test_origin_https_default_port_matches(tmp_path: Path) -> None:
         tmp_path,
         mailer=mailer,
         auth_settings=AuthSettings(
+            _env_file=None,
             secret=SECRET,
             allowed_emails=OPS,
             public_origin="https://rag.example",

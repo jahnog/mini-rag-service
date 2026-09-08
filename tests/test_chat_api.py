@@ -113,6 +113,7 @@ def test_session_id_is_not_shared_across_mailboxes(tmp_path: Path) -> None:
     mailer = FakeMailer()
     auth = build_auth(
         settings=AuthSettings(
+            _env_file=None,
             secret=AUTH_SECRET,
             allowed_emails=f"{AUTH_EMAIL},{other}",
         ),

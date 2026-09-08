@@ -45,7 +45,9 @@ def _service(
     clock: Clock | None = None,
     **kwargs: object,
 ) -> tuple[AuthService, FakeMailer, Clock]:
-    settings = AuthSettings(secret=SECRET, allowed_emails=allowed, **kwargs)  # type: ignore[arg-type]
+    settings = AuthSettings(
+        _env_file=None, secret=SECRET, allowed_emails=allowed, **kwargs
+    )  # type: ignore[arg-type]
     resolved = mailer or FakeMailer(ttl_s=settings.otp_ttl_s)
     tick = clock or Clock()
     service = AuthService(settings, resolved, time_fn=tick)
@@ -111,7 +113,9 @@ def test_ports_remain_five_rag_names() -> None:
 def test_build_auth_uses_fake_mailer() -> None:
     mailer = FakeMailer()
     module = build_auth(
-        settings=AuthSettings(secret="s" * 32, allowed_emails="ops@example.com"),
+        settings=AuthSettings(
+            _env_file=None, secret="s" * 32, allowed_emails="ops@example.com"
+        ),
         mailer=mailer,
     )
     assert module.mailer is mailer
@@ -120,7 +124,7 @@ def test_build_auth_uses_fake_mailer() -> None:
 
 
 def test_smtp_mailer_unconfigured_without_host() -> None:
-    mailer = SmtpMailer(AuthSettings())
+    mailer = SmtpMailer(AuthSettings(_env_file=None))
     assert mailer.configured is False
 
 
@@ -277,7 +281,7 @@ def test_malformed_email_rejected() -> None:
 
 def test_missing_secret_unavailable() -> None:
     mailer = FakeMailer()
-    service = AuthService(AuthSettings(allowed_emails=OPS), mailer)
+    service = AuthService(AuthSettings(_env_file=None, allowed_emails=OPS), mailer)
     with pytest.raises(AuthUnavailable):
         service.request_otp(OPS, "1.1.1.1")
     assert mailer.sent == []
@@ -334,7 +338,7 @@ def test_smtp_failure_does_not_install_otp() -> None:
 
 
 def test_smtp_failure_counts_toward_send_limit() -> None:
-    settings = AuthSettings(secret=SECRET, allowed_emails=OPS)
+    settings = AuthSettings(_env_file=None, secret=SECRET, allowed_emails=OPS)
     clock = Clock()
     service = AuthService(settings, _BoomMailer(), time_fn=clock)
     with pytest.raises(AuthUnavailable):
