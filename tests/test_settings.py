@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from bcra_rag.settings import Settings
 
 
@@ -13,9 +15,21 @@ def test_extra_env_keys_do_not_break_load(monkeypatch, tmp_path: Path) -> None:
     assert settings.dump_dir == tmp_path / "bcra" / "current"
     assert settings.index_dir == tmp_path / "index"
 
+def test_eval_settings_are_not_on_chat_settings(tmp_path: Path) -> None:
+    from bcra_rag.evals.settings import EvalSettings
 
-def test_chat_settings_defaults(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path, _env_file=None)
+    settings = Settings(data_dir=tmp_path)
+    assert not hasattr(settings, "judge_model")
+    eval_settings = EvalSettings()
+    assert eval_settings.judge_model == "grok-4.3"
+    assert eval_settings.judge_reasoning_effort == "none"
+
+
+# def test_chat_settings_defaults(tmp_path: Path) -> None:
+#     settings = Settings(data_dir=tmp_path, _env_file=None)
+def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.x.ai/v1")
+    settings = Settings(data_dir=tmp_path)
     assert settings.max_message_chars == 4000
     assert settings.default_k == 5
     assert settings.max_k == 8

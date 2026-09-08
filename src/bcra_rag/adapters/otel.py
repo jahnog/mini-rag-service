@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from bcra_rag.domain.guardrails.pipeline import NoOpTracer
 from bcra_rag.domain.guardrails.types import Tracer
+from bcra_rag.domain.models import Chunk
 from bcra_rag.settings import Settings
+
+_CONTENT_LIMIT = 2000
 
 
 def build_tracer(settings: Settings) -> Tracer:
@@ -52,3 +56,29 @@ class _OtelTracer:
     def span(self, name: str, layer: str) -> Any:
         del layer
         return self._tracer.start_as_current_span(name)
+
+    def record_retriever(self, query: str, hits: Sequence[Chunk]) -> None:
+        try:
+            with self.span("retrieve", "retrieve") as span:
+                setter = getattr(span, "set_attribute", None)
+                if not callable(setter):
+                    return
+                for key, value in retriever_attributes(query, hits).items():
+                    setter(key, value)
+        except Exception:
+            return
+
+
+def retriever_attributes(query: str, hits: Sequence[Chunk]) -> dict[str, object]:
+    attrs: dict[str, object] = {
+        "openinference.span.kind": "RETRIEVER",
+        "input.value": query[:_CONTENT_LIMIT],
+    }
+    for index, chunk in enumerate(hits):
+        doc_id = str(chunk.metadata.get("doc_id") or chunk.chunk_id)
+        attrs[f"retrieval.documents.{index}.document.id"] = doc_id
+        attrs[f"retrieval.documents.{index}.document.content"] = chunk.text[:_CONTENT_LIMIT]
+        attrs[f"retrieval.documents.{index}.document.score"] = float(
+            chunk.metadata.get("score") or 0.0
+        )
+    return attrs

@@ -28,12 +28,14 @@ packages = ["src/bcra_rag"]
 "src/bcra_rag/guardrails/policy.yaml" = "bcra_rag/guardrails/policy.yaml"
 
 [project.optional-dependencies]
-l1 = ["ragas"]
 otel = [
     "arize-phoenix-otel",
     "openinference-instrumentation-openai",
 ]
-phoenix-evals = ["arize-phoenix-evals"]
+phoenix-evals = [
+    "arize-phoenix-evals",
+    "arize-phoenix-client",
+]
 
 [dependency-groups]
 dev = [

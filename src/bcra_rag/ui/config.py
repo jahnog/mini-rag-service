@@ -176,14 +176,48 @@ def l1_markdown(data: dict[str, Any]) -> str:
     b_docs = chunking.get("b_documents") or data.get("b_documents") or []
     slices = data.get("slices") or {}
     slice_lines = "\n".join(f"- {key}: {value}" for key, value in slices.items())
+    raw_retrieval = data.get("retrieval")
+    raw_generation = data.get("generation")
+    retrieval: dict[str, Any] = raw_retrieval if isinstance(raw_retrieval, dict) else {}
+    generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
+    retrieval_block = _suite_markdown("Retrieval", retrieval)
+    generation_block = _suite_markdown("Generation", generation)
+    citation_shown = _skipped_or_value(
+        data.get("citation_id_exact"), bool(generation.get("skipped"))
+    )
+    hit_shown = _skipped_or_value(data.get("hit_at_5"), bool(retrieval.get("skipped")))
+    mrr_shown = _skipped_or_value(data.get("mrr"), bool(retrieval.get("skipped")))
     return (
         f"{label}"
-        f"Headline **{headline}**: {data.get('citation_id_exact')}\n\n"
-        f"hit@5: {data.get('hit_at_5')} · MRR: {data.get('mrr')}\n\n"
+        f"Headline **{headline}**: {citation_shown}\n\n"
+        f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
+        f"{retrieval_block}\n\n"
+        f"{generation_block}\n\n"
         f"A vs B: A {a_score} · B {b_score}\n\n"
         f"Strategy B documents: {', '.join(str(x) for x in b_docs) or '(none)'}\n\n"
         f"Slices:\n{slice_lines or '- (none)'}"
     )
+
+
+def _skipped_or_value(value: object, skipped: bool) -> str:
+    if skipped or value is None:
+        return "skipped"
+    return str(value)
+
+
+def _suite_markdown(title: str, block: dict[str, Any]) -> str:
+    if not block:
+        return f"## {title}\n\n(not present)"
+    if block.get("skipped"):
+        reason = block.get("skip_reason") or "skipped"
+        return f"## {title}\n\nskipped ({reason})"
+    lines = [f"## {title}", ""]
+    skip = {"skipped", "skip_reason"}
+    for key, value in block.items():
+        if key in skip:
+            continue
+        lines.append(f"- {key}: {value}")
+    return "\n".join(lines)
 
 
 def footer_text(last_refresh: str | None) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -100,3 +101,5 @@ class InjectionBackend(Protocol):
 
 class Tracer(Protocol):
     def span(self, name: str, layer: str) -> Any: ...
+
+    def record_retriever(self, query: str, hits: Sequence[Chunk]) -> None: ...

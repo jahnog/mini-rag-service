@@ -174,18 +174,45 @@ argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
 confirm = true
 
 [[command]]
+id = "l1"
+group = "Evals"
+block = "evals"
+title = "L1 eval"
+summary = "Offline L1 (not CI). Published index if ingest is ready; otherwise FakeIndex + unpublished."
+argv = ["uv", "run", "python", "evals/run_l1.py"]
+confirm = true
+
+[[command]]
+id = "l1-deterministic"
+group = "Evals"
+block = "evals"
+title = "L1 deterministic"
+summary = "Code metrics only; skip the judge language model."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--deterministic-only"]
+confirm = true
+
+[[command]]
+id = "l1-retrieval"
+group = "Evals"
+block = "evals"
+title = "L1 retrieval"
+summary = "Score retrieval only (no chat LLM)."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--retrieval-only"]
+confirm = true
+
+[[command]]
+id = "l1-generation"
+group = "Evals"
+block = "evals"
+title = "L1 generation"
+summary = "Score generation only with oracle dump context (needs LLM_API_KEY)."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--generation-only"]
+confirm = true
+
+[[command]]
 id = "coverage"
 group = "Reports"
 block = "reports"
 title = "Coverage"
 summary = "pytest with src coverage; fails below 80%."
 argv = ["uv", "run", "pytest", "-q", "--cov=src", "--cov-report=term-missing", "--cov-report=xml"]
-
-[[command]]
-id = "l1"
-group = "Reports"
-block = "reports"
-title = "L1 eval"
-summary = "Offline L1 operator command (not CI). Confirm first."
-argv = ["uv", "run", "python", "evals/run_l1.py"]
-confirm = true

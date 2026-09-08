@@ -2,9 +2,31 @@
   "unpublished": true,
   "sample": true,
   "headline_metric": "citation_id_exact",
-  "citation_id_exact": 0.0,
+  "citation_id_exact": null,
   "hit_at_5": 0.0,
   "mrr": 0.0,
+  "retrieval": {
+    "skipped": false,
+    "skip_reason": null,
+    "hit_at_5": 0.0,
+    "precision_at_5": 0.0,
+    "mrr": 0.0,
+    "n": 30
+  },
+  "generation": {
+    "skipped": true,
+    "skip_reason": "unpublished_fixture",
+    "context_source": "oracle",
+    "n": 0
+  },
+  "judge": {
+    "model": "grok-4.3",
+    "skipped": true,
+    "skip_reason": "unpublished_fixture",
+    "calls": 0,
+    "tokens_in": 0,
+    "tokens_out": 0
+  },
   "chunking": {
     "A": 0,
     "B": 0,
@@ -18,6 +40,10 @@
     "superseded": 0.0,
     "post-to": 0.0
   },
-  "ragas": null,
+  "phoenix": {
+    "exported": false,
+    "project": "bcra-rag",
+    "evals_project": null
+  },
   "n": 30
 }

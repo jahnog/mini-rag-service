@@ -475,8 +475,54 @@ def test_l1_fixture_is_labeled_sample(tmp_path: Path) -> None:
     assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
+    assert "## Retrieval" in text
+    assert "## Generation" in text
+    assert "skipped" in text.lower()
+    assert "faithfulness: 0" not in text.lower()
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
+
+
+def test_l1_markdown_skipped_generation_not_zero() -> None:
+    text = l1_markdown(
+        {
+            "unpublished": False,
+            "sample": False,
+            "headline_metric": "citation_id_exact",
+            "citation_id_exact": None,
+            "hit_at_5": 0.8,
+            "mrr": 0.5,
+            "retrieval": {"skipped": False, "hit_at_5": 0.8, "n": 30},
+            "generation": {"skipped": True, "skip_reason": "not_requested", "n": 0},
+            "chunking": {"A": 1, "B": 2, "b_documents": ["texto_ordenado"]},
+        }
+    )
+    lowered = text.lower()
+    assert "skipped" in lowered
+    assert "headline **citation_id_exact**: 0" not in lowered
+    assert "headline **citation_id_exact**: none" not in lowered
+    assert "faithfulness: 0" not in lowered
+
+
+def test_l1_markdown_skipped_retrieval_not_zero() -> None:
+    text = l1_markdown(
+        {
+            "unpublished": False,
+            "sample": False,
+            "headline_metric": "citation_id_exact",
+            "citation_id_exact": 0.4,
+            "hit_at_5": None,
+            "mrr": None,
+            "retrieval": {"skipped": True, "skip_reason": "not_requested", "n": 0},
+            "generation": {"skipped": False, "citation_id_exact": 0.4, "n": 30},
+            "chunking": {"A": 1, "B": 1, "b_documents": ["texto_ordenado"]},
+        }
+    )
+    lowered = text.lower()
+    assert "hit@5: skipped" in lowered
+    assert "mrr: skipped" in lowered
+    assert "hit@5: 0.0" not in lowered
+    assert "hit@5: none" not in lowered
 
 
 def test_inspector_copy_id_and_trust() -> None:

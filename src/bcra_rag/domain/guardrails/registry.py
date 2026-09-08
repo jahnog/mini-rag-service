@@ -159,5 +159,8 @@ def assemble_pipeline(
             raise ValueError(f"unknown rail id: {spec.id}")
         rails.append(TracedRail(builder(spec, settings, backend), resolved))
     return GuardrailPipeline(
-        rails, global_enforce=policy.enforce, policy_version=policy.version
+        rails,
+        global_enforce=policy.enforce,
+        policy_version=policy.version,
+        tracer=resolved,
     )
