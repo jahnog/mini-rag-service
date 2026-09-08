@@ -23,7 +23,7 @@ CATALOG_PATH = SCRIPT_DIR / "commands.toml"
 README_PATH = ROOT / "README.md"
 LOCAL_ENV_PATH = ROOT / "deploy" / "local.env"
 
-GROUPS = ("Setup", "Run", "Deploy", "Test", "Debug", "Ingest", "Reports")
+GROUPS = ("Setup", "Run", "Deploy", "Test", "Debug", "Ingest", "Evals", "Reports")
 KNOWN_KEYS = frozenset(
     {
         "id",
@@ -96,6 +96,9 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "python", "-m", "bcra_rag.jobs.ingest"),
         ("uv", "run", "python", "-m", "bcra_rag.jobs.refresh"),
         ("uv", "run", "python", "evals/run_l1.py"),
+        ("uv", "run", "python", "evals/run_l1.py", "--deterministic-only"),
+        ("uv", "run", "python", "evals/run_l1.py", "--retrieval-only"),
+        ("uv", "run", "python", "evals/run_l1.py", "--generation-only"),
         ("./scripts/deploy.sh",),
         ("./scripts/deploy.sh", "--ingest"),
         SSH_ARGV,

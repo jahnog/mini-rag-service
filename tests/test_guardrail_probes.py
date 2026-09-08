@@ -13,9 +13,9 @@ from bcra_rag.domain.guardrails.pipeline import GuardrailPipeline
 from bcra_rag.domain.guardrails.retrieve import ContextBudgetRail
 from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
+from bcra_rag.evals.domain.gold import load_gold
 from bcra_rag.schemas import Citation, Finding
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.run_l1 import load_gold
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBES = Path(__file__).parent / "fixtures" / "guardrail_probes.jsonl"
@@ -213,9 +213,9 @@ def test_probe_verdict(probe: Probe) -> None:
 @pytest.mark.parametrize(
     "question",
     [
-        pytest.param(row["question"], id=row["id"])
+        pytest.param(row.question, id=row.id)
         for row in load_gold(GOLD)
-        if row.get("answerable")
+        if row.answerable
     ],
 )
 def test_gold_answerable_passes_injection_no_advice_secrets(question: str) -> None:
@@ -227,8 +227,8 @@ def test_gold_answerable_passes_injection_no_advice_secrets(question: str) -> No
 
 
 def test_gold_banxico_is_scope_block() -> None:
-    rows = {row["id"]: row for row in load_gold(GOLD)}
-    question = rows["g15"]["question"]
+    rows = {row.id: row for row in load_gold(GOLD)}
+    question = rows["g15"].question
     ctx = RailContext(raw=question, text=question)
     result = default_pipeline(Settings()).run_named(["scope"], ctx)[0]
     assert result.verdict == "block"

@@ -60,6 +60,15 @@ def test_readme_operator_bullets() -> None:
     assert "citation-id" in readme
     assert "last_refresh" in readme
     assert "evals/run_l1.py" in readme
+    assert "### Evals" in readme
+    assert "JUDGE_MODEL" in readme
+    assert "JUDGE_API_KEY" in readme
+    assert "bcra_rag.evals" in readme
+    assert "--deterministic-only" in readme
+    assert "--retrieval-only" in readme
+    assert "--generation-only" in readme
+    assert "--generation-context" in readme
+    assert "phoenix-evals" in readme
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme

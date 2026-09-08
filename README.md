@@ -106,7 +106,7 @@ uv run pytest --run-integration tests/test_jobs_integration.py::test_refresh_com
 
 ### Debug
 
-Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). An L1 operator run still overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`). Local Qwen3.6-35B-A3B via llama.cpp uses the same `LLM_BASE_URL` / `LLM_MODEL` / dummy `LLM_API_KEY`; thinking is on by default (`LLM_ENABLE_THINKING=true`) as a provider trace (`reasoning_content` or `<think>` tags). Set `LLM_ENABLE_THINKING=false` to disable it on llama.cpp. `api.x.ai` does not receive that extra body. A longer `LLM_TIMEOUT_S` may be needed. Optional per-turn traces: set `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` and run a sibling Phoenix process (`uvx --from arize-phoenix phoenix serve` with `PHOENIX_HOST=127.0.0.1` and `PHOENIX_WORKING_DIR=$PWD/data/phoenix`). Install the optional extra with `uv sync --extra otel`. Chat still answers if the collector is unset or down.
+Drop into pdb on the first test failure. Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). Local Qwen3.6-35B-A3B via llama.cpp uses the same `LLM_BASE_URL` / `LLM_MODEL` / dummy `LLM_API_KEY`; thinking is on by default (`LLM_ENABLE_THINKING=true`) as a provider trace (`reasoning_content` or `<think>` tags). Set `LLM_ENABLE_THINKING=false` to disable it on llama.cpp. `api.x.ai` does not receive that extra body. A longer `LLM_TIMEOUT_S` may be needed. Optional per-turn traces: set `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` and run a sibling Phoenix process (`uvx --from arize-phoenix phoenix serve` with `PHOENIX_HOST=127.0.0.1` and `PHOENIX_WORKING_DIR=$PWD/data/phoenix`). From another host, point `PHOENIX_COLLECTOR_ENDPOINT` at that collector URL. Install chat traces with `uv sync --extra otel`. Chat still answers if the collector is unset or down.
 
 <!-- commands:debug -->
 ```bash
@@ -129,18 +129,40 @@ A second `jobs.ingest` after a successful run does **not** pull new catalog ids;
 
 The dump note records the 1990–97 CAMEX tag hole (sequence 232→314). Untagged A ids from that range are not crawled solely to close the jump.
 
+### Evals
+
+Offline L1 is an operator command (not CI) in the `bcra_rag.evals` vertical. Chat does not load eval scoring or the judge. Calidad L1 in the UI only reads the last static file.
+
+Copy `.env.example` to `.env`. For a published run against the dump, ingest first so the index is ready (`GET /health`). Without a ready index the CLI scores a seeded FakeIndex and writes `unpublished` / `sample`. Gold is `evals/gold.jsonl` (30 questions). A run overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`). Shipped `evals/l1.json` stays unpublished/sample until that operator run.
+
+Retrieval does not call the chat model. Generation needs `LLM_API_KEY` (same OpenAI-compatible `LLM_*` as chat) and defaults to `--generation-context=oracle` (gold dump text, no search). `--generation-context=retrieved` stuffs hits from the retrieval suite in the **same** run; do not combine it with `--generation-only`. `--retrieval-only` and `--generation-only` are mutually exclusive.
+
+Judged metrics (faithfulness, answer relevancy, context precision, context recall) need `JUDGE_API_KEY` (falls back to `LLM_API_KEY`), `JUDGE_MODEL` (default `grok-4.3`), `JUDGE_BASE_URL` (default `https://api.x.ai/v1`), `JUDGE_REASONING_EFFORT=none`, and `uv sync --extra phoenix-evals`. Without the extra or key those values are skipped with a reason, not shown as 0; hit@5, precision@5, MRR, citation-id exact, and finding exact still publish. `--deterministic-only` skips the judge even when a key is set.
+
+Optional eval traces/annotations use the same collector as chat: `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` (or that collector’s URL from another host) plus `uv sync --extra otel --extra phoenix-evals`. Unset or down collector still writes `evals/l1.json`. Unit tests for the vertical live under `tests/evals` and use fakes; they never pay.
+
+<!-- commands:evals -->
+```bash
+uv run python evals/run_l1.py
+uv run python evals/run_l1.py --deterministic-only
+uv run python evals/run_l1.py --retrieval-only
+uv run python evals/run_l1.py --generation-only
+```
+<!-- /commands:evals -->
+
+Headline L1 metric is **citation-id** exact (ids the model cited). Retrieval publishes hit@5 separately. Deontic retry is not in v1 (finding demotion is a deterministic post-check).
+
 ### Reports
 
-Coverage for the package; fails if `src` coverage is below 80%. Offline L1 is an operator command (not CI). Shipped `evals/l1.json` is unpublished/sample until an operator run. Deontic retry is not in v1 (finding demotion is a deterministic post-check).
+Coverage for the package; fails if `src` coverage is below 80%. CI uses this command, not operator L1.
 
 <!-- commands:reports -->
 ```bash
 uv run pytest -q --cov=src --cov-report=term-missing --cov-report=xml
-uv run python evals/run_l1.py
 ```
 <!-- /commands:reports -->
 
-Headline L1 metric is **citation-id** exact. `last_refresh` is the dump date shown on `/health` and the UI banner.
+`last_refresh` is the dump date shown on `/health` and the UI banner.
 
 ## What the product will do
 

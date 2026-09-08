@@ -663,3 +663,70 @@ async def test_thinking_trace_is_not_logged(
     assert "thinking" not in event
     dumped = log_file.read_text(encoding="utf-8")
     assert "voy a citar el TO" not in dumped
+
+
+class _NullSpan:
+    def __enter__(self) -> _NullSpan:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+class _BoomTracer:
+    def span(self, name: str, layer: str) -> _NullSpan:
+        del name, layer
+        return _NullSpan()
+
+    def record_retriever(self, query: str, hits: object) -> None:
+        del query, hits
+        raise RuntimeError("span export failed")
+
+
+@pytest.mark.asyncio
+async def test_raising_tracer_still_answers_named_a(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    pipeline = default_pipeline(settings)
+    pipeline.tracer = _BoomTracer()  # type: ignore[assignment]
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        pipeline,
+    )
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-trace-fail",
+    )
+    assert response.answer
+    assert response.finding is not Finding.SILENCIO or response.citations is not None
+
+
+@pytest.mark.asyncio
+async def test_named_fetch_records_retriever_span(tmp_path: Path) -> None:
+    from tests.evals.test_tracer import RecordingTracer
+
+    settings, index, _ = seed_ready(tmp_path)
+    pipeline = default_pipeline(settings)
+    tracer = RecordingTracer()
+    pipeline.tracer = tracer  # type: ignore[assignment]
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        pipeline,
+    )
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-trace-ok",
+    )
+    assert tracer.retriever_calls
+    query, hits = tracer.retriever_calls[0]
+    assert "3500" in query
+    assert any(
+        str(chunk.metadata.get("doc_id") or chunk.chunk_id).startswith("A3500")
+        or "A3500" in chunk.chunk_id
+        for chunk in hits
+    )
