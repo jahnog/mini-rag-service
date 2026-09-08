@@ -4,11 +4,11 @@ import asyncio
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
-from tests.chat_fixtures import make_client, seed_ready
-from tests.test_answer_query import _uc
 
 from bcra_rag.schemas import ChatFilters, ChatRequest
 from bcra_rag.use_cases.answer_query import AnswerQuery
+from tests.chat_fixtures import make_client, seed_ready
+from tests.test_answer_query import _uc
 
 scenarios("chat.feature")
 

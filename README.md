@@ -20,7 +20,9 @@ uv sync
 ```
 <!-- /commands:setup -->
 
-Local-dev command TUI (laptop / tests only — not for the dump host). Catalog: `scripts/commands.toml`.
+Chromium for live observatory tests (after `uv sync`): `playwright install chromium`.
+
+Local-dev command TUI (laptop / tests only — not for the dump host). Catalog: `scripts/commands.toml`. Agent command list: `AGENTS.md`.
 
 ```bash
 ./run.sh
@@ -103,6 +105,14 @@ uv run pytest --run-integration tests/test_jobs_integration.py::test_ingest_comm
 uv run pytest --run-integration tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf -q
 ```
 <!-- /commands:test-integration -->
+
+Live acceptance against an already-running local process (`LIVE_BASE_URL`, default `http://127.0.0.1:8000`). Does not spawn uvicorn. Needs IMAP (`LIVE_IMAP_*`), an allowlisted mailbox, HTTP-local `AUTH_PUBLIC_ORIGIN` matching `LIVE_BASE_URL`, and Chromium for UI scenarios. Chat/UI generation uses the process’s `LLM_*` (local llama.cpp Qwen3.6-35B-A3B or xAI grok-4.3). Default pytest skips these.
+
+<!-- commands:test-live-server -->
+```bash
+uv run pytest --run-live-server -m live_server -q
+```
+<!-- /commands:test-live-server -->
 
 ### Debug
 

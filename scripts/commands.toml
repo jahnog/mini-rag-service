@@ -19,6 +19,24 @@ argv = ["uv", "run", "uvicorn", "bcra_rag.api.app:app", "--host", "0.0.0.0", "--
 tty = true
 
 [[command]]
+id = "ingest"
+group = "Ingest"
+block = "ingest"
+title = "First-time document ingest"
+summary = "Load the CAMEX catalog plus current texto ordenado. Confirm first."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.ingest"]
+confirm = true
+
+[[command]]
+id = "refresh"
+group = "Ingest"
+block = "ingest"
+title = "Document refresh"
+summary = "Append new A's; replace the TO only when its checksum changed."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
+confirm = true
+
+[[command]]
 id = "deploy"
 group = "Deploy"
 block = "deploy"
@@ -129,6 +147,15 @@ argv = ["uv", "run", "pytest", "--run-integration", "-m", "integration", "-q"]
 confirm = true
 
 [[command]]
+id = "live-server"
+group = "Test"
+block = "test-live-server"
+title = "Live server tests"
+summary = "HTTP+UI against already-running uvicorn; needs IMAP + Chromium."
+argv = ["uv", "run", "pytest", "--run-live-server", "-m", "live_server", "-q"]
+confirm = true
+
+[[command]]
 id = "ingest-pdf"
 group = "Test"
 block = "test-integration"
@@ -154,24 +181,6 @@ title = "pytest --pdb"
 summary = "Drop into pdb on the first test failure. Replaces this TUI."
 argv = ["uv", "run", "pytest", "--pdb"]
 tty = true
-
-[[command]]
-id = "ingest"
-group = "Ingest"
-block = "ingest"
-title = "One-time ingest"
-summary = "Load the CAMEX catalog plus current texto ordenado. Confirm first."
-argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.ingest"]
-confirm = true
-
-[[command]]
-id = "refresh"
-group = "Ingest"
-block = "ingest"
-title = "Refresh"
-summary = "Append new A's; replace the TO only when its checksum changed."
-argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
-confirm = true
 
 [[command]]
 id = "l1"

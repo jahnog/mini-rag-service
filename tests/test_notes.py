@@ -33,6 +33,9 @@ def test_readme_operator_bullets() -> None:
     assert "uv run pytest -q" in readme
     assert "--run-integration" in readme
     assert "-m integration" in readme
+    assert "--run-live-server" in readme
+    assert "-m live_server" in readme
+    assert "playwright install chromium" in readme
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme
     assert "--pdb" in readme
@@ -73,6 +76,7 @@ def test_readme_operator_bullets() -> None:
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme
     assert "./run.sh" in readme
+    assert "AGENTS.md" in readme
     assert "./scripts/deploy.sh" in readme
     assert "ssh -L 8000:127.0.0.1:8000" in readme
     assert "--ingest" in readme
@@ -85,3 +89,42 @@ def test_readme_operator_bullets() -> None:
     assert "user@dump-host" in readme
     assert "deploy/local.env" in readme
     assert "chita" + "-ts" not in readme
+
+
+def test_agents_commands_list() -> None:
+    agents = Path(__file__).resolve().parents[1].joinpath("AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Commands" in agents
+    for needle in (
+        "uv sync",
+        "playwright install chromium",
+        "./run.sh",
+        "uvicorn bcra_rag.api.app:app",
+        "./scripts/deploy.sh",
+        "ssh -L 8000:127.0.0.1:8000",
+        "systemctl start bcra-rag",
+        "systemctl stop bcra-rag",
+        "systemctl status bcra-rag",
+        "bcra-rag-ingest",
+        "bcra-rag-refresh",
+        "uv run ruff check .",
+        "uv run mypy src",
+        "uv run pytest -q",
+        "--run-integration",
+        "-m integration",
+        "--run-live-server",
+        "-m live_server",
+        "--pdb",
+        "python -m bcra_rag.jobs.ingest",
+        "python -m bcra_rag.jobs.refresh",
+        "evals/run_l1.py",
+        "--deterministic-only",
+        "--retrieval-only",
+        "--generation-only",
+        "--cov=src",
+        "scripts/commands.toml",
+        "README.md",
+    ):
+        assert needle in agents, needle
+    assert "chita" + "-ts" not in agents

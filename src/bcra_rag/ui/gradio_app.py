@@ -424,10 +424,18 @@ def build_blocks(
                         lines=1,
                         max_lines=4,
                         placeholder="Preguntá por una cláusula CAMEX…",
+                        elem_id="observatory-input",
                     )
                     with gr.Row(elem_id="observatory-actions"):
-                        send = gr.Button("Enviar", variant="primary", scale=0)
-                        clear = gr.Button("Clear", variant="secondary", scale=0)
+                        send = gr.Button(
+                            "Enviar",
+                            variant="primary",
+                            scale=0,
+                            elem_id="observatory-send",
+                        )
+                        clear = gr.Button(
+                            "Clear", variant="secondary", scale=0, elem_id="observatory-clear"
+                        )
                     demo_box = gr.Textbox(
                         label="Demo key",
                         type="password",

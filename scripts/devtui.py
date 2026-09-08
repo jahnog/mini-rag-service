@@ -68,6 +68,7 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "pytest", "-q"),
         ("uv", "run", "pytest", "--pdb"),
         ("uv", "run", "pytest", "--run-integration", "-m", "integration", "-q"),
+        ("uv", "run", "pytest", "--run-live-server", "-m", "live_server", "-q"),
         (
             "uv",
             "run",

@@ -673,6 +673,9 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "observatory-freeze",
         "observatory-pills",
         "observatory-chat",
+        "observatory-input",
+        "observatory-send",
+        "observatory-clear",
         "l1-panel",
     ):
         assert elem_id in ids, elem_id
