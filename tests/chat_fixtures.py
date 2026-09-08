@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
+from bcra_rag.auth import AuthModule, AuthSettings, FakeMailer, build_auth
 from bcra_rag.composition import build_app
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
@@ -16,6 +18,8 @@ from bcra_rag.settings import Settings
 
 LAST_REFRESH = "2026-09-01T00:00:00+00:00"
 TO_AS_OF = "A8307"
+AUTH_SECRET = "s" * 32
+AUTH_EMAIL = "ops@example.com"
 
 IN_CORPUS_DRAFT = LlmDraft(
     answer=(
@@ -122,16 +126,40 @@ def make_client(
     settings: Settings | None = None,
     index: FakeIndex | None = None,
     sessions: InMemorySessionStore | None = None,
+    auth: AuthModule | None = None,
+    authenticate: bool = True,
 ) -> tuple[TestClient, FakeLlm, FakeIndex, InMemorySessionStore]:
     seeded_settings, seeded_index, _ = seed_ready(tmp_path)
     resolved_settings = settings or seeded_settings
     resolved_index = index if index is not None else seeded_index
     resolved_llm = llm or FakeLlm(IN_CORPUS_DRAFT)
     resolved_sessions = sessions or InMemorySessionStore()
+    mailer = FakeMailer()
+    resolved_auth = auth or build_auth(
+        settings=AuthSettings(secret=AUTH_SECRET, allowed_emails=AUTH_EMAIL),
+        mailer=mailer,
+    )
     app = build_app(
         resolved_settings,
         index=resolved_index,
         llm=resolved_llm,
         sessions=resolved_sessions,
+        auth=resolved_auth,
     )
-    return TestClient(app.fastapi), resolved_llm, resolved_index, resolved_sessions
+    client = TestClient(app.fastapi)
+    if authenticate:
+        login_client(client, mailer, resolved_auth)
+    return client, resolved_llm, resolved_index, resolved_sessions
+
+
+def login_client(
+    client: TestClient,
+    mailer: FakeMailer,
+    auth: AuthModule,
+    *,
+    email: str = AUTH_EMAIL,
+) -> None:
+    client.post("/auth/request", json={"email": email})
+    match = re.search(r"\b(\d{6})\b", mailer.sent[-1].body)
+    assert match
+    client.post("/auth/verify", json={"email": email, "code": match.group(1)})

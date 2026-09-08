@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import gradio as gr
+from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
 from bcra_rag.schemas import ChatResponse, HealthResponse
@@ -32,6 +33,13 @@ LAYOUT_HELP = (
     "el log de guardrails, Calidad L1 y las fechas del dump.\n\n"
     "Usuario deja solo la pregunta, la respuesta, Enviar, Clear y los ejemplos."
 )
+AUTH_EMAIL_LABEL = "Correo"
+AUTH_SEND = "Enviar código"
+AUTH_CODE_LABEL = "Código"
+AUTH_VERIFY = "Verificar"
+AUTH_LOGOUT = "Cerrar sesión"
+AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
+AUTH_NOTICE = "Tenés que ingresar con tu email."
 
 
 def banner_markdown(health: HealthResponse) -> str:
@@ -87,11 +95,51 @@ def layout_shell_classes(staff: bool) -> list[str]:
     return [LAYOUT_STAFF_CLASS if staff else LAYOUT_USER_CLASS]
 
 
-def apply_layout(choice: str | None) -> tuple[Any, Any, Any]:
-    staff = choice == LAYOUT_STAFF
+def apply_clear_result(
+    history: list[ChatRow] | None,
+    session_id: str | None,
+    error: HTTPException | None = None,
+) -> tuple[list[ChatRow], str | None]:
+    if error is not None:
+        notice = http_turn_notice(error.status_code, str(error.detail))
+        rows = list(history or [])
+        rows.append({"role": "assistant", "content": notice})
+        return rows, session_id
+    return [], None
+
+
+def http_turn_notice(status: int, detail: str | None = None) -> str:
+    if status == 401:
+        if detail == "authentication required":
+            return AUTH_NOTICE
+        return "Se requiere DEMO_API_KEY."
+    if status == 429:
+        return "Demasiadas solicitudes."
+    return "Solicitud rechazada."
+
+
+def thinking_for_staff(thinking: str | None, *, staff: bool) -> str | None:
+    if not staff:
+        return None
+    return (thinking or "").strip() or None
+
+
+def apply_layout(
+    choice: str | None, authenticated: bool = False
+) -> tuple[Any, Any, Any]:
+    staff = bool(authenticated) and choice == LAYOUT_STAFF
     freeze, side = layout_updates(staff)
     shell = gr.update(elem_classes=layout_shell_classes(staff))
     return freeze, side, shell
+
+
+def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any, Any]:
+    who = email or ""
+    return (
+        gr.update(visible=not authenticated),
+        gr.update(visible=authenticated),
+        gr.update(value=who),
+    )
 
 
 def load_l1(path: Path) -> dict[str, Any]:

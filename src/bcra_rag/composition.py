@@ -14,6 +14,7 @@ from bcra_rag.adapters.otel import build_tracer
 from bcra_rag.adapters.policy_yaml import default_policy_path, load_policy
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.api.routes import create_fastapi
+from bcra_rag.auth import AuthModule, build_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline, NoOpTracer
 from bcra_rag.domain.guardrails.registry import assemble_pipeline
 from bcra_rag.ports.catalog import CatalogPort
@@ -40,6 +41,7 @@ class ChatApp:
     sessions: SessionStore
     pipeline: GuardrailPipeline
     fastapi: FastAPI
+    auth: AuthModule
 
 
 def default_pipeline(settings: Settings | None = None) -> GuardrailPipeline:
@@ -68,6 +70,7 @@ def build_app(
     llm: LlmPort | None = None,
     sessions: SessionStore | None = None,
     pipeline: GuardrailPipeline | None = None,
+    auth: AuthModule | None = None,
 ) -> ChatApp:
     resolved = settings or Settings()
     resolved_index = index or ChromaIndex(resolved)
@@ -80,12 +83,14 @@ def build_app(
         resolved,
         build_tracer(resolved),
     )
+    resolved_auth = auth or build_auth()
     api = create_fastapi(
         settings=resolved,
         index=resolved_index,
         llm=resolved_llm,
         sessions=resolved_sessions,
         pipeline=resolved_pipeline,
+        auth=resolved_auth,
     )
     return ChatApp(
         settings=resolved,
@@ -94,6 +99,7 @@ def build_app(
         sessions=resolved_sessions,
         pipeline=resolved_pipeline,
         fastapi=api,
+        auth=resolved_auth,
     )
 
 

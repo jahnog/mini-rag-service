@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.auth import AuthModule, build_auth, mount_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.ports.index import IndexPort
@@ -23,6 +24,7 @@ def create_fastapi(
     llm: LlmPort,
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
+    auth: AuthModule | None = None,
 ) -> FastAPI:
     api = FastAPI(title="BCRA Mini-RAG", version="0.1.0")
     api.state.settings = settings
@@ -30,10 +32,13 @@ def create_fastapi(
     api.state.llm = llm
     api.state.sessions = sessions
     api.state.pipeline = pipeline
+    resolved_auth = auth or build_auth()
+    api.state.auth = resolved_auth
     api.state.limiter = RateLimiter(
         max_requests=settings.rate_limit_requests,
         window_s=settings.rate_limit_window_s,
     )
+    mount_auth(api, resolved_auth)
 
     @api.middleware("http")
     async def request_id_middleware(request: Request, call_next: Any) -> Any:
@@ -60,12 +65,16 @@ def create_fastapi(
             sessions=sessions,
             pipeline=pipeline,
             limiter=api.state.limiter,
+            auth=resolved_auth,
+            request=request,
             message=payload.message,
             session_id=payload.session_id,
             k=payload.k,
             filters=payload.filters,
             request_id=getattr(request.state, "request_id", "unknown"),
-            client_id=client_id_for(request),
+            client_id=client_id_for(
+                request, trusted_proxy=resolved_auth.settings.trust_proxy
+            ),
             demo_key=demo_key_for(request),
         )
 
@@ -78,12 +87,16 @@ def create_fastapi(
             sessions=sessions,
             pipeline=pipeline,
             limiter=api.state.limiter,
+            auth=resolved_auth,
+            request=request,
             message="/clear",
             session_id=payload.session_id,
             k=None,
             filters=None,
             request_id=getattr(request.state, "request_id", "unknown"),
-            client_id=client_id_for(request),
+            client_id=client_id_for(
+                request, trusted_proxy=resolved_auth.settings.trust_proxy
+            ),
             demo_key=demo_key_for(request),
         )
 
@@ -96,6 +109,7 @@ def create_fastapi(
         sessions=sessions,
         pipeline=pipeline,
         limiter=api.state.limiter,
+        auth=resolved_auth,
     )
     return cast(FastAPI, mount_ui(api, blocks))
 

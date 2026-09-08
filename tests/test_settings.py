@@ -15,7 +15,7 @@ def test_extra_env_keys_do_not_break_load(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_chat_settings_defaults(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path)
+    settings = Settings(data_dir=tmp_path, _env_file=None)
     assert settings.max_message_chars == 4000
     assert settings.default_k == 5
     assert settings.max_k == 8
@@ -30,6 +30,22 @@ def test_chat_settings_defaults(tmp_path: Path) -> None:
     assert settings.embedding_max_chars == 2048
     assert settings.llm_enable_thinking is True
     assert settings.llm_timeout_s == 60.0
+
+
+def test_readme_how_to_run_names_auth_vars() -> None:
+    readme = Path(__file__).resolve().parents[1] / "README.md"
+    how = readme.read_text(encoding="utf-8").split("## How to run", 1)[1].split("### ", 1)[0]
+    for name in (
+        "AUTH_SECRET",
+        "AUTH_ALLOWED_EMAILS",
+        "AUTH_SMTP_HOST",
+        "AUTH_TRUST_PROXY",
+        "AUTH_PUBLIC_ORIGIN",
+        "AUTH_SMTP_TIMEOUT_S",
+        "bcra_rag.auth",
+        "/auth/verify",
+    ):
+        assert name in how
 
 
 def test_readme_debug_names_local_qwen_thinking() -> None:

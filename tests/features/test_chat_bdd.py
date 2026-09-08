@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
-from tests.chat_fixtures import seed_ready
+from tests.chat_fixtures import make_client, seed_ready
 from tests.test_answer_query import _uc
 
 from bcra_rag.schemas import ChatFilters, ChatRequest
@@ -61,6 +61,21 @@ def user_asks_filtered(world: dict[str, object], message: str) -> None:
             request_id="bdd-f",
         )
     )
+
+
+@when(parsers.parse('an unauthenticated client posts "{message}"'))
+def unauthenticated_posts(world: dict[str, object], message: str) -> None:
+    settings = world["settings"]
+    assert isinstance(settings, object)
+    data_dir = settings.data_dir  # type: ignore[attr-defined]
+    client, llm, _, _ = make_client(data_dir, authenticate=False)
+    world["llm"] = llm
+    world["http"] = client.post("/chat", json={"message": message})
+
+
+@then(parsers.parse("the HTTP status is {code:d}"))
+def http_status(world: dict[str, object], code: int) -> None:
+    assert world["http"].status_code == code  # type: ignore[union-attr]
 
 
 @when("the user clears the session")

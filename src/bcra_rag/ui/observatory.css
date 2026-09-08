@@ -169,6 +169,22 @@ footer.svelte-1ax1toq,
   padding: 0 !important;
 }
 
+#auth-login {
+  margin: 0 0 0.6rem;
+}
+
+#auth-login-fields,
+#auth-session {
+  align-items: flex-end !important;
+  gap: 0.5rem !important;
+}
+
+#auth-status,
+#auth-who {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
 #layout-toggle {
   align-items: flex-start !important;
   gap: 0.5rem !important;
