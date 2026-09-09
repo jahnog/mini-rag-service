@@ -15,9 +15,8 @@ from email.message import Message
 from email.utils import parsedate_to_datetime
 from typing import Protocol
 
-from bcra_rag.auth.mail_copy import OTP_SUBJECT
+from bcra_rag.auth.mail_copy import OTP_CODE_RE, OTP_SUBJECT
 
-OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
 _INTERNALDATE_RE = re.compile(
     r'INTERNALDATE "(?P<day>\d{1,2})-(?P<mon>[A-Za-z]{3})-(?P<year>\d{4}) '
     r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2}) (?P<zone>[+-]\d{4})\""
@@ -82,7 +81,7 @@ def parse_otp_code(*, subject: str, body: str) -> str:
     if match is None:
         raise MailboxError("no 6-digit secret in body")
     code = match.group(1)
-    if OTP_CODE_RE.search(subject or ""):
+    if re.search(r"\d{6}", subject or ""):
         raise MailboxError("subject must not contain the 6-digit secret")
     return code
 

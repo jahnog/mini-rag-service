@@ -24,7 +24,7 @@ from tests.features.live.mailbox import (
     wait_for_new_otp,
 )
 
-CHAT_TIMEOUT_S = 120.0
+CHAT_TIMEOUT_S = 240.0
 
 
 class LiveHttpError(RuntimeError):

@@ -48,6 +48,8 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.max_k == 8
     assert settings.rate_limit_requests == 20
     assert settings.rate_limit_window_s == 60
+    assert settings.chat_turns_per_email_day == 30
+    assert settings.chat_turns_per_process_day == 100
     assert settings.demo_api_key == ""
     assert settings.llm_base_url.startswith("https://")
     assert settings.evals_dir == Path("evals")
@@ -69,6 +71,9 @@ def test_readme_how_to_run_names_auth_vars() -> None:
         "AUTH_TRUST_PROXY",
         "AUTH_PUBLIC_ORIGIN",
         "AUTH_SMTP_TIMEOUT_S",
+        "AUTH_SESSION_DAYS",
+        "CHAT_TURNS_PER_EMAIL_DAY",
+        "CHAT_TURNS_PER_PROCESS_DAY",
         "bcra_rag.auth",
         "/auth/verify",
     ):

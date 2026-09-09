@@ -5,6 +5,11 @@ import os
 import httpx
 import pytest
 
+pytest_plugins = [
+    "tests.features.live.http_steps",
+    "tests.features.live.ui_steps",
+]
+
 DEFAULT_LIVE_BASE_URL = "http://127.0.0.1:8000"
 
 

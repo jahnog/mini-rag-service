@@ -19,7 +19,9 @@ from bcra_rag.auth import (
     cookie_secure,
     normalize_email,
     origin_matches,
+    otp_code_from_text,
 )
+from bcra_rag.auth.mail_copy import otp_html_body
 from bcra_rag.ports import __all__ as PORTS
 from bcra_rag.settings import Settings
 
@@ -59,7 +61,7 @@ def test_auth_settings_defaults() -> None:
     assert settings.secret == ""
     assert settings.allowed_emails == ""
     assert settings.cookie_name == "session"
-    assert settings.session_days == 7
+    assert settings.session_days == 1
     assert settings.otp_ttl_s == 300
     assert settings.otp_digits == 6
     assert settings.trust_proxy is False
@@ -77,7 +79,7 @@ def test_auth_settings_defaults() -> None:
     assert settings.verify_ip_cooldown_s == 900
     assert settings.min_verify_interval_s == 2.0
     assert settings.max_sends_per_process_day == 200
-    assert settings.session_ttl_s == 604800
+    assert settings.session_ttl_s == 86400
     assert settings.secret_ok is False
 
 
@@ -133,7 +135,13 @@ def test_normalize_plus_tag() -> None:
 
 
 def _code_from(mailer: FakeMailer) -> str:
-    match = re.search(r"\b(\d{6})\b", mailer.sent[-1].body)
+    code = otp_code_from_text(mailer.sent[-1].body)
+    assert code
+    return code
+
+
+def _token_from(mailer: FakeMailer) -> str:
+    match = re.search(r"/auth/link/([A-Za-z0-9_-]+)", mailer.sent[-1].body)
     assert match
     return match.group(1)
 
@@ -143,7 +151,8 @@ def test_allowlisted_email_receives_six_digit_secret() -> None:
     service.request_otp(OPS, "1.1.1.1")
     assert len(mailer.sent) == 1
     assert mailer.sent[0].to == OPS
-    assert re.search(r"\b\d{6}\b", mailer.sent[0].body)
+    assert otp_code_from_text(mailer.sent[0].body)
+    assert otp_code_from_text(mailer.sent[0].html)
     assert not re.search(r"\d{6}", mailer.sent[0].subject)
 
 
@@ -196,11 +205,11 @@ def test_request_after_expiry_sends_new_code() -> None:
     assert service.email_from_cookie(cookie) == OPS
 
 
-def test_correct_code_authenticates_for_a_week() -> None:
+def test_correct_code_authenticates_for_a_day() -> None:
     service, mailer, clock = _service()
     service.request_otp(OPS, "1.1.1.1")
     cookie = service.verify_otp(OPS, _code_from(mailer), "1.1.1.1")
-    clock.advance(7 * 86400 - 10)
+    clock.advance(86400 - 10)
     assert service.email_from_cookie(cookie) == OPS
     clock.advance(20)
     assert service.email_from_cookie(cookie) is None
@@ -324,7 +333,9 @@ def test_cookie_secure_signals() -> None:
 class _BoomMailer:
     configured = True
 
-    def send_otp(self, *, to: str, code: str) -> None:
+    def send_otp(
+        self, *, to: str, code: str, login_url: str | None = None
+    ) -> None:
         raise RuntimeError("smtp down")
 
 
@@ -387,9 +398,11 @@ def test_smtp_mailer_passes_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_concurrent_requests_send_at_most_one_mail() -> None:
     class SlowMailer(FakeMailer):
-        def send_otp(self, *, to: str, code: str) -> None:
+        def send_otp(
+            self, *, to: str, code: str, login_url: str | None = None
+        ) -> None:
             time.sleep(0.2)
-            super().send_otp(to=to, code=code)
+            super().send_otp(to=to, code=code, login_url=login_url)
 
     mailer = SlowMailer()
     service, _, _ = _service(mailer=mailer)
@@ -419,5 +432,117 @@ def test_logs_omit_secret_and_email(caplog: pytest.LogCaptureFixture) -> None:
     text = caplog.text + str(caplog.records)
     code = _code_from(mailer)
     assert code not in text
+    assert OPS not in text
+
+
+def test_html_mail_escapes_and_has_observatory_look() -> None:
+    html = otp_html_body(
+        "123456",
+        ttl_s=300,
+        login_url='https://rag.example/auth/link/a&b"c',
+    )
+    assert "lang=\"es\"" in html
+    assert "Iniciar sesión" in html
+    assert 'rel="noopener noreferrer"' in html
+    assert "#04111d" in html
+    assert "#72d6cb" in html
+    assert "#03101c" in html
+    assert "<img" not in html.lower()
+    assert OPS not in html
+    assert "a&amp;b" in html
+    assert "&quot;" in html
+    assert "Tu código de acceso es 123456" in html
+
+
+def test_public_origin_adds_login_url() -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example/")
+    issued = service.request_otp(OPS, "1.1.1.1")
+    token = _token_from(mailer)
+    assert issued.login_url == f"https://rag.example/auth/link/{token}"
+    assert issued.intent_nonce
+    assert OPS not in issued.login_url
+    assert _code_from(mailer) not in issued.login_url
+    assert "https://rag.example//" not in mailer.sent[0].body
+    assert issued.login_url in mailer.sent[0].body
+    assert issued.login_url in mailer.sent[0].html
+    raw = service._otps[OPS]
+    assert raw.link_digest
+    assert token not in raw.link_digest
+    assert token not in raw.digest
+
+
+def test_unset_origin_omits_login_url() -> None:
+    service, mailer, _ = _service()
+    issued = service.request_otp(OPS, "1.1.1.1")
+    assert issued.login_url is None
+    assert "/auth/link/" not in mailer.sent[0].body
+    assert "/auth/link/" not in mailer.sent[0].html
+    assert otp_code_from_text(mailer.sent[0].body)
+
+
+def test_coalesce_keeps_token_and_intent() -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example")
+    first = service.request_otp(OPS, "1.1.1.1")
+    token = _token_from(mailer)
+    nonce = first.intent_nonce
+    second = service.request_otp(OPS, "1.1.1.1")
+    assert len(mailer.sent) == 1
+    assert second.intent_nonce == nonce
+    assert service.inspect_link(token) == OPS
+    assert service.intent_matches(token, nonce or "")
+
+
+def test_verify_burns_login_token() -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example")
+    service.request_otp(OPS, "1.1.1.1")
+    token = _token_from(mailer)
+    service.verify_otp(OPS, _code_from(mailer), "1.1.1.1")
+    assert service.inspect_link(token) is None
+    with pytest.raises(AuthRejected):
+        service.consume_link(token, "1.1.1.1")
+
+
+def test_consume_link_burns_otp() -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example")
+    service.request_otp(OPS, "1.1.1.1")
+    code = _code_from(mailer)
+    token = _token_from(mailer)
+    cookie = service.consume_link(token, "1.1.1.1")
+    assert service.email_from_cookie(cookie) == OPS
+    with pytest.raises(AuthRejected):
+        service.verify_otp(OPS, code, "1.1.1.1")
+
+
+def test_concurrent_link_consume_at_most_one_session() -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example")
+    service.request_otp(OPS, "1.1.1.1")
+    token = _token_from(mailer)
+    results: list[str] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            results.append(service.consume_link(token, "1.1.1.1"))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 1
+    assert len(errors) == 1
+    assert service.email_from_cookie(results[0]) == OPS
+
+
+def test_logs_omit_login_token(caplog: pytest.LogCaptureFixture) -> None:
+    service, mailer, _ = _service(public_origin="https://rag.example")
+    with caplog.at_level("INFO"):
+        service.request_otp(OPS, "1.1.1.1")
+        token = _token_from(mailer)
+        service.consume_link(token, "1.1.1.1")
+    text = caplog.text + str(caplog.records)
+    assert token not in text
     assert OPS not in text
 

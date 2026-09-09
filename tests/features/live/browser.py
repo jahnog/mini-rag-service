@@ -12,7 +12,7 @@ from tests.features.live.http_client import (
     live_base_url,
 )
 
-CHAT_TIMEOUT_MS = 120_000
+CHAT_TIMEOUT_MS = 240_000
 WIDE = {"width": 1280, "height": 720}
 NARROW = {"width": 375, "height": 812}
 

@@ -5,9 +5,11 @@ import hmac
 from typing import Any
 from uuid import uuid4
 
+import structlog
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.auth.ip import client_ip
 from bcra_rag.domain.guardrails import GuardrailPipeline
@@ -18,6 +20,8 @@ from bcra_rag.schemas import ChatFilters, ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery
 
+_log = structlog.get_logger("bcra_rag.chat")
+
 
 async def handle_turn(
     *,
@@ -27,6 +31,7 @@ async def handle_turn(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     limiter: RateLimiter,
+    turn_caps: TurnCaps,
     auth: AuthModule,
     request: Any,
     message: str,
@@ -43,6 +48,12 @@ async def handle_turn(
         raise HTTPException(status_code=401, detail="authentication required")
     if settings.demo_api_key and demo_key != settings.demo_api_key:
         raise HTTPException(status_code=401, detail="invalid demo key")
+    if (message or "").strip().lower() != "/clear":
+        blocked = turn_caps.allow(email)
+        if blocked is not None:
+            prefix = hashlib.sha256(email.encode()).hexdigest()[:8]
+            _log.info("chat_cap", email_hash=prefix, outcome=blocked)
+            raise HTTPException(status_code=429, detail="rate limit exceeded")
     if not limiter.allow(client_id):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
     if k is not None and k > settings.max_k:
