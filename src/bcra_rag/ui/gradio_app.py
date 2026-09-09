@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
@@ -265,6 +266,7 @@ def build_blocks(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     limiter: RateLimiter,
+    turn_caps: TurnCaps,
     auth: AuthModule,
 ) -> gr.Blocks:
     health = dump_health(settings, index)
@@ -297,6 +299,7 @@ def build_blocks(
                 sessions=sessions,
                 pipeline=pipeline,
                 limiter=limiter,
+                turn_caps=turn_caps,
                 auth=auth,
                 request=request,
                 message=message,
@@ -330,6 +333,7 @@ def build_blocks(
                 sessions=sessions,
                 pipeline=pipeline,
                 limiter=limiter,
+                turn_caps=turn_caps,
                 auth=auth,
                 request=request,
                 message="/clear",

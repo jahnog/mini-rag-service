@@ -20,7 +20,7 @@ class AuthSettings(BaseSettings):
 
     # Session cookie
     cookie_name: str = "session"
-    session_days: int = Field(default=7, ge=1)
+    session_days: int = Field(default=1, ge=1)
 
     # OTP
     otp_ttl_s: int = Field(default=300, ge=1)

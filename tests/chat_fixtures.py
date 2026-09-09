@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -8,7 +7,7 @@ from fastapi.testclient import TestClient
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
-from bcra_rag.auth import AuthModule, AuthSettings, FakeMailer, build_auth
+from bcra_rag.auth import AuthModule, AuthSettings, FakeMailer, build_auth, otp_code_from_text
 from bcra_rag.composition import build_app
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
@@ -152,7 +151,9 @@ def make_client(
     )
     client = TestClient(app.fastapi)
     if authenticate:
-        login_client(client, mailer, resolved_auth)
+        used_mailer = resolved_auth.mailer
+        assert isinstance(used_mailer, FakeMailer)
+        login_client(client, used_mailer, resolved_auth)
     return client, resolved_llm, resolved_index, resolved_sessions
 
 
@@ -170,11 +171,11 @@ def login_client(
     requested = client.post("/auth/request", json={"email": email}, headers=headers)
     assert requested.status_code == 200
     assert mailer.sent
-    match = re.search(r"\b(\d{6})\b", mailer.sent[-1].body)
-    assert match
+    code = otp_code_from_text(mailer.sent[-1].body)
+    assert code
     verified = client.post(
         "/auth/verify",
-        json={"email": email, "code": match.group(1)},
+        json={"email": email, "code": code},
         headers=headers,
     )
     assert verified.status_code == 200

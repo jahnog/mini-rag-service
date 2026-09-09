@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
     AUTH_EMAIL_LABEL,
@@ -162,7 +163,7 @@ def test_append_pending_then_done_has_no_leftover_pending() -> None:
     assert len(silencio) == 2
     assert "metadata" not in silencio[1]
     denied = append_messages(None, "hola", "Se requiere DEMO_API_KEY.")
-    limited = append_messages(None, "hola", "Demasiadas solicitudes.")
+    limited = append_messages(None, "hola", "Demasiados intentos. Probá más tarde.")
     assert "metadata" not in denied[1]
     assert "metadata" not in limited[1]
 
@@ -341,6 +342,9 @@ async def test_iter_turn_auth_required_spanish_notice() -> None:
     ]
     assert AUTH_NOTICE in yields[-1][0][1]["content"]
     assert http_turn_notice(401, "authentication required") == AUTH_NOTICE
+    assert http_turn_notice(429, "rate limit exceeded") == (
+        "Demasiados intentos. Probá más tarde."
+    )
 
 
 def test_clear_while_logged_out_keeps_history_and_shows_notice() -> None:
@@ -657,6 +661,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         sessions=InMemorySessionStore(),
         pipeline=default_pipeline(settings),
         limiter=RateLimiter(max_requests=20, window_s=60),
+        turn_caps=TurnCaps(max_email=30, max_process=100),
         auth=build_auth(),
     )
     assert blocks is not None

@@ -22,11 +22,19 @@ _MAX_EMAIL_LEN = 254
 _log = structlog.get_logger("bcra_rag.auth")
 
 
+@dataclass(frozen=True)
+class RequestOtpResult:
+    intent_nonce: str | None = None
+    login_url: str | None = None
+
+
 @dataclass
 class _Otp:
     digest: str
     expires: float
     fails: int = 0
+    link_digest: str | None = None
+    intent_nonce: str | None = None
 
 
 @dataclass
@@ -36,6 +44,7 @@ class AuthService:
     time_fn: Callable[[], float] = time.time
     _lock: threading.RLock = field(default_factory=threading.RLock)
     _otps: dict[str, _Otp] = field(default_factory=dict)
+    _link_index: dict[str, str] = field(default_factory=dict)
     _send_times_email: dict[str, list[float]] = field(default_factory=dict)
     _send_times_ip: dict[str, list[float]] = field(default_factory=dict)
     _emails_ip_day: dict[tuple[str, str], set[str]] = field(default_factory=dict)
@@ -44,15 +53,43 @@ class AuthService:
     _ip_lockout: dict[str, float] = field(default_factory=dict)
     _process_sends: list[float] = field(default_factory=list)
 
-    def request_otp(self, email: str, ip: str) -> None:
+    def request_otp(self, email: str, ip: str) -> RequestOtpResult:
         with self._lock:
-            self._request_otp_locked(email, ip)
+            return self._request_otp_locked(email, ip)
 
     def verify_otp(self, email: str, code: str, ip: str) -> str:
         with self._lock:
             return self._verify_otp_locked(email, code, ip)
 
-    def _request_otp_locked(self, email: str, ip: str) -> None:
+    def inspect_link(self, token: str) -> str | None:
+        with self._lock:
+            found = self._lookup_link(token)
+            if found is None:
+                return None
+            return found[0]
+
+    def intent_matches(self, token: str, intent_nonce: str) -> bool:
+        with self._lock:
+            found = self._lookup_link(token)
+            if found is None:
+                return False
+            _email, record = found
+            stored = record.intent_nonce or ""
+            given = (intent_nonce or "").strip()
+            if not stored or not given:
+                return False
+            return hmac.compare_digest(stored, given)
+
+    def consume_link(self, token: str, ip: str) -> str:
+        with self._lock:
+            return self._consume_link_locked(token, ip)
+
+    def note_consume_fail(self, ip: str) -> None:
+        with self._lock:
+            now = self.time_fn()
+            self._register_verify_fail("", ip, now, None)
+
+    def _request_otp_locked(self, email: str, ip: str) -> RequestOtpResult:
         self._require_secret()
         raw = self._validate_email(email)
         normalized = normalize_email(raw)
@@ -60,7 +97,7 @@ class AuthService:
         live = self._otps.get(normalized)
         if live is not None and now < live.expires:
             self._log(normalized, "sent")
-            return
+            return RequestOtpResult(intent_nonce=live.intent_nonce)
         self._enforce_send_limits(normalized, ip, now)
         self._record_send(normalized, ip, now)
         dummy = self._otp_digest(normalized, "000000")
@@ -68,18 +105,31 @@ class AuthService:
         if not allowlist or normalized not in allowlist or not self.mailer.configured:
             hmac.compare_digest(dummy, dummy)
             self._log(normalized, "sent")
-            return
+            return RequestOtpResult()
         code = f"{secrets.randbelow(10 ** self.settings.otp_digits):0{self.settings.otp_digits}d}"
+        intent_nonce: str | None = None
+        login_url: str | None = None
+        link_digest: str | None = None
+        if self.settings.public_origin.strip():
+            intent_nonce = secrets.token_urlsafe(32)
+            token = secrets.token_urlsafe(32)
+            login_url = self._login_url(token)
+            link_digest = self._link_digest(token)
         try:
-            self.mailer.send_otp(to=raw, code=code)
+            self.mailer.send_otp(to=raw, code=code, login_url=login_url)
         except Exception as exc:
             self._log(normalized, "invalid")
             raise AuthUnavailable("authentication unavailable") from exc
         self._otps[normalized] = _Otp(
             digest=self._otp_digest(normalized, code),
             expires=now + self.settings.otp_ttl_s,
+            link_digest=link_digest,
+            intent_nonce=intent_nonce,
         )
+        if link_digest is not None:
+            self._link_index[link_digest] = normalized
         self._log(normalized, "sent")
+        return RequestOtpResult(intent_nonce=intent_nonce, login_url=login_url)
 
     def _verify_otp_locked(self, email: str, code: str, ip: str) -> str:
         self._require_secret()
@@ -98,7 +148,7 @@ class AuthService:
             self._register_verify_fail(normalized, ip, now, record)
             self._log(normalized, "invalid")
             raise AuthRejected(401, "invalid or expired code")
-        del self._otps[normalized]
+        self._drop_otp(normalized)
         self._log(normalized, "verified")
         return sign_session(
             email=normalized,
@@ -106,6 +156,59 @@ class AuthService:
             ttl_s=self.settings.session_ttl_s,
             now=now,
         )
+
+    def _consume_link_locked(self, token: str, ip: str) -> str:
+        self._require_secret()
+        now = self.time_fn()
+        found = self._lookup_link(token)
+        email = found[0] if found is not None else ""
+        self._enforce_verify_limits(email or "link", ip, now)
+        if found is None:
+            self._register_verify_fail(email, ip, now, None)
+            self._log(email or "link", "invalid")
+            raise AuthRejected(401, "invalid or expired code")
+        normalized, record = found
+        self._drop_otp(normalized)
+        self._log(normalized, "verified")
+        return sign_session(
+            email=normalized,
+            secret=self.settings.secret,
+            ttl_s=self.settings.session_ttl_s,
+            now=now,
+        )
+
+    def _lookup_link(self, token: str) -> tuple[str, _Otp] | None:
+        raw = (token or "").strip()
+        if not raw:
+            return None
+        digest = self._link_digest(raw)
+        email = self._link_index.get(digest)
+        if email is None:
+            return None
+        record = self._otps.get(email)
+        now = self.time_fn()
+        if (
+            record is None
+            or record.link_digest is None
+            or now >= record.expires
+            or not hmac.compare_digest(record.link_digest, digest)
+        ):
+            return None
+        return email, record
+
+    def _drop_otp(self, email: str) -> None:
+        record = self._otps.pop(email, None)
+        if record is not None and record.link_digest is not None:
+            self._link_index.pop(record.link_digest, None)
+
+    def _login_url(self, token: str) -> str:
+        origin = self.settings.public_origin.strip().rstrip("/")
+        return f"{origin}/auth/link/{token}"
+
+    def _link_digest(self, token: str) -> str:
+        return hmac.new(
+            self.settings.secret.encode(), token.encode(), hashlib.sha256
+        ).hexdigest()
 
     def email_from_cookie(self, value: str) -> str | None:
         if not self.settings.secret_ok:
@@ -195,10 +298,10 @@ class AuthService:
         fails = self._prune(self._verify_fails_ip.get(ip, []), now, 3600)
         fails.append(now)
         self._verify_fails_ip[ip] = fails
-        if record is not None:
+        if record is not None and email:
             record.fails += 1
             if record.fails >= self.settings.max_verify_fails_per_otp:
-                self._otps.pop(email, None)
+                self._drop_otp(email)
 
     def _limited(self, email: str, retry_after: int | None = None) -> None:
         self._log(email, "limited")

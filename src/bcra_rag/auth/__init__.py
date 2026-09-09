@@ -5,9 +5,10 @@ from typing import Any
 
 from bcra_rag.auth.errors import AuthRejected, AuthUnavailable
 from bcra_rag.auth.fake import FakeMailer
+from bcra_rag.auth.mail_copy import OTP_CODE_RE, otp_code_from_text
 from bcra_rag.auth.origin import cookie_secure, origin_matches
 from bcra_rag.auth.ports import Mailer
-from bcra_rag.auth.service import AuthService, normalize_email
+from bcra_rag.auth.service import AuthService, RequestOtpResult, normalize_email
 from bcra_rag.auth.settings import SECRET_MIN_LEN, AuthSettings
 from bcra_rag.auth.smtp import SmtpMailer
 
@@ -70,6 +71,8 @@ __all__ = [
     "AuthUnavailable",
     "FakeMailer",
     "Mailer",
+    "OTP_CODE_RE",
+    "RequestOtpResult",
     "SECRET_MIN_LEN",
     "SmtpMailer",
     "build_auth",
@@ -78,4 +81,5 @@ __all__ = [
     "mount_auth",
     "normalize_email",
     "origin_matches",
+    "otp_code_from_text",
 ]
