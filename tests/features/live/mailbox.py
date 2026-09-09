@@ -9,7 +9,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parsedate_to_datetime
@@ -18,6 +18,24 @@ from typing import Protocol
 from bcra_rag.auth.mail_copy import OTP_SUBJECT
 
 OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
+_INTERNALDATE_RE = re.compile(
+    r'INTERNALDATE "(?P<day>\d{1,2})-(?P<mon>[A-Za-z]{3})-(?P<year>\d{4}) '
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2}) (?P<zone>[+-]\d{4})\""
+)
+_IMAP_MONTHS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
 DEFAULT_OTP_TTL_S = 300.0
 DEFAULT_POLL_TIMEOUT_S = 30.0
 DEFAULT_POLL_S = 1.0
@@ -30,6 +48,33 @@ class MailboxError(RuntimeError):
 
 class MailboxTimeout(MailboxError):
     """No matching OTP mail within the poll bound."""
+
+
+def parse_imap_internaldate(raw: bytes | str) -> datetime | None:
+    """Parse IMAP INTERNALDATE keeping its zone.
+
+    imaplib.Internaldate2tuple returns local wall time. Tagging that as UTC
+    shifts a just-sent OTP by the host offset, so live waits miss it.
+    """
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    match = _INTERNALDATE_RE.search(text)
+    if match is None:
+        return None
+    month = _IMAP_MONTHS.get(match.group("mon").lower())
+    if month is None:
+        return None
+    zone = match.group("zone")
+    sign = 1 if zone[0] == "+" else -1
+    tz = timezone(sign * timedelta(hours=int(zone[1:3]), minutes=int(zone[3:5])))
+    return datetime(
+        int(match.group("year")),
+        month,
+        int(match.group("day")),
+        int(match.group("hour")),
+        int(match.group("minute")),
+        int(match.group("second")),
+        tzinfo=tz,
+    )
 
 
 def parse_otp_code(*, subject: str, body: str) -> str:
@@ -310,7 +355,9 @@ class ImapMailbox:
         return out
 
     def _fetch_one(self, uid: str) -> OtpMail | None:
-        typ, data = self._client.uid("FETCH", uid, "(FLAGS INTERNALDATE RFC822)")
+        typ, data = self._client.uid(
+            "FETCH", uid, "(FLAGS INTERNALDATE BODY.PEEK[])"
+        )
         if typ != "OK" or not data:
             return None
         flags = ""
@@ -324,9 +371,9 @@ class ImapMailbox:
             if isinstance(meta, bytes):
                 text = meta.decode("utf-8", errors="replace")
                 flags = text
-                stamp = imaplib.Internaldate2tuple(meta)
-                if stamp is not None:
-                    internal = datetime(*stamp[:6], tzinfo=UTC)
+                parsed = parse_imap_internaldate(meta)
+                if parsed is not None:
+                    internal = parsed
             if isinstance(payload, bytes):
                 raw = payload
         if raw is None:

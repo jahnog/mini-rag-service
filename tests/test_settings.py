@@ -41,6 +41,7 @@ def test_eval_settings_load_phoenix_api_key(monkeypatch: pytest.MonkeyPatch) -> 
 def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "https://api.x.ai/v1")
     monkeypatch.delenv("EMBEDDING_MAX_CHARS", raising=False)
+    monkeypatch.delenv("LLM_TIMEOUT_S", raising=False)
     settings = Settings(data_dir=tmp_path, _env_file=None)
     assert settings.max_message_chars == 4000
     assert settings.default_k == 5
