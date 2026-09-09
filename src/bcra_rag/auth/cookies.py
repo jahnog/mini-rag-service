@@ -7,6 +7,10 @@ import secrets
 
 from bcra_rag.auth.settings import SECRET_MIN_LEN
 
+INTENT_COOKIE = "auth_intent"
+LINK_COOKIE = "auth_link"
+LINK_COOKIE_PATH = "/auth/link"
+
 
 def sign_session(*, email: str, secret: str, ttl_s: int, now: float) -> str:
     exp = int(now) + ttl_s

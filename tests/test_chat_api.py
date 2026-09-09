@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bcra_rag.adapters.llm_fake import FakeLlm
@@ -18,6 +19,7 @@ from tests.chat_fixtures import (
     make_client,
     seed_ready,
 )
+from tests.test_auth import Clock
 
 
 def test_chat_rejects_thinking_on_request(tmp_path: Path) -> None:
@@ -225,3 +227,130 @@ def test_disclaimer_on_every_response(tmp_path: Path) -> None:
     silencio = client.post("/chat", json={"message": "What's the weather in Madrid?"}).json()
     assert silencio["disclaimer"]
     assert silencio["finding"] == "silencio"
+
+
+def test_email_turn_cap_is_429(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    with caplog.at_level("INFO"):
+        assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+        assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+        third = client.post("/chat", json={"message": "Qué es el MULC?"})
+    assert third.status_code == 429
+    assert len(llm.calls) == 2
+    logged = caplog.text + capsys.readouterr().out
+    assert "email_cap" in logged
+    assert AUTH_EMAIL not in logged
+
+
+def test_process_turn_cap_can_fire_first(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 5, "chat_turns_per_process_day": 3}
+    )
+    other = "other@example.com"
+    mailer = FakeMailer()
+    shared_auth = build_auth(
+        settings=AuthSettings(
+            _env_file=None, secret=AUTH_SECRET, allowed_emails=f"{AUTH_EMAIL},{other}"
+        ),
+        mailer=mailer,
+    )
+    client, llm, _, _ = make_client(
+        tmp_path, settings=settings, index=index, auth=shared_auth
+    )
+    other_client = TestClient(client.app)
+    login_client(other_client, mailer, shared_auth, email=other)
+    with caplog.at_level("INFO"):
+        assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+        assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+        assert (
+            other_client.post("/chat", json={"message": "Qué es el MULC?"}).status_code
+            == 200
+        )
+        fourth = other_client.post("/chat", json={"message": "Qué es el MULC?"})
+    assert fourth.status_code == 429
+    logged = caplog.text + capsys.readouterr().out
+    assert "process_cap" in logged
+    assert other not in logged
+    assert AUTH_EMAIL not in logged
+    assert len(llm.calls) == 3
+
+
+def test_clear_does_not_consume_email_cap(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    first = client.post("/chat", json={"message": "Qué es el MULC?"})
+    client.post("/chat", json={"message": "Qué es el MULC?"})
+    cleared = client.post("/chat/clear", json={"session_id": first.json()["session_id"]})
+    assert cleared.status_code == 200
+    assert len(llm.calls) == 2
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429
+
+
+def test_unauthenticated_does_not_consume_turn_caps(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    anon, _, _, _ = make_client(
+        tmp_path, settings=settings, index=index, authenticate=False
+    )
+    for _ in range(3):
+        assert anon.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 401
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert llm.calls
+
+
+def test_plus_tag_shares_email_turn_cap(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    mailer = FakeMailer()
+    auth = build_auth(
+        settings=AuthSettings(
+            _env_file=None, secret=AUTH_SECRET, allowed_emails=AUTH_EMAIL
+        ),
+        mailer=mailer,
+    )
+    client, llm, _, _ = make_client(
+        tmp_path, settings=settings, index=index, auth=auth, authenticate=False
+    )
+    login_client(client, mailer, auth, email="ops+staff@example.com")
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429
+    assert len(llm.calls) == 2
+
+
+def test_turn_caps_reset_next_utc_day(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    caps = client.app.state.turn_caps
+    clock = Clock(caps.time_fn())
+    caps.time_fn = clock
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429
+    clock.advance(86400)
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert len(llm.calls) == 3

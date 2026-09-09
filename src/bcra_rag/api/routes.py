@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, build_auth, mount_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
@@ -38,6 +39,10 @@ def create_fastapi(
         max_requests=settings.rate_limit_requests,
         window_s=settings.rate_limit_window_s,
     )
+    api.state.turn_caps = TurnCaps(
+        max_email=settings.chat_turns_per_email_day,
+        max_process=settings.chat_turns_per_process_day,
+    )
     mount_auth(api, resolved_auth)
 
     @api.middleware("http")
@@ -65,6 +70,7 @@ def create_fastapi(
             sessions=sessions,
             pipeline=pipeline,
             limiter=api.state.limiter,
+            turn_caps=api.state.turn_caps,
             auth=resolved_auth,
             request=request,
             message=payload.message,
@@ -87,6 +93,7 @@ def create_fastapi(
             sessions=sessions,
             pipeline=pipeline,
             limiter=api.state.limiter,
+            turn_caps=api.state.turn_caps,
             auth=resolved_auth,
             request=request,
             message="/clear",
@@ -109,6 +116,7 @@ def create_fastapi(
         sessions=sessions,
         pipeline=pipeline,
         limiter=api.state.limiter,
+        turn_caps=api.state.turn_caps,
         auth=resolved_auth,
     )
     return cast(FastAPI, mount_ui(api, blocks))

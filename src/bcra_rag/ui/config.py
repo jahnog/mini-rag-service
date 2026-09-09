@@ -114,7 +114,7 @@ def http_turn_notice(status: int, detail: str | None = None) -> str:
             return AUTH_NOTICE
         return "Se requiere DEMO_API_KEY."
     if status == 429:
-        return "Demasiadas solicitudes."
+        return "Demasiados intentos. Probá más tarde."
     return "Solicitud rechazada."
 
 

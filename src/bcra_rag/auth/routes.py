@@ -3,11 +3,23 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from bcra_rag.auth import AuthModule, AuthRejected, AuthUnavailable, email_from_request
+from bcra_rag.auth.cookies import (
+    INTENT_COOKIE,
+    LINK_COOKIE,
+    LINK_COOKIE_PATH,
+)
 from bcra_rag.auth.ip import client_ip
 from bcra_rag.auth.origin import cookie_secure, origin_matches
+from bcra_rag.auth.pages import confirm_page, fail_page
+
+_LINK_CSP = (
+    "default-src 'none'; form-action 'self'; base-uri 'none'; "
+    "frame-ancestors 'none'; style-src 'unsafe-inline'"
+)
 
 
 class EmailBody(BaseModel):
@@ -23,15 +35,24 @@ def build_router(auth: AuthModule) -> APIRouter:
     router = APIRouter()
 
     @router.post("/auth/request")
-    def request_otp(payload: EmailBody, request: Request) -> dict[str, bool]:
+    def request_otp(payload: EmailBody, request: Request, response: Response) -> dict[str, bool]:
         _reject_bad_origin(request, auth)
         _require_secret(auth)
         try:
-            auth.service.request_otp(payload.email, _ip(auth, request))
+            issued = auth.service.request_otp(payload.email, _ip(auth, request))
         except AuthUnavailable:
             raise HTTPException(status_code=503, detail="authentication unavailable")
         except AuthRejected as exc:
             _raise_rejected(exc)
+        if issued.intent_nonce:
+            _set_link_cookie(
+                auth,
+                request,
+                response,
+                INTENT_COOKIE,
+                issued.intent_nonce,
+                max_age=auth.settings.otp_ttl_s,
+            )
         return {"ok": True}
 
     @router.post("/auth/verify")
@@ -45,7 +66,56 @@ def build_router(auth: AuthModule) -> APIRouter:
         except AuthRejected as exc:
             _raise_rejected(exc)
         _set_session_cookie(auth, request, response, cookie)
+        _clear_link_cookies(auth, request, response)
         return {"ok": True}
+
+    @router.api_route("/auth/link/{token}", methods=["GET", "HEAD"])
+    def wash_link(token: str, request: Request) -> Response:
+        _require_secret(auth)
+        if request.method == "HEAD":
+            response = Response(status_code=200)
+            _apply_link_headers(response)
+            return response
+        response = RedirectResponse(url="/auth/link", status_code=302)
+        _apply_link_headers(response)
+        _set_link_cookie(
+            auth,
+            request,
+            response,
+            LINK_COOKIE,
+            token,
+            max_age=auth.settings.otp_ttl_s,
+        )
+        return response
+
+    @router.api_route("/auth/link", methods=["GET", "HEAD", "POST"])
+    def consume_link(request: Request) -> Response:
+        _require_secret(auth)
+        if request.method == "HEAD":
+            response = Response(status_code=200)
+            _apply_link_headers(response)
+            return response
+        if request.method == "POST":
+            try:
+                _reject_bad_origin(request, auth)
+            except HTTPException:
+                auth.service.note_consume_fail(_ip(auth, request))
+                raise
+            return _finish_consume(auth, request)
+        token = request.cookies.get(LINK_COOKIE) or ""
+        intent = request.cookies.get(INTENT_COOKIE) or ""
+        email = auth.service.inspect_link(token)
+        if email is None:
+            return _fail_html()
+        navigate = (
+            request.headers.get("sec-fetch-mode") == "navigate"
+            and request.headers.get("sec-fetch-dest") == "document"
+        )
+        if navigate and auth.service.intent_matches(token, intent):
+            return _finish_consume(auth, request)
+        response = HTMLResponse(confirm_page(email))
+        _apply_link_headers(response)
+        return response
 
     @router.post("/auth/logout")
     def logout(request: Request, response: Response) -> dict[str, bool]:
@@ -56,6 +126,7 @@ def build_router(auth: AuthModule) -> APIRouter:
             samesite="lax",
             secure=cookie_secure(request, auth.settings),
         )
+        _clear_link_cookies(auth, request, response)
         return {"ok": True}
 
     @router.get("/auth/me")
@@ -66,6 +137,69 @@ def build_router(auth: AuthModule) -> APIRouter:
         return {"authenticated": True, "email": email}
 
     return router
+
+
+def _finish_consume(auth: AuthModule, request: Request) -> Response:
+    token = request.cookies.get(LINK_COOKIE) or ""
+    try:
+        cookie = auth.service.consume_link(token, _ip(auth, request))
+    except AuthUnavailable:
+        raise HTTPException(status_code=503, detail="authentication unavailable")
+    except AuthRejected as exc:
+        if exc.status == 429:
+            _raise_rejected(exc)
+        return _fail_html()
+    response = RedirectResponse(url="/", status_code=302)
+    _apply_link_headers(response)
+    _set_session_cookie(auth, request, response, cookie)
+    _clear_link_cookies(auth, request, response)
+    return response
+
+
+def _fail_html() -> HTMLResponse:
+    response = HTMLResponse(fail_page())
+    _apply_link_headers(response)
+    return response
+
+
+def _apply_link_headers(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = _LINK_CSP
+
+
+def _set_link_cookie(
+    auth: AuthModule,
+    request: Request,
+    response: Response,
+    name: str,
+    value: str,
+    *,
+    max_age: int,
+) -> None:
+    response.set_cookie(
+        key=name,
+        value=value,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax",
+        path=LINK_COOKIE_PATH,
+        secure=cookie_secure(request, auth.settings),
+    )
+
+
+def _clear_link_cookies(auth: AuthModule, request: Request, response: Response) -> None:
+    secure = cookie_secure(request, auth.settings)
+    for name in (INTENT_COOKIE, LINK_COOKIE):
+        response.delete_cookie(
+            name,
+            path=LINK_COOKIE_PATH,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
+        )
 
 
 def _ip(auth: AuthModule, request: Request) -> str:
