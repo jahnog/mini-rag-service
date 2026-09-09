@@ -89,10 +89,15 @@ async (email) => {
       credentials: "same-origin",
       body: JSON.stringify({email: email || ""}),
     });
+    if (r.ok) return "Si el correo está habilitado, vas a recibir un código.";
     if (r.status === 429) return "Demasiados intentos. Probá más tarde.";
     if (r.status === 503) return "Autenticación no configurada.";
-  } catch (e) {}
-  return "Si el correo está habilitado, vas a recibir un código.";
+    if (r.status === 403) return "Origen inválido.";
+    if (r.status === 422) return "Correo inválido.";
+    return "No se pudo pedir el código.";
+  } catch (e) {
+    return "No se pudo pedir el código.";
+  }
 }
 """
 

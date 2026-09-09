@@ -8,6 +8,7 @@ from bcra_rag.auth.mail_copy import OTP_SUBJECT, otp_body
 from tests.features.live.mailbox import (
     DEFAULT_OTP_TTL_S,
     FakeMailbox,
+    ImapMailbox,
     ImapSettings,
     MailboxError,
     MailboxTimeout,
@@ -16,6 +17,7 @@ from tests.features.live.mailbox import (
     consume_used,
     find_leftover_otp,
     find_new_otp,
+    parse_imap_internaldate,
     parse_otp_code,
     wait_for_new_otp,
 )
@@ -40,6 +42,19 @@ def _mail(
         date=date,
         unseen=unseen,
     )
+
+
+def test_internaldate_keeps_zone_instead_of_local_tuple() -> None:
+    utc = parse_imap_internaldate(
+        b'6 (UID 6 INTERNALDATE "08-Sep-2026 22:23:51 +0000" BODY[] {12}'
+    )
+    assert utc == datetime(2026, 9, 8, 22, 23, 51, tzinfo=UTC)
+    minus_three = parse_imap_internaldate(
+        'INTERNALDATE "08-Sep-2026 19:23:51 -0300"'
+    )
+    assert minus_three is not None
+    assert minus_three.astimezone(UTC) == datetime(2026, 9, 8, 22, 23, 51, tzinfo=UTC)
+    assert parse_imap_internaldate("no stamp") is None
 
 
 def test_parse_otp_from_body_not_subject() -> None:
@@ -189,6 +204,55 @@ def test_from_env_requires_host_user_password(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.delenv("LIVE_IMAP_PASSWORD", raising=False)
     with pytest.raises(MailboxError, match="LIVE_IMAP_HOST"):
         ImapSettings.from_env()
+
+
+def test_imap_fetch_peeks_and_keeps_utc_internaldate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from email.message import EmailMessage
+
+    from tests.features.live import mailbox as mailbox_mod
+
+    message = EmailMessage()
+    message["Subject"] = OTP_SUBJECT
+    message["From"] = "bot@example.com"
+    message["To"] = "ops@example.com"
+    message.set_content(otp_body(CODE, ttl_s=300))
+    raw = message.as_bytes()
+    fetched: list[tuple[str, str, str]] = []
+
+    class FakeIMAP:
+        def uid(self, cmd: str, uid: str, spec: str) -> tuple[str, list[object]]:
+            fetched.append((cmd, uid, spec))
+            meta = (
+                b'1 (UID 1 FLAGS () INTERNALDATE "08-Sep-2026 22:23:51 +0000" '
+                b"BODY[] {" + str(len(raw)).encode() + b"}"
+            )
+            return "OK", [(meta, raw)]
+
+        def close(self) -> None:
+            return None
+
+        def logout(self) -> None:
+            return None
+
+    monkeypatch.setattr(mailbox_mod, "connect_imap", lambda settings: FakeIMAP())
+    box = ImapMailbox(
+        ImapSettings(
+            host="imap.example",
+            port=993,
+            user="u",
+            password="p",
+            mailbox="INBOX",
+            ssl=True,
+        )
+    )
+    mail = box._fetch_one("1")
+    assert fetched == [("FETCH", "1", "(FLAGS INTERNALDATE BODY.PEEK[])")]
+    assert mail is not None
+    assert mail.date == datetime(2026, 9, 8, 22, 23, 51, tzinfo=UTC)
+    assert mail.unseen is True
+    assert mail.code == CODE
 
 
 def test_new_mail_ignores_older_than_since() -> None:

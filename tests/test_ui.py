@@ -47,7 +47,13 @@ from bcra_rag.ui.config import (
     trust_markdown,
     trust_payload,
 )
-from bcra_rag.ui.gradio_app import build_blocks, iter_observatory_turn, mount_ui
+from bcra_rag.ui.gradio_app import (
+    _AUTH_REQUEST_JS,
+    _AUTH_VERIFY_JS,
+    build_blocks,
+    iter_observatory_turn,
+    mount_ui,
+)
 from bcra_rag.ui.theme import (
     observatory_css_path,
     observatory_head,
@@ -762,6 +768,16 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     assert "#layout-toggle-help" in css
     assert "#auth-login" in css
     assert AUTH_STATUS_GENERIC
+
+
+def test_auth_js_posts_token_email_request() -> None:
+    assert 'fetch("/auth/request"' in _AUTH_REQUEST_JS
+    assert 'JSON.stringify({email: email || ""})' in _AUTH_REQUEST_JS
+    assert "credentials: \"same-origin\"" in _AUTH_REQUEST_JS
+    assert "if (r.ok)" in _AUTH_REQUEST_JS
+    assert "r.status === 403" in _AUTH_REQUEST_JS
+    assert "r.status === 422" in _AUTH_REQUEST_JS
+    assert 'fetch("/auth/verify"' in _AUTH_VERIFY_JS
 
 
 def test_layout_toggle_visibility() -> None:
