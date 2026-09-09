@@ -49,6 +49,12 @@ Feature: BCRA mini-RAG chat
     Then the clear response has no citations
     And the language model was not called for clear
 
+  Scenario: Unauthenticated chat is rejected
+    Given a ready CAMEX index
+    When an unauthenticated client posts "Qué es el MULC?"
+    Then the HTTP status is 401
+    And the language model is not called
+
   Scenario: Filter drop
     Given a ready CAMEX index
     When the user asks "qué se exige hoy para liquidar el cobro de exportaciones" with tipo A filters

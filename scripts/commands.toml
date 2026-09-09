@@ -19,6 +19,24 @@ argv = ["uv", "run", "uvicorn", "bcra_rag.api.app:app", "--host", "0.0.0.0", "--
 tty = true
 
 [[command]]
+id = "ingest"
+group = "Ingest"
+block = "ingest"
+title = "First-time document ingest"
+summary = "Load the CAMEX catalog plus current texto ordenado. Confirm first."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.ingest"]
+confirm = true
+
+[[command]]
+id = "refresh"
+group = "Ingest"
+block = "ingest"
+title = "Document refresh"
+summary = "Append new A's; replace the TO only when its checksum changed."
+argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
+confirm = true
+
+[[command]]
 id = "deploy"
 group = "Deploy"
 block = "deploy"
@@ -129,6 +147,15 @@ argv = ["uv", "run", "pytest", "--run-integration", "-m", "integration", "-q"]
 confirm = true
 
 [[command]]
+id = "live-server"
+group = "Test"
+block = "test-live-server"
+title = "Live server tests"
+summary = "HTTP+UI against already-running uvicorn; needs IMAP + Chromium."
+argv = ["uv", "run", "pytest", "--run-live-server", "-m", "live_server", "-q"]
+confirm = true
+
+[[command]]
 id = "ingest-pdf"
 group = "Test"
 block = "test-integration"
@@ -156,21 +183,49 @@ argv = ["uv", "run", "pytest", "--pdb"]
 tty = true
 
 [[command]]
-id = "ingest"
-group = "Ingest"
-block = "ingest"
-title = "One-time ingest"
-summary = "Load the CAMEX catalog plus current texto ordenado. Confirm first."
-argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.ingest"]
+id = "l1"
+group = "Evals"
+block = "evals"
+title = "L1 eval"
+summary = "Offline L1 (not CI). Published index if ingest is ready; otherwise FakeIndex + unpublished."
+argv = ["uv", "run", "python", "evals/run_l1.py"]
 confirm = true
 
 [[command]]
-id = "refresh"
-group = "Ingest"
-block = "ingest"
-title = "Refresh"
-summary = "Append new A's; replace the TO only when its checksum changed."
-argv = ["uv", "run", "python", "-m", "bcra_rag.jobs.refresh"]
+id = "l1-deterministic"
+group = "Evals"
+block = "evals"
+title = "L1 deterministic"
+summary = "Code metrics only; skip the judge language model."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--deterministic-only"]
+confirm = true
+
+[[command]]
+id = "l1-retrieval"
+group = "Evals"
+block = "evals"
+title = "L1 retrieval"
+summary = "Score retrieval only (no chat LLM)."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--retrieval-only"]
+confirm = true
+
+[[command]]
+id = "l1-generation"
+group = "Evals"
+block = "evals"
+title = "L1 generation"
+summary = "Score generation only with oracle dump context (needs LLM_API_KEY)."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--generation-only"]
+confirm = true
+
+[[command]]
+id = "l1-host"
+group = "Evals"
+block = "evals"
+title = "Dump-host L1"
+summary = "SSH sudo the dump-host L1 helper. Serving is down for the run."
+argv = ["./scripts/run-l1.sh"]
+readme_line = "DEPLOY_HOST=user@dump-host ./scripts/run-l1.sh"
 confirm = true
 
 [[command]]
@@ -180,12 +235,3 @@ block = "reports"
 title = "Coverage"
 summary = "pytest with src coverage; fails below 80%."
 argv = ["uv", "run", "pytest", "-q", "--cov=src", "--cov-report=term-missing", "--cov-report=xml"]
-
-[[command]]
-id = "l1"
-group = "Reports"
-block = "reports"
-title = "L1 eval"
-summary = "Offline L1 operator command (not CI). Confirm first."
-argv = ["uv", "run", "python", "evals/run_l1.py"]
-confirm = true

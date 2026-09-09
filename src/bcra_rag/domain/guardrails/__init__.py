@@ -4,6 +4,7 @@ from bcra_rag.domain.guardrails.pipeline import (
     GuardrailPipeline,
     NoOpTracer,
     TracedRail,
+    span_id_hex,
     step,
 )
 from bcra_rag.domain.guardrails.types import (
@@ -21,5 +22,6 @@ __all__ = [
     "RailResult",
     "TracedRail",
     "Tracer",
+    "span_id_hex",
     "step",
 ]

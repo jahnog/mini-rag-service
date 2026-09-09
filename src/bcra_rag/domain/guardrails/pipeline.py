@@ -37,6 +37,27 @@ class NoOpTracer:
         del name, layer
         return _NullSpan()
 
+    def record_retriever(self, query: str, hits: Sequence[Chunk]) -> None:
+        del query, hits
+
+
+def span_id_hex(span: object) -> str | None:
+    getter = getattr(span, "get_span_context", None)
+    if not callable(getter):
+        return None
+    try:
+        ctx = getter()
+    except Exception:
+        return None
+    raw = getattr(ctx, "span_id", 0) or 0
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return format(value, "016x")
+
 
 class TracedRail:
     def __init__(self, inner: Rail, tracer: Tracer) -> None:
@@ -71,10 +92,12 @@ class GuardrailPipeline:
         *,
         global_enforce: bool = True,
         policy_version: int = 2,
+        tracer: Tracer | None = None,
     ) -> None:
         self._rails = list(rails)
         self._global_enforce = global_enforce
         self.policy_version = policy_version
+        self.tracer: Tracer = tracer or NoOpTracer()
 
     def enabled(self) -> list[Rail]:
         return list(self._rails)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
@@ -222,6 +223,10 @@ class AnswerQuery:
             return response
 
         ctx.hits = list(routed.hits)
+        try:
+            pipe.tracer.record_retriever(query, ctx.hits)
+        except Exception:
+            pass
         retrieve_log = [
             step("retrieve", "retrieve", "pass", f"{len(ctx.hits)} hits")
         ] + pipe.run_named(retrieve_ids, ctx)
@@ -244,22 +249,18 @@ class AnswerQuery:
                 sidecar=_sidecar(routed.hits, []),
             )
 
-        ctx.turn_ids = {
-            str(chunk.metadata.get("doc_id") or "")
-            for chunk in ctx.hits
-            if chunk.metadata.get("doc_id")
-        }
-        ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
-        prompt = _prompt(query, ctx.hits, last_refresh, to_as_of, ctx.delimiter)
-        try:
-            draft = await self._llm.complete(prompt, on_thinking=on_thinking)
-        except Exception:
-            ctx.finding = Finding.SILENCIO
-            ctx.answer = "No hay modelo disponible para completar la respuesta."
-            rest = [step("generate", "generate", "skipped", "llm_unavailable")]
+        generated = await generate_from_context(
+            self._llm,
+            pipe,
+            ctx,
+            query,
+            on_thinking=on_thinking,
+            filters=request.filters,
+        )
+        if generated.draft is None:
             return self._finalize(
                 ctx,
-                pre + post + retrieve_log + rest,
+                pre + post + retrieve_log + generated.log,
                 output_ids,
                 request_id=request_id,
                 session_id=session_id,
@@ -270,48 +271,12 @@ class AnswerQuery:
                 user_message=request.message,
             )
 
-        generate_log = [step("generate", "generate", "pass", "llm called")]
-        citations = _citations_from_model(draft, ctx.hits, ctx.turn_ids)
-        ctx.draft = draft
-        ctx.finding = draft.finding
-        ctx.answer = draft.answer
-        ctx.citations = citations
-
-        if request.filters is not None:
-            ctx.citations = _apply_http_filters(ctx.citations, request.filters)
-            if not ctx.citations:
-                ctx.finding = Finding.SILENCIO
-
-        output_log = pipe.run_named(output_ids, ctx, short_circuit=False)
-        if ctx.finding is not Finding.SILENCIO:
-            cited_text = "\n".join(item.snippet for item in ctx.citations)
-            ctx.finding = demote_finding(
-                ctx.finding,
-                cited_text,
-                has_punto=any(bool(item.punto) for item in ctx.citations),
-            )
-        blocked = _first_block(output_log)
-        if blocked:
-            ctx.finding = Finding.SILENCIO
-            ctx.citations = []
-            if blocked.rule != "cite-or-abstain":
-                ctx.answer = f"No puedo responder ({blocked.rule})."
-        elif ctx.finding is Finding.SILENCIO:
-            ctx.citations = []
-            if "No hay una cláusula" not in ctx.answer and not ctx.answer.startswith(
-                "No puedo responder"
-            ):
-                ctx.answer = "No hay una cláusula citada en el dump CAMEX."
-        elif ctx.citations and "Fuente:" not in ctx.answer:
-            ctx.answer = ctx.answer.rstrip() + f"\nFuente: {ctx.citations[0].id}"
-            if ctx.citations[0].punto:
-                ctx.answer += f" punto {ctx.citations[0].punto}"
-
         sidecar = _sidecar(ctx.hits, ctx.citations)
-        thinking = draft.thinking.strip() or None
+        thinking = (generated.draft.thinking or "").strip() or None
+        blocked = generated.blocked
         return self._finalize(
             ctx,
-            pre + post + retrieve_log + generate_log,
+            pre + post + retrieve_log + generated.log,
             [],
             request_id=request_id,
             session_id=session_id,
@@ -323,7 +288,7 @@ class AnswerQuery:
             request=request,
             user_message=request.message,
             sidecar=sidecar,
-            extra_log=output_log,
+            extra_log=generated.output_log,
             thinking=thinking,
         )
 
@@ -374,6 +339,83 @@ class AnswerQuery:
     def _remember(self, session_id: str, user: str, assistant: str) -> None:
         self._sessions.append(session_id, "user", user)
         self._sessions.append(session_id, "assistant", assistant)
+
+
+@dataclass
+class GeneratedFromContext:
+    log: list[RailResult]
+    output_log: list[RailResult]
+    draft: LlmDraft | None
+    blocked: RailResult | None
+
+
+async def generate_from_context(
+    llm: LlmPort,
+    pipeline: GuardrailPipeline,
+    ctx: RailContext,
+    query: str,
+    *,
+    on_thinking: OnThinking | None = None,
+    filters: ChatFilters | None = None,
+) -> GeneratedFromContext:
+    ctx.turn_ids = {
+        str(chunk.metadata.get("doc_id") or "")
+        for chunk in ctx.hits
+        if chunk.metadata.get("doc_id")
+    }
+    ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
+    prompt = _prompt(query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter)
+    try:
+        draft = await llm.complete(prompt, on_thinking=on_thinking)
+    except Exception:
+        ctx.finding = Finding.SILENCIO
+        ctx.answer = "No hay modelo disponible para completar la respuesta."
+        rest = [step("generate", "generate", "skipped", "llm_unavailable")]
+        return GeneratedFromContext(log=rest, output_log=[], draft=None, blocked=None)
+
+    generate_log = [step("generate", "generate", "pass", "llm called")]
+    citations = _citations_from_model(draft, ctx.hits, ctx.turn_ids)
+    ctx.draft = draft
+    ctx.finding = draft.finding
+    ctx.answer = draft.answer
+    ctx.citations = citations
+
+    if filters is not None:
+        ctx.citations = _apply_http_filters(ctx.citations, filters)
+        if not ctx.citations:
+            ctx.finding = Finding.SILENCIO
+
+    output_ids = pipeline.ids_for("output")
+    output_log = pipeline.run_named(output_ids, ctx, short_circuit=False)
+    if ctx.finding is not Finding.SILENCIO:
+        cited_text = "\n".join(item.snippet for item in ctx.citations)
+        ctx.finding = demote_finding(
+            ctx.finding,
+            cited_text,
+            has_punto=any(bool(item.punto) for item in ctx.citations),
+        )
+    blocked = _first_block(output_log)
+    if blocked:
+        ctx.finding = Finding.SILENCIO
+        ctx.citations = []
+        if blocked.rule != "cite-or-abstain":
+            ctx.answer = f"No puedo responder ({blocked.rule})."
+    elif ctx.finding is Finding.SILENCIO:
+        ctx.citations = []
+        if "No hay una cláusula" not in ctx.answer and not ctx.answer.startswith(
+            "No puedo responder"
+        ):
+            ctx.answer = "No hay una cláusula citada en el dump CAMEX."
+    elif ctx.citations and "Fuente:" not in ctx.answer:
+        ctx.answer = ctx.answer.rstrip() + f"\nFuente: {ctx.citations[0].id}"
+        if ctx.citations[0].punto:
+            ctx.answer += f" punto {ctx.citations[0].punto}"
+    return GeneratedFromContext(
+        log=generate_log,
+        output_log=output_log,
+        draft=draft,
+        blocked=blocked,
+    )
 
 
 def _first_block(results: list[RailResult]) -> RailResult | None:

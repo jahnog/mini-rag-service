@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import gradio as gr
+from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
 from bcra_rag.schemas import ChatResponse, HealthResponse
@@ -32,6 +33,13 @@ LAYOUT_HELP = (
     "el log de guardrails, Calidad L1 y las fechas del dump.\n\n"
     "Usuario deja solo la pregunta, la respuesta, Enviar, Clear y los ejemplos."
 )
+AUTH_EMAIL_LABEL = "Correo"
+AUTH_SEND = "Enviar código"
+AUTH_CODE_LABEL = "Código"
+AUTH_VERIFY = "Verificar"
+AUTH_LOGOUT = "Cerrar sesión"
+AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
+AUTH_NOTICE = "Tenés que ingresar con tu email."
 
 
 def banner_markdown(health: HealthResponse) -> str:
@@ -87,11 +95,51 @@ def layout_shell_classes(staff: bool) -> list[str]:
     return [LAYOUT_STAFF_CLASS if staff else LAYOUT_USER_CLASS]
 
 
-def apply_layout(choice: str | None) -> tuple[Any, Any, Any]:
-    staff = choice == LAYOUT_STAFF
+def apply_clear_result(
+    history: list[ChatRow] | None,
+    session_id: str | None,
+    error: HTTPException | None = None,
+) -> tuple[list[ChatRow], str | None]:
+    if error is not None:
+        notice = http_turn_notice(error.status_code, str(error.detail))
+        rows = list(history or [])
+        rows.append({"role": "assistant", "content": notice})
+        return rows, session_id
+    return [], None
+
+
+def http_turn_notice(status: int, detail: str | None = None) -> str:
+    if status == 401:
+        if detail == "authentication required":
+            return AUTH_NOTICE
+        return "Se requiere DEMO_API_KEY."
+    if status == 429:
+        return "Demasiadas solicitudes."
+    return "Solicitud rechazada."
+
+
+def thinking_for_staff(thinking: str | None, *, staff: bool) -> str | None:
+    if not staff:
+        return None
+    return (thinking or "").strip() or None
+
+
+def apply_layout(
+    choice: str | None, authenticated: bool = False
+) -> tuple[Any, Any, Any]:
+    staff = bool(authenticated) and choice == LAYOUT_STAFF
     freeze, side = layout_updates(staff)
     shell = gr.update(elem_classes=layout_shell_classes(staff))
     return freeze, side, shell
+
+
+def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any, Any]:
+    who = email or ""
+    return (
+        gr.update(visible=not authenticated),
+        gr.update(visible=authenticated),
+        gr.update(value=who),
+    )
 
 
 def load_l1(path: Path) -> dict[str, Any]:
@@ -128,14 +176,48 @@ def l1_markdown(data: dict[str, Any]) -> str:
     b_docs = chunking.get("b_documents") or data.get("b_documents") or []
     slices = data.get("slices") or {}
     slice_lines = "\n".join(f"- {key}: {value}" for key, value in slices.items())
+    raw_retrieval = data.get("retrieval")
+    raw_generation = data.get("generation")
+    retrieval: dict[str, Any] = raw_retrieval if isinstance(raw_retrieval, dict) else {}
+    generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
+    retrieval_block = _suite_markdown("Retrieval", retrieval)
+    generation_block = _suite_markdown("Generation", generation)
+    citation_shown = _skipped_or_value(
+        data.get("citation_id_exact"), bool(generation.get("skipped"))
+    )
+    hit_shown = _skipped_or_value(data.get("hit_at_5"), bool(retrieval.get("skipped")))
+    mrr_shown = _skipped_or_value(data.get("mrr"), bool(retrieval.get("skipped")))
     return (
         f"{label}"
-        f"Headline **{headline}**: {data.get('citation_id_exact')}\n\n"
-        f"hit@5: {data.get('hit_at_5')} · MRR: {data.get('mrr')}\n\n"
+        f"Headline **{headline}**: {citation_shown}\n\n"
+        f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
+        f"{retrieval_block}\n\n"
+        f"{generation_block}\n\n"
         f"A vs B: A {a_score} · B {b_score}\n\n"
         f"Strategy B documents: {', '.join(str(x) for x in b_docs) or '(none)'}\n\n"
         f"Slices:\n{slice_lines or '- (none)'}"
     )
+
+
+def _skipped_or_value(value: object, skipped: bool) -> str:
+    if skipped or value is None:
+        return "skipped"
+    return str(value)
+
+
+def _suite_markdown(title: str, block: dict[str, Any]) -> str:
+    if not block:
+        return f"## {title}\n\n(not present)"
+    if block.get("skipped"):
+        reason = block.get("skip_reason") or "skipped"
+        return f"## {title}\n\nskipped ({reason})"
+    lines = [f"## {title}", ""]
+    skip = {"skipped", "skip_reason"}
+    for key, value in block.items():
+        if key in skip:
+            continue
+        lines.append(f"- {key}: {value}")
+    return "\n".join(lines)
 
 
 def footer_text(last_refresh: str | None) -> str:

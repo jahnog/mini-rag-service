@@ -45,11 +45,16 @@ def test_real_catalog_parses_and_matches_allowlist(devtui: Any) -> None:
         "sync",
         "serve",
         "unit",
+        "live-server",
         "pdb",
         "ingest",
         "refresh",
         "coverage",
         "l1",
+        "l1-deterministic",
+        "l1-retrieval",
+        "l1-generation",
+        "l1-host",
         "deploy",
         "ssh-forward",
         "unit-start",
@@ -61,6 +66,13 @@ def test_real_catalog_parses_and_matches_allowlist(devtui: Any) -> None:
     picker = [c.id for c in devtui.runnable_commands(cmds)]
     assert "unit-start" not in picker
     assert "unit" in picker
+    assert "ingest" in picker
+    assert "refresh" in picker
+    titles = {c.id: c.title for c in cmds}
+    assert titles["ingest"] == "First-time document ingest"
+    assert titles["refresh"] == "Document refresh"
+    assert picker.index("ingest") < picker.index("deploy")
+    assert picker.index("refresh") == picker.index("ingest") + 1
 
 
 def test_duplicate_id_fails(devtui: Any) -> None:

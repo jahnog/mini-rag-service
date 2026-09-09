@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.ports.index import IndexPort
@@ -20,6 +21,12 @@ from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatResponse
 from bcra_rag.settings import Settings
 from bcra_rag.ui.config import (
+    AUTH_CODE_LABEL,
+    AUTH_EMAIL_LABEL,
+    AUTH_LOGOUT,
+    AUTH_SEND,
+    AUTH_STATUS_GENERIC,
+    AUTH_VERIFY,
     CANNED_PROMPTS,
     L1_ACCORDION_OPEN_DEFAULT,
     LAYOUT_HELP,
@@ -29,14 +36,18 @@ from bcra_rag.ui.config import (
     abstain_visible,
     append_messages,
     append_pending,
+    apply_clear_result,
     apply_layout,
+    auth_chrome,
     citation_card_markdown,
     citation_cards,
     footer_text,
     freeze_chips_html,
+    http_turn_notice,
     inspector_payload,
     l1_markdown,
     load_l1,
+    thinking_for_staff,
     thought_publish_ready,
     title_markdown,
     trust_markdown,
@@ -69,6 +80,54 @@ def _abstain_update(text: str, *, visible: bool) -> Any:
 
 TurnRunner = Callable[..., Awaitable[ChatResponse]]
 
+_AUTH_REQUEST_JS = """
+async (email) => {
+  try {
+    const r = await fetch("/auth/request", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      credentials: "same-origin",
+      body: JSON.stringify({email: email || ""}),
+    });
+    if (r.ok) return "Si el correo está habilitado, vas a recibir un código.";
+    if (r.status === 429) return "Demasiados intentos. Probá más tarde.";
+    if (r.status === 503) return "Autenticación no configurada.";
+    if (r.status === 403) return "Origen inválido.";
+    if (r.status === 422) return "Correo inválido.";
+    return "No se pudo pedir el código.";
+  } catch (e) {
+    return "No se pudo pedir el código.";
+  }
+}
+"""
+
+_AUTH_VERIFY_JS = """
+async (email, code) => {
+  try {
+    const r = await fetch("/auth/verify", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      credentials: "same-origin",
+      body: JSON.stringify({email: email || "", code: code || ""}),
+    });
+    if (r.ok) return "Sesión iniciada.";
+    if (r.status === 429) return "Demasiados intentos. Probá más tarde.";
+    return "Código inválido o vencido.";
+  } catch (e) {
+    return "No se pudo verificar.";
+  }
+}
+"""
+
+_AUTH_LOGOUT_JS = """
+async () => {
+  try {
+    await fetch("/auth/logout", {method: "POST", credentials: "same-origin"});
+  } catch (e) {}
+  return "Sesión cerrada.";
+}
+"""
+
 
 async def iter_observatory_turn(
     message: str,
@@ -76,6 +135,7 @@ async def iter_observatory_turn(
     session_id: str | None,
     *,
     run_turn: TurnRunner,
+    staff: bool = True,
 ) -> AsyncIterator[tuple[Any, ...]]:
     snapshot = list(history or [])
     started = time.perf_counter()
@@ -102,7 +162,7 @@ async def iter_observatory_turn(
                 await run_turn(
                     message=message,
                     session_id=session_id,
-                    on_thinking=on_thinking,
+                    on_thinking=on_thinking if staff else None,
                 )
             )
         except asyncio.CancelledError:
@@ -120,14 +180,14 @@ async def iter_observatory_turn(
             await event.wait()
             event.clear()
             trace = latest[0]
-            if trace:
+            if staff and trace:
                 yield (
                     append_pending(snapshot, message, thinking=trace),
                     session_id,
                     *_skipped_inspector(),
                 )
             if task.done():
-                if latest[0] and latest[0] != trace:
+                if staff and latest[0] and latest[0] != trace:
                     yield (
                         append_pending(snapshot, message, thinking=latest[0]),
                         session_id,
@@ -144,18 +204,14 @@ async def iter_observatory_turn(
         return
     outcome = box[0]
     if isinstance(outcome, HTTPException):
-        notice = "Solicitud rechazada."
-        if outcome.status_code == 401:
-            notice = "Se requiere DEMO_API_KEY."
-        elif outcome.status_code == 429:
-            notice = "Demasiadas solicitudes."
+        notice = http_turn_notice(outcome.status_code, str(outcome.detail))
         rows = append_messages(snapshot, message, notice)
         yield (rows, session_id, *_empty_inspector())
         return
     if isinstance(outcome, BaseException):
         raise outcome
     duration = time.perf_counter() - started
-    thinking = (outcome.thinking or "").strip() or None
+    thinking = thinking_for_staff(outcome.thinking, staff=staff)
     rows = append_messages(
         snapshot,
         message,
@@ -163,9 +219,9 @@ async def iter_observatory_turn(
         thinking=thinking,
         duration=duration,
     )
-    cards = citation_cards(outcome)
-    inspector = inspector_payload(outcome)
-    trust = trust_payload(outcome)
+    cards = citation_cards(outcome) if staff else []
+    inspector = inspector_payload(outcome) if staff else {}
+    trust = trust_payload(outcome) if staff else []
     banner = "Silencio / abstain" if abstain_visible(outcome) else ""
     copy_id = str(inspector.get("copy_id") or "")
     choices = [str(card["id"]) for card in cards]
@@ -209,6 +265,7 @@ def build_blocks(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     limiter: RateLimiter,
+    auth: AuthModule,
 ) -> gr.Blocks:
     health = dump_health(settings, index)
     l1_path = Path(settings.evals_dir) / "l1.json"
@@ -219,9 +276,13 @@ def build_blocks(
         history: list[dict[str, Any]],
         session_id: str | None,
         demo_key: str | None,
+        layout: str | None,
         request: gr.Request,
     ) -> AsyncIterator[tuple[Any, ...]]:
         key = (demo_key or "").strip() or demo_key_for(request)
+        staff = (
+            email_from_request(auth, request) is not None and layout == LAYOUT_STAFF
+        )
 
         async def run_turn(
             *,
@@ -236,27 +297,55 @@ def build_blocks(
                 sessions=sessions,
                 pipeline=pipeline,
                 limiter=limiter,
+                auth=auth,
+                request=request,
                 message=message,
                 session_id=session_id or None,
                 k=None,
                 filters=None,
                 request_id=new_request_id(),
-                client_id=client_id_for(request),
+                client_id=client_id_for(
+                    request, trusted_proxy=auth.settings.trust_proxy
+                ),
                 demo_key=key or None,
                 on_thinking=on_thinking,
             )
 
         async for item in iter_observatory_turn(
-            message, history, session_id, run_turn=run_turn
+            message, history, session_id, run_turn=run_turn, staff=staff
         ):
             yield item
 
-    def _clear(
+    async def _clear(
+        history: list[dict[str, Any]] | None,
         session_id: str | None,
+        request: gr.Request,
     ) -> tuple[Any, ...]:
-        if session_id:
-            sessions.clear(session_id)
-        return [], None, *_empty_inspector()
+        error: HTTPException | None = None
+        try:
+            await handle_turn(
+                settings=settings,
+                index=index,
+                llm=llm,
+                sessions=sessions,
+                pipeline=pipeline,
+                limiter=limiter,
+                auth=auth,
+                request=request,
+                message="/clear",
+                session_id=session_id or None,
+                k=None,
+                filters=None,
+                request_id=new_request_id(),
+                client_id=client_id_for(
+                    request, trusted_proxy=auth.settings.trust_proxy
+                ),
+                demo_key=None,
+            )
+        except HTTPException as exc:
+            error = exc
+        rows, sid = apply_clear_result(history, session_id, error)
+        return rows, sid, *_empty_inspector()
 
     def _select_card(
         selected: str | None, cards: list[dict[str, Any]]
@@ -274,15 +363,37 @@ def build_blocks(
         cards_state = gr.State([])
         with gr.Column(
             elem_id="observatory-shell",
-            elem_classes=["layout-staff"],
+            elem_classes=["layout-user"],
         ) as shell:
             with gr.Column(scale=0, elem_id="observatory-topbar"):
                 gr.Markdown(title_markdown(health))
+                with gr.Column(elem_id="auth-login"):
+                    with gr.Row(elem_id="auth-login-fields") as auth_fields:
+                        auth_email = gr.Textbox(
+                            label=AUTH_EMAIL_LABEL,
+                            scale=2,
+                            elem_id="auth-email",
+                        )
+                        send_code = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
+                        auth_code = gr.Textbox(
+                            label=AUTH_CODE_LABEL,
+                            scale=1,
+                            elem_id="auth-code",
+                        )
+                        verify_code = gr.Button(
+                            AUTH_VERIFY, scale=0, elem_id="auth-verify"
+                        )
+                    auth_status = gr.Markdown(
+                        AUTH_STATUS_GENERIC, elem_id="auth-status"
+                    )
+                    with gr.Row(elem_id="auth-session", visible=False) as auth_session:
+                        auth_who = gr.Markdown("", elem_id="auth-who")
+                        logout = gr.Button(AUTH_LOGOUT, scale=0, elem_id="auth-logout")
                 with gr.Row(elem_id="layout-toggle"):
                     layout_choice = gr.Radio(
                         label="Vista",
                         choices=[LAYOUT_STAFF, LAYOUT_USER],
-                        value=LAYOUT_STAFF,
+                        value=LAYOUT_USER,
                         container=False,
                         elem_classes=["vista-radio"],
                     )
@@ -292,6 +403,7 @@ def build_blocks(
                     elem_id="observatory-freeze",
                     apply_default_css=False,
                     js_on_load="",
+                    visible=False,
                 )
             with gr.Row(elem_id="observatory-layout"):
                 with gr.Column(scale=3, min_width=0, elem_id="observatory-stage"):
@@ -317,10 +429,18 @@ def build_blocks(
                         lines=1,
                         max_lines=4,
                         placeholder="Preguntá por una cláusula CAMEX…",
+                        elem_id="observatory-input",
                     )
                     with gr.Row(elem_id="observatory-actions"):
-                        send = gr.Button("Enviar", variant="primary", scale=0)
-                        clear = gr.Button("Clear", variant="secondary", scale=0)
+                        send = gr.Button(
+                            "Enviar",
+                            variant="primary",
+                            scale=0,
+                            elem_id="observatory-send",
+                        )
+                        clear = gr.Button(
+                            "Clear", variant="secondary", scale=0, elem_id="observatory-clear"
+                        )
                     demo_box = gr.Textbox(
                         label="Demo key",
                         type="password",
@@ -338,7 +458,9 @@ def build_blocks(
                                 lambda value=prompt: value,
                                 outputs=[msg],
                             )
-                side = gr.Column(scale=2, min_width=320, elem_id="observatory-side")
+                side = gr.Column(
+                    scale=2, min_width=320, elem_id="observatory-side", visible=False
+                )
                 with side:
                     citation_choice = gr.Radio(
                         label="Citas",
@@ -382,24 +504,79 @@ def build_blocks(
         ]
         send.click(  # type: ignore[attr-defined]
             _turn,
-            inputs=[msg, chatbot, session_state, demo_box],
+            inputs=[msg, chatbot, session_state, demo_box, layout_choice],
             outputs=outputs,
         ).then(lambda: "", outputs=[msg])
         msg.submit(  # type: ignore[attr-defined]
             _turn,
-            inputs=[msg, chatbot, session_state, demo_box],
+            inputs=[msg, chatbot, session_state, demo_box, layout_choice],
             outputs=outputs,
         ).then(lambda: "", outputs=[msg])
-        clear.click(_clear, inputs=[session_state], outputs=outputs)  # type: ignore[attr-defined]
+        clear.click(_clear, inputs=[chatbot, session_state], outputs=outputs)  # type: ignore[attr-defined]
         citation_choice.change(  # type: ignore[attr-defined]
             _select_card,
             inputs=[citation_choice, cards_state],
             outputs=[inspector, copy_id, card_md],
         )
+
+        def _layout(choice: str | None, request: gr.Request) -> tuple[Any, Any, Any]:
+            email = email_from_request(auth, request)
+            return apply_layout(choice, email is not None)
+
+        def _hydrate(request: gr.Request) -> tuple[Any, ...]:
+            email = email_from_request(auth, request)
+            authed = email is not None
+            freeze, side_u, shell_u = apply_layout(LAYOUT_USER, authed)
+            fields, session, who = auth_chrome(authed, email)
+            return freeze, side_u, shell_u, fields, session, who, LAYOUT_USER
+
+        def _after_auth(
+            choice: str | None, request: gr.Request
+        ) -> tuple[Any, ...]:
+            email = email_from_request(auth, request)
+            authed = email is not None
+            freeze, side_u, shell_u = apply_layout(choice, authed)
+            fields, session, who = auth_chrome(authed, email)
+            return freeze, side_u, shell_u, fields, session, who
+
+        def _after_logout(request: gr.Request) -> tuple[Any, ...]:
+            freeze, side_u, shell_u = apply_layout(LAYOUT_USER, False)
+            fields, session, who = auth_chrome(False, None)
+            return freeze, side_u, shell_u, fields, session, who, LAYOUT_USER
+
+        chrome_out = [freeze_box, side, shell, auth_fields, auth_session, auth_who]
         layout_choice.change(  # type: ignore[attr-defined]
-            apply_layout,
+            _layout,
             inputs=[layout_choice],
             outputs=[freeze_box, side, shell],
+        )
+        demo.load(  # type: ignore[attr-defined]
+            _hydrate,
+            outputs=[*chrome_out, layout_choice],
+        )
+        send_code.click(  # type: ignore[attr-defined]
+            None,
+            inputs=[auth_email],
+            outputs=[auth_status],
+            js=_AUTH_REQUEST_JS,
+        )
+        verify_code.click(  # type: ignore[attr-defined]
+            None,
+            inputs=[auth_email, auth_code],
+            outputs=[auth_status],
+            js=_AUTH_VERIFY_JS,
+        ).then(
+            _after_auth,
+            inputs=[layout_choice],
+            outputs=chrome_out,
+        )
+        logout.click(  # type: ignore[attr-defined]
+            None,
+            outputs=[auth_status],
+            js=_AUTH_LOGOUT_JS,
+        ).then(
+            _after_logout,
+            outputs=[*chrome_out, layout_choice],
         )
     queued = demo.queue()
     return queued  # type: ignore[no-any-return]

@@ -8,6 +8,11 @@ from fastapi import HTTPException
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
+    AUTH_EMAIL_LABEL,
+    AUTH_LOGOUT,
+    AUTH_NOTICE,
+    AUTH_SEND,
+    AUTH_STATUS_GENERIC,
     CANNED_PROMPTS,
     EMPTY_CITATION_CARD,
     EMPTY_TRUST,
@@ -20,6 +25,7 @@ from bcra_rag.ui.config import (
     abstain_visible,
     append_messages,
     append_pending,
+    apply_clear_result,
     apply_layout,
     banner_markdown,
     citation_card_markdown,
@@ -27,11 +33,13 @@ from bcra_rag.ui.config import (
     done_thought_title,
     dump_date,
     freeze_chips_html,
+    http_turn_notice,
     inspector_payload,
     is_sample_l1,
     l1_markdown,
     layout_updates,
     load_l1,
+    thinking_for_staff,
     thought_markdown,
     thought_publish_ready,
     title_markdown,
@@ -39,7 +47,13 @@ from bcra_rag.ui.config import (
     trust_markdown,
     trust_payload,
 )
-from bcra_rag.ui.gradio_app import build_blocks, iter_observatory_turn, mount_ui
+from bcra_rag.ui.gradio_app import (
+    _AUTH_REQUEST_JS,
+    _AUTH_VERIFY_JS,
+    build_blocks,
+    iter_observatory_turn,
+    mount_ui,
+)
 from bcra_rag.ui.theme import (
     observatory_css_path,
     observatory_head,
@@ -309,6 +323,75 @@ async def test_iter_turn_http_error_drops_thought() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iter_turn_auth_required_spanish_notice() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id, on_thinking
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "hola", None, None, run_turn=run_turn
+        )
+    ]
+    assert AUTH_NOTICE in yields[-1][0][1]["content"]
+    assert http_turn_notice(401, "authentication required") == AUTH_NOTICE
+
+
+def test_clear_while_logged_out_keeps_history_and_shows_notice() -> None:
+    history = [
+        {"role": "user", "content": "hola"},
+        {"role": "assistant", "content": "respuesta"},
+    ]
+    rows, sid = apply_clear_result(
+        history,
+        "keep-me",
+        HTTPException(status_code=401, detail="authentication required"),
+    )
+    assert rows[0] == history[0]
+    assert rows[1] == history[1]
+    assert AUTH_NOTICE in rows[-1]["content"]
+    assert sid == "keep-me"
+
+
+def test_authenticated_clear_empties_conversation() -> None:
+    history = [{"role": "user", "content": "hola"}]
+    rows, sid = apply_clear_result(history, "s1", None)
+    assert rows == []
+    assert sid is None
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_usuario_hides_thinking_and_inspector() -> None:
+    async def run_turn(
+        *,
+        message: str,
+        session_id: str | None,
+        on_thinking=None,
+    ) -> ChatResponse:
+        del message, session_id
+        assert on_thinking is None
+        return _turn_response(thinking="trace secreto")
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "hola", None, None, run_turn=run_turn, staff=False
+        )
+    ]
+    final_rows = yields[-1][0]
+    assert all("trace secreto" not in str(row.get("content", "")) for row in final_rows)
+    assert yields[-1][2] == {}
+    assert thinking_for_staff("trace secreto", staff=False) is None
+    assert thinking_for_staff("trace secreto", staff=True) == "trace secreto"
+
+
+@pytest.mark.asyncio
 async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
     async def run_turn(
         *,
@@ -398,8 +481,54 @@ def test_l1_fixture_is_labeled_sample(tmp_path: Path) -> None:
     assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
+    assert "## Retrieval" in text
+    assert "## Generation" in text
+    assert "skipped" in text.lower()
+    assert "faithfulness: 0" not in text.lower()
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
+
+
+def test_l1_markdown_skipped_generation_not_zero() -> None:
+    text = l1_markdown(
+        {
+            "unpublished": False,
+            "sample": False,
+            "headline_metric": "citation_id_exact",
+            "citation_id_exact": None,
+            "hit_at_5": 0.8,
+            "mrr": 0.5,
+            "retrieval": {"skipped": False, "hit_at_5": 0.8, "n": 30},
+            "generation": {"skipped": True, "skip_reason": "not_requested", "n": 0},
+            "chunking": {"A": 1, "B": 2, "b_documents": ["texto_ordenado"]},
+        }
+    )
+    lowered = text.lower()
+    assert "skipped" in lowered
+    assert "headline **citation_id_exact**: 0" not in lowered
+    assert "headline **citation_id_exact**: none" not in lowered
+    assert "faithfulness: 0" not in lowered
+
+
+def test_l1_markdown_skipped_retrieval_not_zero() -> None:
+    text = l1_markdown(
+        {
+            "unpublished": False,
+            "sample": False,
+            "headline_metric": "citation_id_exact",
+            "citation_id_exact": 0.4,
+            "hit_at_5": None,
+            "mrr": None,
+            "retrieval": {"skipped": True, "skip_reason": "not_requested", "n": 0},
+            "generation": {"skipped": False, "citation_id_exact": 0.4, "n": 30},
+            "chunking": {"A": 1, "B": 1, "b_documents": ["texto_ordenado"]},
+        }
+    )
+    lowered = text.lower()
+    assert "hit@5: skipped" in lowered
+    assert "mrr: skipped" in lowered
+    assert "hit@5: 0.0" not in lowered
+    assert "hit@5: none" not in lowered
 
 
 def test_inspector_copy_id_and_trust() -> None:
@@ -518,6 +647,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     settings = settings.model_copy(update={"evals_dir": Path("evals")})
     llm = FakeLlm()
+    from bcra_rag.auth import build_auth
     from bcra_rag.composition import default_pipeline
 
     blocks = build_blocks(
@@ -527,6 +657,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         sessions=InMemorySessionStore(),
         pipeline=default_pipeline(settings),
         limiter=RateLimiter(max_requests=20, window_s=60),
+        auth=build_auth(),
     )
     assert blocks is not None
     assert llm.calls == []
@@ -544,9 +675,13 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "observatory-footer",
         "layout-toggle",
         "layout-toggle-help",
+        "auth-login",
         "observatory-freeze",
         "observatory-pills",
         "observatory-chat",
+        "observatory-input",
+        "observatory-send",
+        "observatory-clear",
         "l1-panel",
     ):
         assert elem_id in ids, elem_id
@@ -601,11 +736,12 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     side = _widget_by_elem_id(blocks, "observatory-side")
     shell = _widget_by_elem_id(blocks, "observatory-shell")
     assert shell is not None
-    assert LAYOUT_STAFF_CLASS in list(getattr(shell, "elem_classes", None) or [])
+    assert LAYOUT_USER_CLASS in list(getattr(shell, "elem_classes", None) or [])
     help_box = _widget_by_elem_id(blocks, "layout-toggle-help")
-    assert freeze is not None and getattr(freeze, "visible", True) is True
-    assert side is not None and getattr(side, "visible", True) is True
+    assert freeze is not None and getattr(freeze, "visible", True) is False
+    assert side is not None and getattr(side, "visible", True) is False
     assert help_box is not None
+    assert _widget_by_elem_id(blocks, "auth-login") is not None
     radios = [
         widget
         for widget in widgets
@@ -617,10 +753,31 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     choice_vals = [item[0] if isinstance(item, (list, tuple)) else item for item in choices]
     assert LAYOUT_STAFF in choice_vals
     assert LAYOUT_USER in choice_vals
-    assert getattr(vista, "value", None) == LAYOUT_STAFF
+    assert getattr(vista, "value", None) == LAYOUT_USER
+    labels = [getattr(widget, "label", None) for widget in widgets]
+    assert AUTH_EMAIL_LABEL in labels
+    button_vals = [
+        getattr(widget, "value", None)
+        for widget in widgets
+        if type(widget).__name__ == "Button"
+    ]
+    assert AUTH_SEND in button_vals
+    assert AUTH_LOGOUT in button_vals
     css = observatory_css_path().read_text(encoding="utf-8")
     assert "#layout-toggle" in css
     assert "#layout-toggle-help" in css
+    assert "#auth-login" in css
+    assert AUTH_STATUS_GENERIC
+
+
+def test_auth_js_posts_token_email_request() -> None:
+    assert 'fetch("/auth/request"' in _AUTH_REQUEST_JS
+    assert 'JSON.stringify({email: email || ""})' in _AUTH_REQUEST_JS
+    assert "credentials: \"same-origin\"" in _AUTH_REQUEST_JS
+    assert "if (r.ok)" in _AUTH_REQUEST_JS
+    assert "r.status === 403" in _AUTH_REQUEST_JS
+    assert "r.status === 422" in _AUTH_REQUEST_JS
+    assert 'fetch("/auth/verify"' in _AUTH_VERIFY_JS
 
 
 def test_layout_toggle_visibility() -> None:
@@ -631,21 +788,25 @@ def test_layout_toggle_visibility() -> None:
     assert _update_visible(show_freeze) is True
     assert _update_visible(show_side) is True
     user = apply_layout(LAYOUT_USER)
-    staff = apply_layout(LAYOUT_STAFF)
+    denied = apply_layout(LAYOUT_STAFF, authenticated=False)
+    staff = apply_layout(LAYOUT_STAFF, authenticated=True)
     assert len(user) == 3
     assert len(staff) == 3
     assert _update_visible(user[0]) is False
     assert _update_visible(user[1]) is False
+    assert _update_visible(denied[0]) is False
+    assert _update_visible(denied[1]) is False
     assert _update_visible(staff[0]) is True
     assert _update_visible(staff[1]) is True
     assert LAYOUT_USER_CLASS in _update_classes(user[2])
+    assert LAYOUT_USER_CLASS in _update_classes(denied[2])
     assert LAYOUT_STAFF_CLASS in _update_classes(staff[2])
     assert LAYOUT_STAFF in LAYOUT_HELP
     assert LAYOUT_USER in LAYOUT_HELP
     assert "inspector de citas" in LAYOUT_HELP
     thought_rows = append_messages(None, "q", "Fuente: A8359", thinking="trace")
     assert "status" not in thought_rows[1]["metadata"]
-    assert apply_layout(LAYOUT_USER)[1] is not thought_rows
+    assert apply_layout(LAYOUT_USER, authenticated=True)[1] is not thought_rows
     assert "Enviar" in LAYOUT_HELP
     help_lines = [line.strip() for line in LAYOUT_HELP.splitlines() if line.strip()]
     assert len(help_lines) == 2

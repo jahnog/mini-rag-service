@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
+from bcra_rag.auth import AuthModule, email_from_request
+from bcra_rag.auth.ip import client_ip
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
@@ -22,6 +27,8 @@ async def handle_turn(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     limiter: RateLimiter,
+    auth: AuthModule,
+    request: Any,
     message: str,
     session_id: str | None,
     k: int | None,
@@ -31,29 +38,38 @@ async def handle_turn(
     demo_key: str | None,
     on_thinking: OnThinking | None = None,
 ) -> ChatResponse:
+    email = email_from_request(auth, request)
+    if email is None:
+        raise HTTPException(status_code=401, detail="authentication required")
     if settings.demo_api_key and demo_key != settings.demo_api_key:
         raise HTTPException(status_code=401, detail="invalid demo key")
     if not limiter.allow(client_id):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
     if k is not None and k > settings.max_k:
         raise HTTPException(status_code=422, detail="k exceeds maximum")
+    public_id = _public_session_id(session_id)
+    scoped_id = _scoped_session_id(email, public_id, auth.settings.secret)
     use_case = AnswerQuery(settings, index, llm, sessions, pipeline)
-    return await use_case.run(
-        ChatRequest(message=message, session_id=session_id, k=k, filters=filters),
+    response = await use_case.run(
+        ChatRequest(message=message, session_id=scoped_id, k=k, filters=filters),
         request_id=request_id,
         on_thinking=on_thinking,
     )
+    return response.model_copy(update={"session_id": public_id})
 
 
-def client_id_for(request: Any) -> str:
-    forwarded = _header(request, "x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    client = getattr(request, "client", None)
-    host = getattr(client, "host", None) if client is not None else None
-    if host:
-        return str(host)
-    return "unknown"
+def _public_session_id(session_id: str | None) -> str:
+    raw = (session_id or "").strip()
+    return raw or str(uuid4())
+
+
+def _scoped_session_id(email: str, public_id: str, secret: str) -> str:
+    payload = f"{email}|{public_id}".encode()
+    return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+
+
+def client_id_for(request: Any, *, trusted_proxy: bool = False) -> str:
+    return client_ip(request, trusted_proxy=trusted_proxy)
 
 
 def demo_key_for(request: Any) -> str | None:

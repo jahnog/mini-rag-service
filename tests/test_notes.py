@@ -33,6 +33,9 @@ def test_readme_operator_bullets() -> None:
     assert "uv run pytest -q" in readme
     assert "--run-integration" in readme
     assert "-m integration" in readme
+    assert "--run-live-server" in readme
+    assert "-m live_server" in readme
+    assert "playwright install chromium" in readme
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme
     assert "--pdb" in readme
@@ -60,10 +63,29 @@ def test_readme_operator_bullets() -> None:
     assert "citation-id" in readme
     assert "last_refresh" in readme
     assert "evals/run_l1.py" in readme
+    assert "./scripts/run-l1.sh" in readme
+    assert "Without ingest" in readme
+    assert "Serving is down for the run" in readme
+    assert "sessions do not survive" in readme
+    assert "API starts again on L1 failure" in readme
+    assert "banner follows the stored file" in readme
+    assert "missing_extra" in readme
+    assert "no cron L1" in readme
+    assert "### Evals" in readme
+    assert "JUDGE_MODEL" in readme
+    assert "JUDGE_API_KEY" in readme
+    assert "bcra_rag.evals" in readme
+    assert "--deterministic-only" in readme
+    assert "--retrieval-only" in readme
+    assert "--generation-only" in readme
+    assert "--generation-context" in readme
+    assert "phoenix-evals" in readme
+    assert "PHOENIX_API_KEY" in readme
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme
     assert "./run.sh" in readme
+    assert "AGENTS.md" in readme
     assert "./scripts/deploy.sh" in readme
     assert "ssh -L 8000:127.0.0.1:8000" in readme
     assert "--ingest" in readme
@@ -76,3 +98,42 @@ def test_readme_operator_bullets() -> None:
     assert "user@dump-host" in readme
     assert "deploy/local.env" in readme
     assert "chita" + "-ts" not in readme
+
+
+def test_agents_commands_list() -> None:
+    agents = Path(__file__).resolve().parents[1].joinpath("AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Commands" in agents
+    for needle in (
+        "uv sync",
+        "playwright install chromium",
+        "./run.sh",
+        "uvicorn bcra_rag.api.app:app",
+        "./scripts/deploy.sh",
+        "ssh -L 8000:127.0.0.1:8000",
+        "systemctl start bcra-rag",
+        "systemctl stop bcra-rag",
+        "systemctl status bcra-rag",
+        "bcra-rag-ingest",
+        "bcra-rag-refresh",
+        "uv run ruff check .",
+        "uv run mypy src",
+        "uv run pytest -q",
+        "--run-integration",
+        "-m integration",
+        "--run-live-server",
+        "-m live_server",
+        "--pdb",
+        "python -m bcra_rag.jobs.ingest",
+        "python -m bcra_rag.jobs.refresh",
+        "evals/run_l1.py",
+        "--deterministic-only",
+        "--retrieval-only",
+        "--generation-only",
+        "--cov=src",
+        "scripts/commands.toml",
+        "README.md",
+    ):
+        assert needle in agents, needle
+    assert "chita" + "-ts" not in agents

@@ -78,7 +78,16 @@ rsync -a --delete \
   --exclude 'deploy/local.env' \
   --exclude 'coverage.xml' \
   --exclude '.coverage' \
+  --exclude 'evals/l1.json' \
   "${REPO_ROOT}/" "${DEPLOY_HOST}:${DEPLOY_DIR}/"
+
+# Seed dest evals/l1.json only if missing and local is unpublished or sample.
+_seed_l1="$REPO_ROOT/evals/l1.json"
+if ! remote "test -f '$DEPLOY_DIR/evals/l1.json'"; then
+  if [ -f "$_seed_l1" ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); sys.exit(0 if isinstance(d,dict) and (d.get("unpublished") or d.get("sample")) else 1)' "$_seed_l1"; then
+    rsync -a "$_seed_l1" "${DEPLOY_HOST}:${DEPLOY_DIR}/evals/l1.json"
+  fi
+fi
 
 remote "cd '$DEPLOY_DIR' && \$HOME/.local/bin/uv sync --frozen --no-dev"
 
@@ -100,7 +109,8 @@ remote "sed -i \
   '$DEPLOY_DIR/deploy/bcra-rag-ingest.service' \
   '$DEPLOY_DIR/deploy/bcra-rag-refresh.service' \
   '$DEPLOY_DIR/deploy/ingest.sh' \
-  '$DEPLOY_DIR/deploy/refresh.sh'"
+  '$DEPLOY_DIR/deploy/refresh.sh' \
+  '$DEPLOY_DIR/deploy/l1.sh'"
 
 remote "sudo cp '$DEPLOY_DIR/deploy/bcra-rag.service' /etc/systemd/system/bcra-rag.service
 sudo cp '$DEPLOY_DIR/deploy/bcra-rag-ingest.service' /etc/systemd/system/bcra-rag-ingest.service
