@@ -80,7 +80,7 @@ class OpenAICompatibleEmbeddingFunction(EmbeddingFunction[Documents]):
         total = len(texts)
         for start in range(0, total, self._batch_size):
             batch = texts[start : start + self._batch_size]
-            log.info(
+            log.debug(
                 "embedding_batch",
                 done=start,
                 batch=len(batch),

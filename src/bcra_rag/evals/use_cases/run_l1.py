@@ -125,6 +125,12 @@ async def run_l1(
                 span_cm.__exit__(None, None, None)
             except Exception:
                 pass
+        flusher = getattr(resolved_tracer, "flush", None)
+        if callable(flusher):
+            try:
+                flusher()
+            except Exception:
+                pass
 
     slices: dict[str, float]
     grouped_slices: dict[str, list[float]] = defaultdict(list)

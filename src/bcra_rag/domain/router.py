@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 from bcra_rag.domain.aliases import expand_aliases
 from bcra_rag.domain.back_matter import drop_back_matter
@@ -37,6 +38,9 @@ VIGENTE_PATTERNS = (
 )
 
 
+RouteKind = Literal["named", "vigente", "similar"]
+
+
 @dataclass
 class RouteResult:
     query: str
@@ -46,6 +50,7 @@ class RouteResult:
     silencio_reason: str | None = None
     search_count: int = 0
     fetch_count: int = 0
+    kind: RouteKind | None = None
 
 
 class Router:
@@ -84,6 +89,7 @@ class Router:
                 named_id=comm_id,
                 silencio=True,
                 silencio_reason="missing_document",
+                kind="named",
             )
         punto = _punto_in(question)
         text = self._index.get_section(comm_id, punto)
@@ -95,6 +101,7 @@ class Router:
             fetch_count=1,
             silencio=not bool(text.strip()),
             silencio_reason="empty_extract" if not text.strip() else None,
+            kind="named",
         )
 
     def _vigente(self, query: str, k: int, to_as_of: str | None) -> RouteResult:
@@ -113,11 +120,13 @@ class Router:
             extra = self._index.search(query, k=k, filters=post_filters)
             search_count += 1
         merged = _merge_vigente(hits, extra, k)
-        return RouteResult(query=query, hits=merged, search_count=search_count)
+        return RouteResult(
+            query=query, hits=merged, search_count=search_count, kind="vigente"
+        )
 
     def _similar(self, query: str, k: int) -> RouteResult:
         hits = self._index.search(query, k=k)
-        return RouteResult(query=query, hits=hits, search_count=1)
+        return RouteResult(query=query, hits=hits, search_count=1, kind="similar")
 
     def _xref_hop(self, result: RouteResult, question: str) -> RouteResult:
         if result.fetch_count >= self._max_fetch:

@@ -36,7 +36,7 @@ REQUIRED_BUCKETS = {
 def test_gold_parses_and_buckets() -> None:
     rows = load_gold(GOLD)
     assert 30 <= len(rows) <= 50
-    assert len(rows) == 30
+    assert len(rows) == 50
     buckets = {row.bucket for row in rows}
     assert REQUIRED_BUCKETS <= buckets
     a9999 = next(row for row in rows if "9999" in row.question)
@@ -86,7 +86,7 @@ async def test_run_l1_dry_run_schema(tmp_path: Path) -> None:
     assert data["judge"]["skipped"] is True
     assert data["phoenix"]["exported"] is False
     assert data["citation_id_exact"] is None
-    assert payload["n"] == 30
+    assert payload["n"] == 50
 
 
 @pytest.mark.asyncio

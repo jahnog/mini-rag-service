@@ -81,6 +81,7 @@ def test_readme_operator_bullets() -> None:
     assert "--generation-context" in readme
     assert "phoenix-evals" in readme
     assert "PHOENIX_API_KEY" in readme
+    assert "CHAT_TURN_EVALS" in readme
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme

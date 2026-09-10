@@ -1,48 +1,63 @@
 {
-  "unpublished": true,
-  "sample": true,
+  "unpublished": false,
+  "sample": false,
   "headline_metric": "citation_id_exact",
-  "citation_id_exact": null,
-  "hit_at_5": 0.0,
-  "mrr": 0.0,
+  "citation_id_exact": 0.2333,
+  "hit_at_5": 0.8667,
+  "mrr": 0.7806,
   "retrieval": {
     "skipped": false,
     "skip_reason": null,
-    "hit_at_5": 0.0,
-    "precision_at_5": 0.0,
-    "mrr": 0.0,
+    "hit_at_5": 0.8667,
+    "precision_at_5": 0.7583,
+    "mrr": 0.7806,
+    "ndcg_at_5": 1.647,
+    "latency_ms_p50": 219.2131,
+    "latency_ms_p95": 471.4165,
+    "n_context_recall": 0,
     "n": 30
   },
   "generation": {
-    "skipped": true,
-    "skip_reason": "unpublished_fixture",
+    "skipped": false,
+    "skip_reason": null,
+    "citation_id_exact": 0.2333,
+    "citation_punto_exact": 0.0,
+    "citation_snippet_grounded": 0.2667,
+    "finding_exact": 0.1667,
     "context_source": "oracle",
-    "n": 0
+    "latency_ms_p50": 75269.0694,
+    "latency_ms_p95": 137652.6405,
+    "n": 30
   },
   "judge": {
     "model": "grok-4.3",
     "skipped": true,
-    "skip_reason": "unpublished_fixture",
+    "skip_reason": "missing_extra",
     "calls": 0,
     "tokens_in": 0,
     "tokens_out": 0
   },
   "chunking": {
-    "A": 0,
-    "B": 0,
-    "b_documents": ["texto_ordenado"]
+    "A": 2,
+    "B": 39,
+    "b_documents": [
+      "texto_ordenado"
+    ]
   },
   "slices": {
-    "definicion": 0.0,
+    "cross-ref": 0.6667,
+    "definicion": 0.25,
+    "english": 0.0,
     "obligacion": 0.0,
-    "silencio": 0.0,
-    "cross-ref": 0.0,
+    "post-to": 0.3333,
+    "procedimiento": 0.0,
+    "silencio": 1.0,
     "superseded": 0.0,
-    "post-to": 0.0
+    "vigente": 0.0
   },
   "phoenix": {
     "exported": false,
-    "project": "bcra-rag",
+    "project": "bcra-rag-dev",
     "evals_project": null
   },
   "n": 30

@@ -85,6 +85,8 @@ class LlmDraft(BaseModel):
     finding: Finding
     citations: list[Citation] = Field(default_factory=list)
     thinking: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class ChatResponse(BaseModel):

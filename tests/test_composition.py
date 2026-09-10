@@ -40,6 +40,7 @@ def test_build_app_exposes_extended_ports(tmp_path: Path) -> None:
     assert hasattr(app.sessions, "expire")
     assert hasattr(app.sessions, "clear")
     assert app.fastapi is not None
+    assert app.turn_evaluator is not None
 
 
 def test_build_evals_does_not_require_judge_extra(
@@ -74,8 +75,16 @@ def test_build_evals_forwards_phoenix_api_key(
 
     seen: dict[str, str] = {}
 
-    def _tracer(_settings: Settings, *, api_key: str = "") -> NoOpTracer:
+    def _tracer(
+        _settings: Settings,
+        *,
+        endpoint: str = "",
+        api_key: str = "",
+        project_name: str = "",
+    ) -> NoOpTracer:
         seen["api_key"] = api_key
+        seen["endpoint"] = endpoint
+        seen["project_name"] = project_name
         return NoOpTracer()
 
     monkeypatch.setattr("bcra_rag.evals.composition.build_tracer", _tracer)
@@ -83,11 +92,17 @@ def test_build_evals_forwards_phoenix_api_key(
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     app = build_evals(
         Settings(data_dir=tmp_path),
-        EvalSettings(_env_file=None, phoenix_api_key="pk-evals"),
+        EvalSettings(
+            _env_file=None,
+            phoenix_api_key="pk-evals",
+            phoenix_collector_endpoint="http://127.0.0.1:6006",
+        ),
         index=FakeIndex(),
         llm=FakeLlm(),
     )
     assert seen["api_key"] == "pk-evals"
+    assert seen["endpoint"] == "http://127.0.0.1:6006"
+    assert seen["project_name"] == "bcra-rag"
     assert app.tracer is not None
 
 

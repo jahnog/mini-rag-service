@@ -54,7 +54,15 @@ class PhoenixJudge:
         }
         if self._effort:
             kwargs["extra_body"] = {"reasoning_effort": self._effort}
-        response = self._client.chat.completions.create(**kwargs)
+        try:
+            from phoenix.trace import suppress_tracing
+        except Exception:
+            suppress_tracing = None
+        if suppress_tracing is None:
+            response = self._client.chat.completions.create(**kwargs)
+        else:
+            with suppress_tracing():
+                response = self._client.chat.completions.create(**kwargs)
         self.calls += 1
         usage = getattr(response, "usage", None)
         if usage is not None:

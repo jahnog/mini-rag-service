@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import replace
 from typing import Any
 
+from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.types import (
     ChunkAction,
     ChunkResult,
@@ -17,6 +18,8 @@ from bcra_rag.domain.guardrails.types import (
     Tracer,
 )
 from bcra_rag.domain.models import Chunk
+
+_DETAIL_LIMIT = 200
 
 _ALWAYS_APPLY = frozenset({"normalize"})
 
@@ -37,8 +40,25 @@ class NoOpTracer:
         del name, layer
         return _NullSpan()
 
-    def record_retriever(self, query: str, hits: Sequence[Chunk]) -> None:
-        del query, hits
+    def record_retriever(
+        self,
+        query: str,
+        hits: Sequence[Chunk],
+        *,
+        route: str = "",
+        silencio_reason: str | None = None,
+        span: Any = None,
+    ) -> None:
+        del query, hits, route, silencio_reason, span
+
+    def flush(self) -> None:
+        return None
+
+    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        del prompt_tokens, completion_tokens
+
+    def record_scores(self, span: Any, scores: Mapping[str, float]) -> None:
+        del span, scores
 
 
 def span_id_hex(span: object) -> str | None:
@@ -82,6 +102,15 @@ class TracedRail:
                 setter("guardrail_decision", result.verdict)
                 setter("guardrail_enforced", result.enforced)
                 setter("guardrail_latency_ms", result.latency_ms)
+                setter(
+                    "guardrail_would_block",
+                    result.verdict == "block" or result.would_block,
+                )
+                setter("output.value", result.verdict)
+                setter(
+                    "guardrail_detail",
+                    redact_secrets(result.detail)[:_DETAIL_LIMIT],
+                )
             return result
 
 

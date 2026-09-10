@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from bcra_rag.evals.adapters.sink_phoenix import (
     PhoenixEvalSink,
     _collector_host,
@@ -64,11 +66,16 @@ def test_phoenix_sink_posts_namespaced_span_bound_annotations() -> None:
     assert by_name["generation.citation_id_exact"]["annotator_kind"] == "CODE"
 
 
-def test_phoenix_client_kwargs_omit_empty_api_key() -> None:
+def test_phoenix_client_kwargs_omit_empty_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
     with_key = phoenix_client_kwargs("http://127.0.0.1:6006", " secret ")
     assert with_key == {"base_url": "http://127.0.0.1:6006", "api_key": "secret"}
     empty = phoenix_client_kwargs("http://127.0.0.1:6006", "")
     assert empty == {"base_url": "http://127.0.0.1:6006", "api_key": None}
+    unexpanded = phoenix_client_kwargs("http://127.0.0.1:6006", "${PHOENIX_API_KEY}")
+    assert unexpanded == {"base_url": "http://127.0.0.1:6006", "api_key": None}
 
 
 def test_phoenix_sink_skips_client_without_span_id() -> None:

@@ -164,6 +164,7 @@ class LlmAdapter:
             ],
             "response_format": {"type": "json_object"},
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         extra = _thinking_extra_body(
             self._settings.llm_base_url, self._settings.llm_enable_thinking
@@ -172,7 +173,12 @@ class LlmAdapter:
             kwargs["extra_body"] = extra
         response = await client.chat.completions.create(**kwargs)
         assembler = ThinkAssembler()
+        prompt_tokens = 0
+        completion_tokens = 0
         async for chunk in _as_chunk_iter(response):
+            usage = _usage_from_chunk(chunk)
+            if usage is not None:
+                prompt_tokens, completion_tokens = usage
             grew = assembler.feed_chunk(chunk)
             if grew and on_thinking is not None:
                 visible = _strip_json_payload(
@@ -182,9 +188,24 @@ class LlmAdapter:
                     await on_thinking(visible)
         thinking, raw = assembler.finish()
         draft = parse_llm_draft(raw or "{}")
-        if not thinking:
-            return draft
-        return draft.model_copy(update={"thinking": thinking})
+        return draft.model_copy(
+            update={
+                "thinking": thinking,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
+        )
+
+
+def _usage_from_chunk(chunk: Any) -> tuple[int, int] | None:
+    usage = getattr(chunk, "usage", None)
+    if usage is None:
+        return None
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    if prompt <= 0 and completion <= 0:
+        return None
+    return prompt, completion
 
 
 def _is_xai_base(url: str) -> bool:

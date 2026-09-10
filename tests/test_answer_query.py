@@ -10,6 +10,7 @@ from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.composition import default_pipeline
 from bcra_rag.domain.models import Chunk
+from bcra_rag.domain.turn_eval import TurnScores
 from bcra_rag.logconfig import configure_logging
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
@@ -24,6 +25,7 @@ def _uc(
     index: FakeIndex | None = None,
     sessions: InMemorySessionStore | None = None,
     settings: Settings | None = None,
+    evaluator: object | None = None,
 ) -> tuple[AnswerQuery, FakeLlm]:
     seeded_settings, seeded_index, _ = seed_ready(tmp_path)
     resolved_llm = llm or FakeLlm(IN_CORPUS_DRAFT)
@@ -34,6 +36,7 @@ def _uc(
         resolved_llm,
         sessions or InMemorySessionStore(),
         default_pipeline(resolved_settings),
+        evaluator=evaluator,  # type: ignore[arg-type]
     )
     return use_case, resolved_llm
 
@@ -678,9 +681,15 @@ class _BoomTracer:
         del name, layer
         return _NullSpan()
 
-    def record_retriever(self, query: str, hits: object) -> None:
-        del query, hits
+    def record_retriever(self, query: str, hits: object, **_kwargs: object) -> None:
+        del query, hits, _kwargs
         raise RuntimeError("span export failed")
+
+    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        del prompt_tokens, completion_tokens
+
+    def record_scores(self, span: object, scores: object) -> None:
+        del span, scores
 
 
 @pytest.mark.asyncio
@@ -725,8 +734,106 @@ async def test_named_fetch_records_retriever_span(tmp_path: Path) -> None:
     assert tracer.retriever_calls
     query, hits = tracer.retriever_calls[0]
     assert "3500" in query
+    assert ("chat.turn", "chain") in tracer.names
+    assert ("retrieve", "retriever") in tracer.names
+    assert tracer.spans["chat.turn"].attrs.get("metadata.prompt_tokens") == 0
+    tags = tracer.spans["chat.turn"].attrs.get("tag.tags")
+    assert isinstance(tags, list) and "answered" in tags
     assert any(
         str(chunk.metadata.get("doc_id") or chunk.chunk_id).startswith("A3500")
         or "A3500" in chunk.chunk_id
         for chunk in hits
     )
+
+
+@pytest.mark.asyncio
+async def test_silencio_named_records_empty_retriever(tmp_path: Path) -> None:
+    from tests.evals.test_tracer import RecordingTracer
+
+    settings, index, _ = seed_ready(tmp_path)
+    pipeline = default_pipeline(settings)
+    tracer = RecordingTracer()
+    pipeline.tracer = tracer  # type: ignore[assignment]
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        pipeline,
+    )
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 9999?"),
+        request_id="req-empty",
+    )
+    assert response.finding is Finding.SILENCIO
+    assert tracer.retriever_calls
+    _, hits = tracer.retriever_calls[0]
+    assert hits == []
+    assert ("retrieve", "retriever") in tracer.names
+    assert tracer.last.attrs.get("retrieval.silencio_reason") == "missing_document"
+    assert tracer.last.attrs.get("output.value") == "missing_document"
+
+
+class _FakeTurnEvaluator:
+    def __init__(self, scores: TurnScores | None = None, *, error: bool = False) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+        self.scores = scores or TurnScores(faithfulness=1.0, answer_relevancy=0.0)
+        self.error = error
+
+    async def score(self, *, question: str, answer: str, context: str) -> TurnScores:
+        self.calls.append((question, answer, context))
+        if self.error:
+            raise RuntimeError("judge down")
+        return self.scores
+
+
+@pytest.mark.asyncio
+async def test_turn_eval_skipped_when_blocked(tmp_path: Path) -> None:
+    evaluator = _FakeTurnEvaluator()
+    use_case, _ = _uc(tmp_path, evaluator=evaluator)
+    await use_case.run(
+        ChatRequest(message="Debería comprar dólares?"),
+        request_id="req-eval-block",
+    )
+    assert evaluator.calls == []
+
+
+@pytest.mark.asyncio
+async def test_turn_eval_records_scores_on_generated_turn(tmp_path: Path) -> None:
+    from tests.evals.test_tracer import RecordingTracer
+
+    evaluator = _FakeTurnEvaluator()
+    settings, index, _ = seed_ready(tmp_path)
+    pipeline = default_pipeline(settings)
+    tracer = RecordingTracer()
+    pipeline.tracer = tracer  # type: ignore[assignment]
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        pipeline,
+        evaluator=evaluator,
+    )
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-eval-ok",
+    )
+    assert response.finding is not Finding.SILENCIO or response.citations is not None
+    assert evaluator.calls
+    assert tracer.spans["chat.turn"].attrs.get("eval.faithfulness") == 1.0
+    assert tracer.spans["chat.turn"].attrs.get("eval.answer_relevancy") == 0.0
+    tags = tracer.spans["chat.turn"].attrs.get("tag.tags")
+    assert isinstance(tags, list) and "faithful" in tags
+
+
+@pytest.mark.asyncio
+async def test_turn_eval_failure_still_answers(tmp_path: Path) -> None:
+    evaluator = _FakeTurnEvaluator(error=True)
+    use_case, _ = _uc(tmp_path, evaluator=evaluator)
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-eval-fail",
+    )
+    assert response.answer
+    assert evaluator.calls

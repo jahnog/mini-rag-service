@@ -378,7 +378,7 @@ wheels = [
 
 [[package]]
 name = "bcra-rag"
-version = "0.7.2"
+version = "0.7.3"
 source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
@@ -394,6 +394,7 @@ dependencies = [
 
 [package.optional-dependencies]
 otel = [
+    { name = "arize-phoenix-client" },
     { name = "arize-phoenix-otel" },
     { name = "openinference-instrumentation-openai" },
 ]
@@ -417,6 +418,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arize-phoenix-client", marker = "extra == 'otel'" },
     { name = "arize-phoenix-client", marker = "extra == 'phoenix-evals'" },
     { name = "arize-phoenix-evals", marker = "extra == 'phoenix-evals'" },
     { name = "arize-phoenix-otel", marker = "extra == 'otel'" },
