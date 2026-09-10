@@ -748,18 +748,14 @@ FodyWeavers.xsd
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks,pycharm,visualstudiocode,visualstudio,nextjs
 
-# Living dump and serving index
-data/bcra/current/raw/
-data/bcra/current/extract/
-data/bcra/current/MANIFEST.json
-data/bcra/current/NOTES.md
-data/index/
+# Living dump, serving index, job logs, local Phoenix working dir
+data/
 
 # Operator-only deploy overlay (hostnames, users, paths)
 deploy/local.env
 
-# Operator-only data-publish overlay (SSH target)
-scripts/publish-data.local
+# Operator-only overlays (SSH target, etc.)
+*.local
 
 
 
