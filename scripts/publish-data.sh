@@ -2,11 +2,10 @@
 # Publish local data/ over SSH to the production data directory.
 # Standalone operator command: rsync over SSH only. Does not restart services.
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_OVERLAY="$SCRIPT_DIR/publish-data.local"
-DEFAULT_DIR="/srv/bcra-mini-rag/production/current/data"
+DEFAULT_DIR="/var/lib/bcra-mini-rag/production/data"
 
 usage() {
   cat <<EOF >&2
