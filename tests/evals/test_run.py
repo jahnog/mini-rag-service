@@ -211,14 +211,21 @@ async def test_l1_run_appends_published_metrics(tmp_path: Path) -> None:
     assert later[-1]["unpublished"] is False
 
 
-def test_shipped_l1_fixture_is_sample() -> None:
+def test_shipped_l1_fixture_is_operator_run() -> None:
     data = json.loads((ROOT / "evals" / "l1.json").read_text(encoding="utf-8"))
-    assert data.get("unpublished") or data.get("sample")
+    assert data.get("unpublished") is False
+    assert data.get("sample") is False
     assert data["headline_metric"] == "citation_id_exact"
     assert "ragas" not in data
+    for key in L1_SCHEMA_KEYS:
+        assert key in data
+    assert data["retrieval"]["skipped"] is False
+    assert data["generation"]["skipped"] is False
     assert data["judge"]["skipped"] is True
-    assert data["generation"]["skipped"] is True
-    assert data["citation_id_exact"] is None
+    assert isinstance(data["citation_id_exact"], int | float)
+    assert 0.0 <= data["citation_id_exact"] <= 1.0
+    assert data["generation"]["n"] > 0
+    assert data["retrieval"]["n"] > 0
 
 
 @pytest.mark.asyncio

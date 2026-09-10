@@ -68,6 +68,7 @@ def test_readme_how_to_run_names_auth_vars() -> None:
     for name in (
         "AUTH_SECRET",
         "AUTH_ALLOWED_EMAILS",
+        "*",
         "AUTH_SMTP_HOST",
         "AUTH_TRUST_PROXY",
         "AUTH_PUBLIC_ORIGIN",

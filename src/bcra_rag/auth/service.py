@@ -101,8 +101,10 @@ class AuthService:
         self._enforce_send_limits(normalized, ip, now)
         self._record_send(normalized, ip, now)
         dummy = self._otp_digest(normalized, "000000")
-        allowlist = {normalize_email(item) for item in self.settings.allowlist()}
-        if not allowlist or normalized not in allowlist or not self.mailer.configured:
+        tokens = self.settings.allowlist()
+        members = {normalize_email(item) for item in tokens if item != "*"}
+        allowlisted = "*" in tokens or normalized in members
+        if not tokens or not allowlisted or not self.mailer.configured:
             hmac.compare_digest(dummy, dummy)
             self._log(normalized, "sent")
             return RequestOtpResult()

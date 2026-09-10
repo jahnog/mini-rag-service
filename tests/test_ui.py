@@ -474,21 +474,20 @@ def test_banner_and_canned_prompts() -> None:
     assert L1_ACCORDION_OPEN_DEFAULT is False
 
 
-def test_l1_fixture_is_labeled_sample(tmp_path: Path) -> None:
+def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     path = Path("evals/l1.json")
     data = load_l1(path)
-    assert is_sample_l1(data)
+    assert not is_sample_l1(data)
     text = l1_markdown(data)
-    assert "unpublished" in text.lower() or "sample" in text.lower()
     lowered = text.lower()
+    assert "números unpublished/sample" not in lowered
     assert "citation_id_exact" in text or "citation-id" in lowered or "headline" in lowered
     assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
     assert "## Retrieval" in text
     assert "## Generation" in text
-    assert "skipped" in text.lower()
-    assert "faithfulness: 0" not in text.lower()
+    assert "faithfulness: 0" not in lowered
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
 

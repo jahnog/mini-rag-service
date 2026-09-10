@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -56,7 +57,10 @@ def _service(
     return service, resolved, tick
 
 
-def test_auth_settings_defaults() -> None:
+def test_auth_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in list(os.environ):
+        if key.startswith("AUTH_"):
+            monkeypatch.delenv(key, raising=False)
     settings = AuthSettings(_env_file=None)
     assert settings.secret == ""
     assert settings.allowed_emails == ""
@@ -166,6 +170,32 @@ def test_empty_allowlist_sends_nothing() -> None:
     service, mailer, _ = _service(allowed="")
     service.request_otp(OPS, "1.1.1.1")
     assert mailer.sent == []
+
+
+def test_wildcard_allowlist_sends_to_any_well_formed_email() -> None:
+    service, mailer, _ = _service(allowed="*")
+    service.request_otp("stranger@example.com", "1.1.1.1")
+    assert len(mailer.sent) == 1
+    assert mailer.sent[0].to == "stranger@example.com"
+    assert otp_code_from_text(mailer.sent[0].body)
+    assert not re.search(r"\d{6}", mailer.sent[0].subject)
+
+
+def test_wildcard_with_other_entries_still_sends() -> None:
+    service, mailer, _ = _service(allowed="*,ops@example.com")
+    service.request_otp("stranger@example.com", "1.1.1.1")
+    assert len(mailer.sent) == 1
+    assert mailer.sent[0].to == "stranger@example.com"
+
+
+def test_plus_tag_under_wildcard_sends_to_requested_and_shares_minute_bucket() -> None:
+    service, mailer, clock = _service(allowed="*", otp_ttl_s=5)
+    service.request_otp("ops+staff@example.com", "1.1.1.1")
+    assert mailer.sent[0].to == "ops+staff@example.com"
+    clock.advance(6)
+    with pytest.raises(AuthRejected) as exc:
+        service.request_otp("ops+other@example.com", "1.1.1.1")
+    assert exc.value.status == 429
 
 
 def test_plus_tag_matches_allowlist_and_counts_as_same_mailbox() -> None:
@@ -290,7 +320,9 @@ def test_malformed_email_rejected() -> None:
 
 def test_missing_secret_unavailable() -> None:
     mailer = FakeMailer()
-    service = AuthService(AuthSettings(_env_file=None, allowed_emails=OPS), mailer)
+    service = AuthService(
+        AuthSettings(_env_file=None, secret="", allowed_emails=OPS), mailer
+    )
     with pytest.raises(AuthUnavailable):
         service.request_otp(OPS, "1.1.1.1")
     assert mailer.sent == []
