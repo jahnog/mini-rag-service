@@ -266,6 +266,31 @@ def test_run_l1_script_resolves_host_and_forwards_argv() -> None:
     assert 'printf %s "$HOME/bcra-mini-rag"' in text
 
 
+def test_publish_data_script_uploads_l1_json() -> None:
+    text = (ROOT / "scripts" / "publish-data.sh").read_text(encoding="utf-8")
+    assert 'DEFAULT_DIR="/var/lib/bcra-mini-rag/production/data"' in text
+    assert 'DEFAULT_L1="$(dirname "$DEFAULT_DIR")/evals/l1.json"' in text
+    assert '$(dirname "$PUBLISH_DIR")/evals/l1.json' in text
+    assert "evals/l1.json" in text
+    assert "PUBLISH_L1" in text
+    assert "PUBLISH_L1_SRC" in text
+    assert "strip_trailing_slashes" in text
+    assert '${v%/}' in text
+    assert "L1_RSYNC_ARGS" in text
+    l1_args = text[text.index("L1_RSYNC_ARGS") : text.index("L1_RSYNC_ARGS") + 180]
+    assert "--delete" not in l1_args
+    assert text.count("${RSYNC_ARGS[@]}") == 1
+    assert text.count("${L1_RSYNC_ARGS[@]}") >= 1
+    assert "PUBLISH_L1" in text[text.index("single quotes") :]
+    assert "Does not restart services" in text
+    assert "systemctl" not in text
+    assert "content" + "labstudy" not in text
+    assert "chita" + "-ts" not in text
+    assert "/home/" + "redirect" not in text
+    assert "unpublished" in text
+    assert "sample" in text
+
+
 def test_extra_env_keys_do_not_break_load(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("TOTALLY_UNKNOWN_KEY", "should-be-ignored")
