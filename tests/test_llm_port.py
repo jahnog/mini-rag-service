@@ -166,9 +166,16 @@ class _StreamChoice:
         self.delta = delta
 
 
+class _Usage:
+    def __init__(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
 class _StreamChunk:
-    def __init__(self, delta: _Delta) -> None:
-        self.choices = [_StreamChoice(delta)]
+    def __init__(self, delta: _Delta | None = None, *, usage: _Usage | None = None) -> None:
+        self.choices = [_StreamChoice(delta)] if delta is not None else []
+        self.usage = usage
 
 
 class _ChunkStream:
@@ -305,7 +312,10 @@ async def test_adapter_complete_coerces_string_citations() -> None:
     assert llm.calls == ["pregunta"]
     assert "extra_body" not in client.chat.completions.kwargs[0]
     assert client.chat.completions.kwargs[0]["stream"] is True
+    assert client.chat.completions.kwargs[0]["stream_options"] == {"include_usage": True}
     assert draft.thinking == ""
+    assert draft.prompt_tokens == 0
+    assert draft.completion_tokens == 0
 
 
 def _cited_json() -> str:
@@ -316,6 +326,18 @@ def _cited_json() -> str:
             "citations": [{"id": "texto_ordenado", "tipo": "TO"}],
         }
     )
+
+
+@pytest.mark.asyncio
+async def test_adapter_reads_usage_from_trailing_chunk() -> None:
+    chunks = _chunks_from_message(_cited_json())
+    chunks.append(_StreamChunk(usage=_Usage(12, 7)))
+    client = StubOpenAI(_cited_json(), chunks=chunks)
+    llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
+    draft = await llm.complete("pregunta")
+    assert draft.prompt_tokens == 12
+    assert draft.completion_tokens == 7
+    assert draft.citations[0].id == "texto_ordenado"
 
 
 @pytest.mark.asyncio

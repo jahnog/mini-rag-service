@@ -13,6 +13,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.auth.ip import client_ip
 from bcra_rag.domain.guardrails import GuardrailPipeline
+from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
@@ -42,6 +43,7 @@ async def handle_turn(
     client_id: str,
     demo_key: str | None,
     on_thinking: OnThinking | None = None,
+    turn_evaluator: TurnEvaluator | None = None,
 ) -> ChatResponse:
     email = email_from_request(auth, request)
     if email is None:
@@ -60,7 +62,14 @@ async def handle_turn(
         raise HTTPException(status_code=422, detail="k exceeds maximum")
     public_id = _public_session_id(session_id)
     scoped_id = _scoped_session_id(email, public_id, auth.settings.secret)
-    use_case = AnswerQuery(settings, index, llm, sessions, pipeline)
+    use_case = AnswerQuery(
+        settings,
+        index,
+        llm,
+        sessions,
+        pipeline,
+        evaluator=turn_evaluator or NoOpTurnEvaluator(),
+    )
     response = await use_case.run(
         ChatRequest(message=message, session_id=scoped_id, k=k, filters=filters),
         request_id=request_id,

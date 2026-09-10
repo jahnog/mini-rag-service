@@ -51,7 +51,10 @@ def build_evals(
         LlmAdapter(resolved) if resolved.llm_api_key else UnavailableLlm()
     )
     resolved_tracer = tracer or build_tracer(
-        resolved, api_key=resolved_eval.phoenix_api_key
+        resolved,
+        endpoint=resolved_eval.phoenix_collector_endpoint,
+        api_key=resolved_eval.phoenix_api_key,
+        project_name=resolved_eval.phoenix_project_name,
     )
     resolved_pipeline = pipeline or assemble_pipeline(
         load_policy(resolved.guardrails_policy_path or default_policy_path()),

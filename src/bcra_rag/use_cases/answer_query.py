@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 import structlog
@@ -16,6 +17,7 @@ from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router
+from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator, TurnScores
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
@@ -47,12 +49,34 @@ class AnswerQuery:
         llm: LlmPort,
         sessions: SessionStore,
         pipeline: GuardrailPipeline,
+        evaluator: TurnEvaluator | None = None,
     ) -> None:
         self._settings = settings
         self._index = index
         self._llm = llm
         self._sessions = sessions
         self._pipeline = pipeline
+        self._evaluator = evaluator or NoOpTurnEvaluator()
+        self._last_context = ""
+
+    async def _score_turn(
+        self, request: ChatRequest, response: ChatResponse
+    ) -> TurnScores:
+        llm_called = any(
+            item.rule == "generate" and item.verdict == "pass"
+            for item in response.guardrails
+        )
+        if not llm_called:
+            return TurnScores()
+        context = self._last_context
+        try:
+            return await self._evaluator.score(
+                question=request.message,
+                answer=response.answer,
+                context=context,
+            )
+        except Exception:
+            return TurnScores()
 
     async def run(
         self,
@@ -61,10 +85,45 @@ class AnswerQuery:
         request_id: str,
         on_thinking: OnThinking | None = None,
     ) -> ChatResponse:
-        response = await self._respond(
-            request, request_id=request_id, on_thinking=on_thinking
-        )
-        return response
+        span_cm: Any = None
+        span: Any = None
+        try:
+            span_cm = self._pipeline.tracer.span("chat.turn", "chain")
+            span = span_cm.__enter__()
+        except Exception:
+            span_cm = None
+            span = None
+        try:
+            setter = getattr(span, "set_attribute", None) if span is not None else None
+            if callable(setter):
+                try:
+                    setter("input.value", redact_secrets(request.message or "")[:500])
+                except Exception:
+                    pass
+            response = await self._respond(
+                request, request_id=request_id, on_thinking=on_thinking
+            )
+            scores = await self._score_turn(request, response)
+            if scores.as_dict():
+                try:
+                    self._pipeline.tracer.record_scores(span, scores.as_dict())
+                except Exception:
+                    pass
+            if callable(setter):
+                _bind_turn_span(setter, response, scores)
+            if scores.as_dict():
+                log.info(
+                    "chat_turn_eval",
+                    request_id=response.request_id,
+                    **scores.as_dict(),
+                )
+            return response
+        finally:
+            if span_cm is not None:
+                try:
+                    span_cm.__exit__(None, None, None)
+                except Exception:
+                    pass
 
     async def _respond(
         self,
@@ -190,11 +249,18 @@ class AnswerQuery:
                 user_message=request.message,
             )
 
+        self._last_context = ""
         query = ctx.text
         manifest = Manifest.load(self._settings.manifest_path)
-        routed = Router(self._index, manifest).route(
-            query, k=k, to_as_of=manifest.to_as_of or to_as_of
-        )
+        retrieve_cm, retrieve_span = _span_enter(pipe.tracer, "retrieve", "retriever")
+        try:
+            routed = Router(self._index, manifest).route(
+                query, k=k, to_as_of=manifest.to_as_of or to_as_of
+            )
+        except Exception:
+            if retrieve_cm is not None:
+                _span_exit(retrieve_cm)
+            raise
         dump_ids = set(manifest.documents)
         ctx.dump_ids = dump_ids
 
@@ -202,6 +268,15 @@ class AnswerQuery:
             reason = routed.silencio_reason or "empty_hits"
             ctx.finding = Finding.SILENCIO
             ctx.answer = "No hay una cláusula citada en el dump CAMEX."
+            _safe_record_retriever(
+                pipe,
+                query,
+                [],
+                route=routed.kind or "",
+                silencio_reason=reason,
+                span=retrieve_span,
+            )
+            _span_exit(retrieve_cm)
             rest = (
                 [step("retrieve", "retrieve", "block", reason)]
                 + pipe.skip_named(retrieve_ids, reason)
@@ -223,10 +298,11 @@ class AnswerQuery:
             return response
 
         ctx.hits = list(routed.hits)
-        try:
-            pipe.tracer.record_retriever(query, ctx.hits)
-        except Exception:
-            pass
+        self._last_context = "\n\n".join(chunk.text for chunk in ctx.hits)
+        _safe_record_retriever(
+            pipe, query, ctx.hits, route=routed.kind or "", span=retrieve_span
+        )
+        _span_exit(retrieve_cm)
         retrieve_log = [
             step("retrieve", "retrieve", "pass", f"{len(ctx.hits)} hits")
         ] + pipe.run_named(retrieve_ids, ctx)
@@ -367,6 +443,10 @@ async def generate_from_context(
     prompt = _prompt(query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter)
     try:
         draft = await llm.complete(prompt, on_thinking=on_thinking)
+        try:
+            pipeline.tracer.record_tokens(draft.prompt_tokens, draft.completion_tokens)
+        except Exception:
+            pass
     except Exception:
         ctx.finding = Finding.SILENCIO
         ctx.answer = "No hay modelo disponible para completar la respuesta."
@@ -425,6 +505,96 @@ def _first_block(results: list[RailResult]) -> RailResult | None:
     )
 
 
+def _span_enter(tracer: Any, name: str, layer: str) -> tuple[Any, Any]:
+    try:
+        span_cm = tracer.span(name, layer)
+        return span_cm, span_cm.__enter__()
+    except Exception:
+        return None, None
+
+
+def _span_exit(span_cm: Any) -> None:
+    if span_cm is None:
+        return
+    try:
+        span_cm.__exit__(None, None, None)
+    except Exception:
+        return
+
+
+def _safe_record_retriever(
+    pipe: GuardrailPipeline,
+    query: str,
+    hits: list[Chunk],
+    *,
+    route: str = "",
+    silencio_reason: str | None = None,
+    span: Any = None,
+) -> None:
+    try:
+        pipe.tracer.record_retriever(
+            query,
+            hits,
+            route=route,
+            silencio_reason=silencio_reason,
+            span=span,
+        )
+    except Exception:
+        return
+
+
+def _bind_turn_span(
+    setter: Any, response: ChatResponse, scores: TurnScores | None = None
+) -> None:
+    try:
+        setter("session.id", response.session_id)
+        setter("output.value", redact_secrets(response.answer or "")[:800])
+        finding = (
+            response.finding.value
+            if hasattr(response.finding, "value")
+            else str(response.finding)
+        )
+        llm_called = any(
+            item.rule == "generate" and item.verdict == "pass"
+            for item in response.guardrails
+        )
+        blocked_by = next(
+            (
+                item.rule
+                for item in response.guardrails
+                if item.verdict == "block" and item.enforced
+            ),
+            None,
+        )
+        sidecar = response.sidecar
+        payload = {
+            "request_id": response.request_id,
+            "finding": finding,
+            "llm_called": llm_called,
+            "blocked_by": blocked_by,
+            "citation_ids": [item.id for item in response.citations],
+            "citation_coverage": sidecar.citation_coverage,
+            "grounded": sidecar.grounded,
+        }
+        if scores is not None:
+            payload.update(scores.as_dict())
+        setter("metadata", json.dumps(payload, ensure_ascii=False))
+        tags = [finding]
+        if blocked_by:
+            tags.append(f"block:{blocked_by}")
+        elif response.abstain:
+            tags.append("silencio")
+        else:
+            tags.append("answered")
+        if sidecar.grounded:
+            tags.append("grounded")
+        if scores is not None and scores.faithfulness is not None:
+            tags.append("faithful" if scores.faithfulness >= 1.0 else "unfaithful")
+        setter("tag.tags", tags)
+    except Exception:
+        return
+
+
 def _log_turn(
     request: ChatRequest,
     response: ChatResponse,
@@ -461,6 +631,8 @@ def _log_turn(
         guardrail_latency_ms={item.rule: round(item.latency_ms, 3) for item in results},
         survived_ids=sorted(id_ for id_ in ctx.turn_ids if id_),
         dropped_ids=list(ctx.dropped_ids),
+        prompt_tokens=getattr(ctx.draft, "prompt_tokens", 0) if ctx.draft else 0,
+        completion_tokens=getattr(ctx.draft, "completion_tokens", 0) if ctx.draft else 0,
         **payload,
     )
 

@@ -29,7 +29,7 @@ packages = ["src/bcra_rag"]
 
 [project.optional-dependencies]
 # Do not add the PyPI package named `phoenix` (2013 Habbo MUS client).
-otel = ["arize-phoenix-otel", "openinference-instrumentation-openai"]
+otel = ["arize-phoenix-otel", "openinference-instrumentation-openai", "arize-phoenix-client"]
 phoenix-evals = ["arize-phoenix-evals", "arize-phoenix-client"]
 
 [dependency-groups]

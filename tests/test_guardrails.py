@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from bcra_rag.composition import default_pipeline
 from bcra_rag.domain.guardrails.backends import RegexBackend
 from bcra_rag.domain.guardrails.input import (
@@ -1068,9 +1070,10 @@ def test_default_pipeline_loads_packaged_policy() -> None:
     assert pipe.policy_version == 3
 
 
-def test_tracer_is_noop_without_collector() -> None:
+def test_tracer_is_noop_without_collector(monkeypatch: pytest.MonkeyPatch) -> None:
     from bcra_rag.adapters.otel import build_tracer
     from bcra_rag.domain.guardrails.pipeline import NoOpTracer
 
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     tracer = build_tracer(Settings())
     assert isinstance(tracer, NoOpTracer)

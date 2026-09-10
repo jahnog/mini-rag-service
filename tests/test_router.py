@@ -28,6 +28,7 @@ def test_a9999_is_silencio(tmp_path: Path) -> None:
     assert result.silencio
     assert result.named_id == "A9999"
     assert result.hits == []
+    assert result.kind == "named"
 
 
 def test_a3500_named_fetch_citation_id(tmp_path: Path) -> None:
@@ -49,6 +50,7 @@ def test_a3500_named_fetch_citation_id(tmp_path: Path) -> None:
     ).route("Qué dice la Comunicación A 3500?", k=5, to_as_of="A8307")
     assert not result.silencio
     assert result.named_id == "A3500"
+    assert result.kind == "named"
     assert result.hits[0].metadata["doc_id"] == "A3500"
     assert len(result.hits[0].text) <= 2000
 
@@ -211,6 +213,7 @@ def test_vigente_not_only_2002(tmp_path: Path) -> None:
     ids = {str(c.metadata.get("doc_id")) for c in result.hits}
     kinds = {str(c.metadata.get("doc_kind")) for c in result.hits}
     fechas = {str(c.metadata.get("fecha") or "") for c in result.hits}
+    assert result.kind == "vigente"
     assert "texto_ordenado" in ids or any(f > "2025-08-25" for f in fechas)
     assert kinds != {"comunicacion"} or "A3500" not in ids or "A8359" in ids
     assert not (ids == {"A3500"})
@@ -331,6 +334,7 @@ def test_vigente_comparison_is_not_named_fetch(tmp_path: Path) -> None:
         to_as_of="A8307",
     )
     assert result.named_id is None
+    assert result.kind == "vigente"
     ids = {str(c.metadata.get("doc_id")) for c in result.hits}
     assert "texto_ordenado" in ids or "A8359" in ids
 

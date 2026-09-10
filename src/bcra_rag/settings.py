@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     rate_limit_window_s: int = Field(default=60, ge=1)
     chat_turns_per_email_day: int = Field(default=30, ge=1)
     chat_turns_per_process_day: int = Field(default=100, ge=1)
+    chat_turn_evals: bool = False
 
     # Corpus ingest
     download_concurrency: int = Field(default=3, ge=2, le=4)

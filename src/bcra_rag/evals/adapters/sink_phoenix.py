@@ -48,7 +48,11 @@ class PhoenixEvalSink:
         if client is None:
             from phoenix.client import Client
 
-            client = Client(**phoenix_client_kwargs(self._base, self._api_key))
+            client_kwargs = phoenix_client_kwargs(self._base, self._api_key)
+            client = Client(
+                base_url=client_kwargs["base_url"],
+                api_key=client_kwargs["api_key"],
+            )
         annotations: list[dict[str, object]] = []
         annotations.extend(
             _annotations("retrieval", report.retrieval.scores, span_id)
@@ -83,7 +87,14 @@ def _annotations(
 
 
 def phoenix_client_kwargs(base: str, api_key: str) -> dict[str, str | None]:
-    return {"base_url": base, "api_key": (api_key or "").strip() or None}
+    import os
+
+    key = (api_key or "").strip()
+    if len(key) >= 3 and key.startswith("${") and key.endswith("}"):
+        key = ""
+    if not key:
+        key = (os.environ.get("PHOENIX_API_KEY") or "").strip()
+    return {"base_url": base, "api_key": key or None}
 
 
 def _collector_host(endpoint: str) -> str:

@@ -50,6 +50,7 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.rate_limit_window_s == 60
     assert settings.chat_turns_per_email_day == 30
     assert settings.chat_turns_per_process_day == 100
+    assert settings.chat_turn_evals is False
     assert settings.demo_api_key == ""
     assert settings.llm_base_url.startswith("https://")
     assert settings.evals_dir == Path("evals")

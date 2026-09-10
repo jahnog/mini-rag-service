@@ -11,6 +11,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, build_auth, mount_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
+from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
@@ -26,6 +27,7 @@ def create_fastapi(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     auth: AuthModule | None = None,
+    turn_evaluator: TurnEvaluator | None = None,
 ) -> FastAPI:
     api = FastAPI(title="BCRA Mini-RAG", version="0.1.0")
     api.state.settings = settings
@@ -33,6 +35,8 @@ def create_fastapi(
     api.state.llm = llm
     api.state.sessions = sessions
     api.state.pipeline = pipeline
+    resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
+    api.state.turn_evaluator = resolved_evaluator
     resolved_auth = auth or build_auth()
     api.state.auth = resolved_auth
     api.state.limiter = RateLimiter(
@@ -82,6 +86,7 @@ def create_fastapi(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
             demo_key=demo_key_for(request),
+            turn_evaluator=resolved_evaluator,
         )
 
     @api.post("/chat/clear", response_model=ChatResponse)
@@ -105,6 +110,7 @@ def create_fastapi(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
             demo_key=demo_key_for(request),
+            turn_evaluator=resolved_evaluator,
         )
 
     from bcra_rag.ui.gradio_app import build_blocks, mount_ui
@@ -118,6 +124,7 @@ def create_fastapi(
         limiter=api.state.limiter,
         turn_caps=api.state.turn_caps,
         auth=resolved_auth,
+        turn_evaluator=resolved_evaluator,
     )
     return cast(FastAPI, mount_ui(api, blocks))
 

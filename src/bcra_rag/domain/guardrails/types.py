@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -102,4 +102,16 @@ class InjectionBackend(Protocol):
 class Tracer(Protocol):
     def span(self, name: str, layer: str) -> Any: ...
 
-    def record_retriever(self, query: str, hits: Sequence[Chunk]) -> None: ...
+    def record_retriever(
+        self,
+        query: str,
+        hits: Sequence[Chunk],
+        *,
+        route: str = "",
+        silencio_reason: str | None = None,
+        span: Any = None,
+    ) -> None: ...
+
+    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None: ...
+
+    def record_scores(self, span: Any, scores: Mapping[str, float]) -> None: ...
