@@ -69,6 +69,7 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "pytest", "--pdb"),
         ("uv", "run", "pytest", "--run-integration", "-m", "integration", "-q"),
         ("uv", "run", "pytest", "--run-live-server", "-m", "live_server", "-q"),
+        ("./scripts/run-prod-smoke.sh",),
         (
             "uv",
             "run",
@@ -223,7 +224,11 @@ def command_from_table(raw: Mapping[str, Any], *, root: Path) -> Command:
             raise CatalogError("sudo is not in the exec allowlist")
         if argv not in ALLOWED_RUNNABLE:
             raise CatalogError(f"argv not allowlisted: {argv!r}")
-        if argv[0] in {"./scripts/deploy.sh", "./scripts/run-l1.sh"}:
+        if argv[0] in {
+            "./scripts/deploy.sh",
+            "./scripts/run-l1.sh",
+            "./scripts/run-prod-smoke.sh",
+        }:
             _check_repo_script(root, Path(argv[0]).name)
         if needs_deploy_host and argv != SSH_ARGV:
             raise CatalogError("needs_deploy_host is only valid for ssh-forward")

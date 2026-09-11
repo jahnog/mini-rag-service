@@ -46,6 +46,7 @@ def test_real_catalog_parses_and_matches_allowlist(devtui: Any) -> None:
         "serve",
         "unit",
         "live-server",
+        "prod-smoke",
         "pdb",
         "ingest",
         "refresh",

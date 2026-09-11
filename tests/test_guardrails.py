@@ -673,6 +673,15 @@ def test_cite_or_abstain_prefix_plus_hallucination_blocks() -> None:
     assert _run(CiteOrAbstainRail(), ctx).verdict == "block"
 
 
+def test_cite_or_abstain_pdf_spacing_quote_passes() -> None:
+    ctx = _cite_ctx(
+        "1. El Banco Central obtendrá cotizaciones",
+        body="1.El Banco   Central obtendrá cotizaciones del dólar",
+    )
+    assert _run(CiteOrAbstainRail(), ctx).verdict == "pass"
+    assert ctx.citations[0].id == "A3500"
+
+
 def test_cite_or_abstain_silencio_finding_passes_and_clears_citations() -> None:
     ctx = _cite_ctx("hello world", finding=Finding.SILENCIO)
     verdict = _run(CiteOrAbstainRail(), ctx)
@@ -1071,9 +1080,11 @@ def test_default_pipeline_loads_packaged_policy() -> None:
 
 
 def test_tracer_is_noop_without_collector(monkeypatch: pytest.MonkeyPatch) -> None:
-    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.adapters.otel import FileTraceTracer, build_tracer
     from bcra_rag.domain.guardrails.pipeline import NoOpTracer
 
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     tracer = build_tracer(Settings())
-    assert isinstance(tracer, NoOpTracer)
+    assert isinstance(tracer, FileTraceTracer)
+    assert isinstance(tracer._inner, NoOpTracer)
+    assert tracer._otel == "disabled"

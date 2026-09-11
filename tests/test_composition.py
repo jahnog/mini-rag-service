@@ -90,6 +90,7 @@ def test_build_evals_forwards_phoenix_api_key(
     monkeypatch.setattr("bcra_rag.evals.composition.build_tracer", _tracer)
     monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    monkeypatch.delenv("PHOENIX_PROJECT_NAME", raising=False)
     app = build_evals(
         Settings(data_dir=tmp_path),
         EvalSettings(

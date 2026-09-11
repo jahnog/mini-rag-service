@@ -26,6 +26,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="run live acceptance against an already-running local process",
     )
+    parser.addoption(
+        "--run-prod-smoke",
+        action="store_true",
+        default=False,
+        help="run production HTTP smoke against an already-running public origin",
+    )
 
 
 def live_base_url() -> str:
@@ -33,25 +39,42 @@ def live_base_url() -> str:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    if not session.config.getoption("--run-live-server"):
-        return
-    from tests.features.live.http_client import live_base_url as resolved_base
-    from tests.features.live.http_client import require_imap_env
-    from tests.features.live.mailbox import MailboxError
+    if session.config.getoption("--run-live-server"):
+        from tests.features.live.http_client import live_base_url as resolved_base
+        from tests.features.live.http_client import require_imap_env
+        from tests.features.live.mailbox import MailboxError
 
-    base = resolved_base()
-    url = f"{base}/health"
-    try:
-        response = httpx.get(url, timeout=2.0)
-        response.raise_for_status()
-    except Exception as exc:
-        raise pytest.UsageError(
-            f"LIVE_BASE_URL unreachable: {base} (did not spawn uvicorn): {exc}"
-        ) from exc
-    try:
-        require_imap_env()
-    except MailboxError as exc:
-        raise pytest.UsageError(str(exc)) from exc
+        base = resolved_base()
+        url = f"{base}/health"
+        try:
+            response = httpx.get(url, timeout=2.0)
+            response.raise_for_status()
+        except Exception as exc:
+            raise pytest.UsageError(
+                f"LIVE_BASE_URL unreachable: {base} (did not spawn uvicorn): {exc}"
+            ) from exc
+        try:
+            require_imap_env()
+        except MailboxError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+    if session.config.getoption("--run-prod-smoke"):
+        from tests.features.live.http_client import require_imap_env
+        from tests.features.live.mailbox import MailboxError
+        from tests.prod.http_client import ProdHttpError, require_prod_ready
+        from tests.prod.phoenix import PhoenixError, require_phoenix_env
+
+        try:
+            require_prod_ready()
+        except ProdHttpError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        try:
+            require_imap_env()
+        except MailboxError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        try:
+            require_phoenix_env()
+        except PhoenixError as exc:
+            raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_collection_modifyitems(
@@ -67,3 +90,8 @@ def pytest_collection_modifyitems(
         for item in items:
             if "live_server" in item.keywords:
                 item.add_marker(skip_live)
+    if not config.getoption("--run-prod-smoke"):
+        skip_prod = pytest.mark.skip(reason="production smoke; pass --run-prod-smoke")
+        for item in items:
+            if "prod_smoke" in item.keywords:
+                item.add_marker(skip_prod)

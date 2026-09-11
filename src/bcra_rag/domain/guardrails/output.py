@@ -24,6 +24,7 @@ MD_IMAGE = re.compile(r"!\[[^\]]*]\([^)]+\)")
 MD_LINK = re.compile(r"\[([^\]]+)]\(([^)]+)\)")
 BCRA_HTTPS = re.compile(r"^https://(www\.)?bcra\.gob\.ar/", re.IGNORECASE)
 WS = re.compile(r"\s+")
+PUNCT_GLUE = re.compile(r"([.,:;!?])(\S)")
 
 
 class CiteOrAbstainRail:
@@ -230,4 +231,6 @@ def _quote_ok(citation: Citation, hits: list[Chunk]) -> bool:
 
 
 def _norm_span(text: str) -> str:
-    return WS.sub(" ", text).strip().strip(".;:,").lower()
+    collapsed = WS.sub(" ", text)
+    spaced = PUNCT_GLUE.sub(r"\1 \2", collapsed)
+    return WS.sub(" ", spaced).strip().strip(".;:,").lower()

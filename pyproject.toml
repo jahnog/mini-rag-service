@@ -1,6 +1,6 @@
 [project]
 name = "bcra-rag"
-version = "0.7.6"
+version = "0.7.7"
 description = "BCRA CAMEX mini-RAG"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -93,6 +93,7 @@ markers = [
   "live_server: live acceptance against a running local process; requires --run-live-server",
   "live_http: live HTTP scenarios",
   "live_ui: live Playwright observatory scenarios",
+  "prod_smoke: production HTTP smoke against a public origin; requires --run-prod-smoke",
 ]
 
 [tool.coverage.report]

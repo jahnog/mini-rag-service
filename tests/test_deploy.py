@@ -214,6 +214,7 @@ def test_remote_env_seed_uses_loopback_embeddings_and_grok() -> None:
     assert "LLM_BASE_URL=https://api.x.ai/v1" in text
     assert "LLM_MODEL=grok-4-1-fast" in text
     assert "DATA_DIR=data" in text
+    assert "PHOENIX_PROJECT_NAME=bcra-rag-prod" in text
     assert "export" not in text
     lines = {
         line.split("=", 1)[0]: line.split("=", 1)[1]

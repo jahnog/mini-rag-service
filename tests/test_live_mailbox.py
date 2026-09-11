@@ -18,7 +18,9 @@ from tests.features.live.mailbox import (
     find_leftover_otp,
     find_new_otp,
     parse_imap_internaldate,
+    parse_login_url,
     parse_otp_code,
+    snapshot_otp_uids,
     wait_for_new_otp,
 )
 
@@ -57,6 +59,9 @@ def test_internaldate_keeps_zone_instead_of_local_tuple() -> None:
     assert parse_imap_internaldate("no stamp") is None
 
 
+LOGIN_URL = "https://rag.example/auth/link/AbC_d1-e2"
+
+
 def test_parse_otp_from_body_not_subject() -> None:
     body = otp_body(CODE, ttl_s=300)
     assert parse_otp_code(subject=OTP_SUBJECT, body=body) == CODE
@@ -65,6 +70,30 @@ def test_parse_otp_from_body_not_subject() -> None:
         parse_otp_code(subject=OTP_SUBJECT, body="sin codigo")
     with pytest.raises(MailboxError, match="subject"):
         parse_otp_code(subject=f"{OTP_SUBJECT} {CODE}", body=body)
+
+
+def test_parse_login_url_from_body_not_subject() -> None:
+    body = otp_body(CODE, ttl_s=300, login_url=LOGIN_URL)
+    assert parse_login_url(subject=OTP_SUBJECT, body=body) == LOGIN_URL
+    assert LOGIN_URL not in OTP_SUBJECT
+    with pytest.raises(MailboxError, match="login URL"):
+        parse_login_url(subject=OTP_SUBJECT, body=otp_body(CODE, ttl_s=300))
+    token = "AbC_d1-e2"
+    with pytest.raises(MailboxError, match="subject"):
+        parse_login_url(subject=f"{OTP_SUBJECT} {token}", body=body)
+    mail = _mail(body=body)
+    assert mail.login_url == LOGIN_URL
+    assert mail.code == CODE
+
+
+def test_wait_for_new_otp_ignores_leftover_unseen() -> None:
+    leftover = _mail(uid="left", date=NOW - timedelta(seconds=30), unseen=True)
+    box = FakeMailbox([leftover])
+    with pytest.raises(MailboxTimeout):
+        wait_for_new_otp(
+            box, since=NOW, timeout_s=0, poll_s=0, sleep=lambda _: None
+        )
+    assert find_leftover_otp(box, now=NOW) is not None
 
 
 def test_leftover_unseen_reuse_within_ttl() -> None:
@@ -262,3 +291,62 @@ def test_new_mail_ignores_older_than_since() -> None:
     found = find_new_otp(box, since=NOW)
     assert found is not None
     assert found.uid == "new"
+
+
+def test_seen_uids_counts_clock_skewed_new_uid() -> None:
+    leftover = _mail(uid="left", date=NOW)
+    skewed = _mail(uid="skew", date=NOW - timedelta(seconds=2))
+    box = FakeMailbox([leftover, skewed])
+    seen = snapshot_otp_uids(FakeMailbox([leftover]))
+    assert "left" in seen
+    found = find_new_otp(box, since=NOW, seen_uids=seen)
+    assert found is not None
+    assert found.uid == "skew"
+    date_based = find_new_otp(box, since=NOW)
+    assert date_based is not None
+    assert date_based.uid == "left"
+
+
+def test_imap_refresh_reconnects_after_noop_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.features.live import mailbox as mailbox_mod
+
+    created: list[object] = []
+
+    class FakeIMAP:
+        def __init__(self) -> None:
+            created.append(self)
+            self.generation = len(created)
+
+        def noop(self) -> tuple[str, list[bytes]]:
+            if self.generation == 1:
+                raise OSError("broken pipe")
+            return "OK", [b""]
+
+        def uid(self, cmd: str, *args: object) -> tuple[str, list[object]]:
+            if cmd == "SEARCH":
+                return "OK", [b""]
+            return "OK", []
+
+        def close(self) -> None:
+            return None
+
+        def logout(self) -> None:
+            return None
+
+    monkeypatch.setattr(mailbox_mod, "connect_imap", lambda settings: FakeIMAP())
+    box = ImapMailbox(
+        ImapSettings(
+            host="imap.example",
+            port=993,
+            user="u",
+            password="p",
+            mailbox="INBOX",
+            ssl=True,
+        )
+    )
+    assert len(created) == 1
+    box.refresh()
+    assert len(created) == 2
+    assert box.messages() == []
