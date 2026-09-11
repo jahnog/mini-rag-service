@@ -28,6 +28,14 @@ class PhoenixTimeout(PhoenixError):
     """No matching chat.turn span within the poll bound."""
 
 
+def _status_hint(status: int | str | None) -> str:
+    if status == 401 or status == "401":
+        return "http_status=401 collector requires PHOENIX_API_KEY"
+    if status is None:
+        return "http_status=unknown"
+    return f"http_status={status}"
+
+
 def resolve_api_key(raw: str = "") -> str:
     text = (raw or "").strip()
     if len(text) >= 3 and text.startswith("${") and text.endswith("}"):
@@ -98,7 +106,14 @@ def list_spans(
             page = list(params)
             if cursor:
                 page.append(("cursor", cursor))
-            response = http.get(url, params=page, headers=_headers(api_key))
+            try:
+                response = http.get(url, params=page, headers=_headers(api_key))
+            except httpx.HTTPError as exc:
+                raise PhoenixError(f"GET {url} connect error: {exc}") from exc
+            if response.status_code == 401:
+                raise PhoenixTimeout(
+                    f"GET {url} returned 401: {_status_hint(401)}"
+                )
             if response.status_code != 200:
                 raise PhoenixError(
                     f"GET {url} returned {response.status_code}"
@@ -217,12 +232,13 @@ def wait_for_turn_with_child(
             )
             if not turns:
                 hint = (
-                    "dump host is not exporting to this collector/project"
+                    "dump host is not exporting to this collector/project "
+                    f"{_status_hint(200)}"
                 )
             else:
                 hint = (
                     f"saw {len(turns)} {CHAT_TURN} span(s) but none with "
-                    f"{child_name!r} child"
+                    f"{child_name!r} child {_status_hint(200)}"
                 )
             raise PhoenixTimeout(
                 f"no {CHAT_TURN} span with {child_name!r} child for {question!r} "

@@ -152,7 +152,7 @@ async def test_named_a3500_pdf_spacing_snippet_cites(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_named_a3500_paraphrased_snippet_is_silencio(tmp_path: Path) -> None:
+async def test_named_a3500_paraphrased_snippet_is_salvaged(tmp_path: Path) -> None:
     draft = LlmDraft(
         answer=(
             "The Central Bank will obtain daily dollar quotes. Fuente: A3500. "
@@ -171,6 +171,72 @@ async def test_named_a3500_paraphrased_snippet_is_silencio(tmp_path: Path) -> No
     response = await use_case.run(
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-para-cite",
+    )
+    assert response.finding is not Finding.SILENCIO
+    assert any(item.id == "A3500" for item in response.citations)
+    assert "Tipo de cambio de referencia" in response.citations[0].snippet
+
+
+@pytest.mark.asyncio
+async def test_named_a3500_answer_names_id_without_citations(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer=(
+            "La Comunicación A 3500 define el tipo de cambio de referencia. "
+            f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        ),
+        finding=Finding.DEFINICION,
+        citations=[],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-named-attach",
+    )
+    assert response.finding is not Finding.SILENCIO
+    assert any(item.id == "A3500" for item in response.citations)
+    assert "Tipo de cambio de referencia" in response.citations[0].snippet
+
+
+@pytest.mark.asyncio
+async def test_named_a3500_uncited_draft_stays_silencio(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer=(
+            "El tipo de cambio se determina por rondas de cotización. "
+            f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        ),
+        finding=Finding.DEFINICION,
+        citations=[],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-named-uncited",
+    )
+    assert response.finding is Finding.SILENCIO
+    assert response.citations == []
+    assert response.abstain_reason == "cite-or-abstain"
+
+
+@pytest.mark.asyncio
+async def test_similar_paraphrased_snippet_is_silencio(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer=(
+            "Residents must settle export proceeds. Fuente: texto_ordenado. "
+            f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        ),
+        finding=Finding.OBLIGACION,
+        citations=[
+            Citation(
+                id="texto_ordenado",
+                tipo="TO",
+                snippet="Residents must settle export proceeds",
+            )
+        ],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="req-similar-para",
     )
     assert response.finding is Finding.SILENCIO
     assert response.citations == []
@@ -647,6 +713,55 @@ async def test_named_a3500_turn_is_logged(
     assert isinstance(citations, list)
     assert any(item["id"] == "A3500" for item in citations)
     assert "thinking" not in event
+    assert event.get("retrieval_route") == "named"
+    assert event.get("named_id") == "A3500"
+
+
+@pytest.mark.asyncio
+async def test_named_paraphrase_logs_cite_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    draft = LlmDraft(
+        answer="Tipo de cambio de referencia. Fuente: A3500.",
+        finding=Finding.DEFINICION,
+        citations=[
+            Citation(
+                id="A3500",
+                tipo="A",
+                snippet="The Central Bank will obtain daily dollar quotes",
+            )
+        ],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-cite-log",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["named_id"] == "A3500"
+    assert event["retrieval_route"] == "named"
+    failures = event["cite_failures"]
+    assert isinstance(failures, list)
+    assert any(item.get("reason") == "quote_not_in_hit" for item in failures)
+    assert event["salvage"] == "replaced_snippet"
+    assert "thinking" not in event
+
+
+@pytest.mark.asyncio
+async def test_weather_log_omits_cite_failures(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = _configure_chat_log(tmp_path)
+    use_case, llm = _uc(tmp_path)
+    await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"),
+        request_id="req-weather-log",
+    )
+    event = _assert_stdout_matches_file(capsys, log_file)
+    assert event["finding"] == Finding.SILENCIO.value
+    assert "cite_failures" not in event
+    assert llm.calls == []
 
 
 @pytest.mark.asyncio
@@ -760,6 +875,58 @@ class _NullSpan:
 
     def __exit__(self, *args: object) -> None:
         return None
+
+
+@pytest.mark.asyncio
+async def test_named_and_weather_write_local_traces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.adapters.policy_yaml import default_policy_path, load_policy
+    from bcra_rag.domain.guardrails.registry import assemble_pipeline
+
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    settings, index, _ = seed_ready(tmp_path)
+    pipeline = assemble_pipeline(
+        load_policy(default_policy_path()), settings, build_tracer(settings)
+    )
+    draft = LlmDraft(
+        answer="Tipo de cambio. Fuente: A3500.",
+        finding=Finding.DEFINICION,
+        citations=[
+            Citation(
+                id="A3500",
+                tipo="A",
+                snippet="Tipo de cambio de referencia",
+            )
+        ],
+    )
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(draft),
+        InMemorySessionStore(),
+        pipeline,
+    )
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-tr-named",
+    )
+    await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"),
+        request_id="req-tr-weather",
+    )
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "logs" / "traces.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    names = [item["name"] for item in rows]
+    assert names.count("chat.turn") >= 2
+    assert "retrieve" in names
+    assert "scope" in names
 
 
 class _BoomTracer:

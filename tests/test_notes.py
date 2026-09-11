@@ -49,6 +49,8 @@ def test_readme_operator_bullets() -> None:
     assert "data/logs/ingest.log" in readme
     assert "DATA_DIR/logs/chat.log" in readme
     assert "data/logs/chat.log" in readme
+    assert "DATA_DIR/logs/traces.jsonl" in readme
+    assert "data/logs/traces.jsonl" in readme
     assert "DATA_DIR/logs/l1.log" in readme
     assert "data/logs/l1.log" in readme
     assert "evals/l1.json" in readme

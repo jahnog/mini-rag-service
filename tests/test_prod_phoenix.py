@@ -181,6 +181,24 @@ def test_wait_timeout_names_empty_project() -> None:
 
 
 @respx.mock
+def test_wait_timeout_names_401() -> None:
+    respx.get(f"{HOST}/v1/projects/{PROJECT}/spans").mock(
+        return_value=httpx.Response(401, text="Invalid token")
+    )
+    with pytest.raises(PhoenixTimeout, match="http_status=401"):
+        wait_for_turn_with_child(
+            HOST,
+            PROJECT,
+            question=QUESTION,
+            start_time=T0,
+            child_name="retrieve",
+            timeout_s=0,
+            poll_s=0,
+            sleep=lambda _: None,
+        )
+
+
+@respx.mock
 def test_wait_matches_nested_input_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -85,6 +85,12 @@ class RailContext:
     to_as_of: str | None = None
     delimiter: str = ""
     dropped_ids: list[str] = field(default_factory=list)
+    retrieval_route: str | None = None
+    named_id: str | None = None
+    section_chars: int | None = None
+    draft_citation_ids: list[str] = field(default_factory=list)
+    cite_failures: list[dict[str, str]] | None = None
+    salvage: str | None = None
 
 
 class Rail(Protocol):

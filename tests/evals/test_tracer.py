@@ -208,3 +208,69 @@ def test_traced_rail_sets_output_and_would_block() -> None:
     assert tracer.last.attrs["guardrail_would_block"] is True
     assert tracer.last.attrs["guardrail_detail"] == "weather"
     assert "input.value" not in tracer.last.attrs
+
+
+def test_build_tracer_writes_traces_jsonl_when_endpoint_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.settings import Settings
+
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    settings = Settings(data_dir=tmp_path)
+    tracer = build_tracer(settings)
+    with tracer.span("chat.turn", "chain") as span:
+        span.set_attribute("input.value", "Qué dice la Comunicación A 3500?")
+    with tracer.span("retrieve", "retriever") as span:
+        tracer.record_retriever("q", [], route="named", span=span)
+    path = tmp_path / "logs" / "traces.jsonl"
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    names = [item["name"] for item in rows]
+    assert "chat.turn" in names
+    assert "retrieve" in names
+    assert all(item["sink"] == "local" for item in rows)
+    assert all(item["otel"] == "disabled" for item in rows)
+    assert all(item.get("reason") == "endpoint_unset" for item in rows)
+
+
+def test_build_tracer_unwritable_traces_file_does_not_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.settings import Settings
+
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    (tmp_path / "logs").write_text("not-a-directory", encoding="utf-8")
+    tracer = build_tracer(Settings(data_dir=tmp_path))
+    with tracer.span("chat.turn", "chain"):
+        pass
+
+
+def test_build_tracer_logs_disabled_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+
+    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.logconfig import configure_logging
+    from bcra_rag.settings import Settings
+
+    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
+    configure_logging(log_file=tmp_path / "chat.log")
+    build_tracer(Settings(data_dir=tmp_path))
+    lines = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip()
+    ]
+    events = [item for item in lines if item.get("event") == "tracer_disabled"]
+    assert events
+    assert events[-1]["reason"] == "endpoint_unset"

@@ -3,15 +3,21 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+import structlog
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.pipeline import NoOpTracer
 from bcra_rag.domain.guardrails.types import Tracer
 from bcra_rag.domain.models import Chunk
 from bcra_rag.settings import Settings
+
+log = structlog.get_logger(__name__)
 
 _QUERY_LIMIT = 500
 _CONTENT_LIMIT = 800
@@ -45,15 +51,38 @@ def build_tracer(
     api_key: str = "",
     project_name: str = "",
 ) -> Tracer:
+    sink = _TraceFileSink(settings.data_dir / "logs" / "traces.jsonl")
     resolved = resolve_collector_endpoint(explicit=endpoint)
     if not resolved:
-        return NoOpTracer()
+        log.info("tracer_disabled", reason="endpoint_unset")
+        return FileTraceTracer(
+            NoOpTracer(), sink, otel="disabled", reason="endpoint_unset"
+        )
     try:
-        return _phoenix_tracer(
+        inner = _phoenix_tracer(
             settings, resolved, api_key=api_key, project_name=project_name
         )
-    except Exception:
-        return NoOpTracer()
+    except ModuleNotFoundError:
+        log.info("tracer_disabled", reason="otel_extra_missing")
+        return FileTraceTracer(
+            NoOpTracer(), sink, otel="disabled", reason="otel_extra_missing"
+        )
+    except Exception as exc:
+        log.info(
+            "tracer_disabled",
+            reason="register_failed",
+            error=type(exc).__name__,
+        )
+        return FileTraceTracer(
+            NoOpTracer(), sink, otel="disabled", reason="register_failed"
+        )
+    host = urlparse(otlp_http_endpoint(resolved)).hostname or resolved
+    log.info(
+        "tracer_enabled",
+        project=resolve_project_name(explicit=project_name),
+        collector_host=host,
+    )
+    return FileTraceTracer(inner, sink, otel="enabled")
 
 
 def resolve_collector_endpoint(
@@ -242,6 +271,168 @@ class _OtelTracer:
             _write_span_attrs(span, attrs)
         except Exception:
             return
+
+
+class _TraceFileSink:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def write(self, record: dict[str, object]) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            line = json.dumps(record, ensure_ascii=False) + "\n"
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+        except Exception:
+            log.info("trace_file_failed", path=str(self._path))
+
+
+class _AttrSpan:
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.attrs: dict[str, object] = {}
+
+    def set_attribute(self, key: str, value: object) -> None:
+        self.attrs[key] = value
+        setter = getattr(self._inner, "set_attribute", None)
+        if callable(setter):
+            try:
+                setter(key, value)
+            except Exception:
+                return
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _FileSpanCM:
+    def __init__(
+        self,
+        inner_cm: Any,
+        sink: _TraceFileSink,
+        name: str,
+        layer: str,
+        *,
+        otel: str,
+        reason: str,
+    ) -> None:
+        self._inner_cm = inner_cm
+        self._sink = sink
+        self._name = name
+        self._layer = layer
+        self._otel = otel
+        self._reason = reason
+        self._span: _AttrSpan | None = None
+
+    def __enter__(self) -> Any:
+        inner = None
+        try:
+            inner = self._inner_cm.__enter__()
+        except Exception:
+            inner = None
+        self._span = _AttrSpan(inner)
+        return self._span
+
+    def __exit__(self, *args: object) -> None:
+        attrs = dict(self._span.attrs) if self._span is not None else {}
+        self._sink.write(
+            _compact_trace_record(
+                self._name,
+                self._layer,
+                attrs,
+                otel=self._otel,
+                reason=self._reason,
+            )
+        )
+        try:
+            self._inner_cm.__exit__(*args)
+        except Exception:
+            return None
+
+
+class FileTraceTracer:
+    def __init__(
+        self,
+        inner: Tracer,
+        sink: _TraceFileSink,
+        *,
+        otel: str,
+        reason: str = "",
+    ) -> None:
+        self._inner = inner
+        self._sink = sink
+        self._otel = otel
+        self._reason = reason
+
+    def span(self, name: str, layer: str) -> Any:
+        return _FileSpanCM(
+            self._inner.span(name, layer),
+            self._sink,
+            name,
+            layer,
+            otel=self._otel,
+            reason=self._reason,
+        )
+
+    def record_retriever(
+        self,
+        query: str,
+        hits: Sequence[Chunk],
+        *,
+        route: str = "",
+        silencio_reason: str | None = None,
+        span: Any = None,
+    ) -> None:
+        self._inner.record_retriever(
+            query,
+            hits,
+            route=route,
+            silencio_reason=silencio_reason,
+            span=span,
+        )
+
+    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self._inner.record_tokens(prompt_tokens, completion_tokens)
+
+    def record_scores(self, span: Any, scores: Mapping[str, float]) -> None:
+        self._inner.record_scores(span, scores)
+
+    def flush(self) -> None:
+        flusher = getattr(self._inner, "flush", None)
+        if callable(flusher):
+            flusher()
+
+
+def _compact_trace_record(
+    name: str,
+    layer: str,
+    attrs: Mapping[str, object],
+    *,
+    otel: str,
+    reason: str,
+) -> dict[str, object]:
+    kept: dict[str, object] = {}
+    for key, value in attrs.items():
+        if "document.content" in key or "embedding" in key.lower():
+            continue
+        if key == "input.value":
+            kept[key] = redact_secrets(str(value))[:_QUERY_LIMIT]
+            continue
+        if key in {"retrieval.route", "output.value", "session.id"} or key.startswith(
+            "guardrail_"
+        ):
+            kept[key] = value
+    record: dict[str, object] = {
+        "name": name,
+        "layer": layer,
+        "t": datetime.now(UTC).isoformat(),
+        "sink": "local",
+        "otel": otel,
+        "attrs": kept,
+    }
+    if reason:
+        record["reason"] = reason
+    return record
 
 
 def retriever_attributes(

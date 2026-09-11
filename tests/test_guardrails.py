@@ -1080,9 +1080,11 @@ def test_default_pipeline_loads_packaged_policy() -> None:
 
 
 def test_tracer_is_noop_without_collector(monkeypatch: pytest.MonkeyPatch) -> None:
-    from bcra_rag.adapters.otel import build_tracer
+    from bcra_rag.adapters.otel import FileTraceTracer, build_tracer
     from bcra_rag.domain.guardrails.pipeline import NoOpTracer
 
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     tracer = build_tracer(Settings())
-    assert isinstance(tracer, NoOpTracer)
+    assert isinstance(tracer, FileTraceTracer)
+    assert isinstance(tracer._inner, NoOpTracer)
+    assert tracer._otel == "disabled"
