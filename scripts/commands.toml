@@ -156,6 +156,15 @@ argv = ["uv", "run", "pytest", "--run-live-server", "-m", "live_server", "-q"]
 confirm = true
 
 [[command]]
+id = "prod-smoke"
+group = "Test"
+block = "test-prod-smoke"
+title = "Production smoke tests"
+summary = "HTTP against public origin; needs IMAP + collector."
+argv = ["./scripts/run-prod-smoke.sh"]
+confirm = true
+
+[[command]]
 id = "ingest-pdf"
 group = "Test"
 block = "test-integration"

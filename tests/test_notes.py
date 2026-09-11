@@ -35,6 +35,12 @@ def test_readme_operator_bullets() -> None:
     assert "-m integration" in readme
     assert "--run-live-server" in readme
     assert "-m live_server" in readme
+    assert "--run-prod-smoke" in readme
+    assert "-m prod_smoke" in readme
+    assert "./scripts/run-prod-smoke.sh" in readme
+    assert "PROD_BASE_URL" in readme
+    assert "PROD_PHOENIX_PROJECT_NAME" in readme
+    assert "PROD_PHOENIX_COLLECTOR_ENDPOINT" in readme
     assert "playwright install chromium" in readme
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme
@@ -101,6 +107,21 @@ def test_readme_operator_bullets() -> None:
     assert "chita" + "-ts" not in readme
 
 
+def test_run_prod_smoke_script_sets_origin_and_runs_pytest() -> None:
+    text = (
+        Path(__file__).resolve().parents[1] / "scripts" / "run-prod-smoke.sh"
+    ).read_text(encoding="utf-8")
+    assert "PROD_BASE_URL is required" in text
+    assert "AUTH_PUBLIC_ORIGIN" in text
+    assert "--run-prod-smoke" in text
+    assert "-m prod_smoke" in text
+    assert '"$@"' in text
+    assert "shell=True" not in text
+    assert "uvicorn" not in text
+    assert "content" + "labstudy" not in text
+    assert "chita" + "-ts" not in text
+
+
 def test_agents_commands_list() -> None:
     agents = Path(__file__).resolve().parents[1].joinpath("AGENTS.md").read_text(
         encoding="utf-8"
@@ -125,6 +146,9 @@ def test_agents_commands_list() -> None:
         "-m integration",
         "--run-live-server",
         "-m live_server",
+        "--run-prod-smoke",
+        "-m prod_smoke",
+        "./scripts/run-prod-smoke.sh",
         "--pdb",
         "python -m bcra_rag.jobs.ingest",
         "python -m bcra_rag.jobs.refresh",

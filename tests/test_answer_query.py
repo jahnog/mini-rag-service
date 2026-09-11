@@ -111,6 +111,92 @@ async def test_empty_model_citations_become_silencio(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_named_a3500_pdf_spacing_snippet_cites(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    index.upsert(
+        "A3500",
+        [
+            Chunk(
+                "A3500:pdf",
+                "1.El Banco   Central obtendrá cotizaciones del dólar",
+                {
+                    "doc_kind": "comunicacion",
+                    "fecha": "2002-03-08",
+                    "numero": "A3500",
+                    "chunker": "A",
+                },
+            )
+        ],
+    )
+    draft = LlmDraft(
+        answer=(
+            "El Banco Central obtendrá cotizaciones. Fuente: A3500. "
+            f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        ),
+        finding=Finding.DEFINICION,
+        citations=[
+            Citation(
+                id="A3500",
+                tipo="A",
+                snippet="1. El Banco Central obtendrá cotizaciones del dólar",
+            )
+        ],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft), index=index, settings=settings)
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-pdf-space",
+    )
+    assert response.finding is not Finding.SILENCIO
+    assert any(item.id == "A3500" for item in response.citations)
+
+
+@pytest.mark.asyncio
+async def test_named_a3500_paraphrased_snippet_is_silencio(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer=(
+            "The Central Bank will obtain daily dollar quotes. Fuente: A3500. "
+            f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        ),
+        finding=Finding.DEFINICION,
+        citations=[
+            Citation(
+                id="A3500",
+                tipo="A",
+                snippet="The Central Bank will obtain daily dollar quotes",
+            )
+        ],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-para-cite",
+    )
+    assert response.finding is Finding.SILENCIO
+    assert response.citations == []
+    assert response.abstain_reason == "cite-or-abstain"
+
+
+@pytest.mark.asyncio
+async def test_model_native_silencio_is_not_labeled_cite_or_abstain(
+    tmp_path: Path,
+) -> None:
+    draft = LlmDraft(
+        answer="No hay evidencia suficiente.",
+        finding=Finding.SILENCIO,
+        citations=[],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="req-model-silencio",
+    )
+    assert response.finding is Finding.SILENCIO
+    assert response.citations == []
+    assert response.abstain_reason != "cite-or-abstain"
+
+
+@pytest.mark.asyncio
 async def test_planted_retrieve_poison_skips_llm(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     from bcra_rag.domain.models import Chunk

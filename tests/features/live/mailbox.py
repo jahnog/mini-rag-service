@@ -76,6 +76,10 @@ def parse_imap_internaldate(raw: bytes | str) -> datetime | None:
     )
 
 
+LOGIN_URL_RE = re.compile(r"(https?://[^\s]+/auth/link/[A-Za-z0-9_-]+)")
+LOGIN_TOKEN_RE = re.compile(r"/auth/link/([A-Za-z0-9_-]+)")
+
+
 def parse_otp_code(*, subject: str, body: str) -> str:
     match = OTP_CODE_RE.search(body or "")
     if match is None:
@@ -84,6 +88,18 @@ def parse_otp_code(*, subject: str, body: str) -> str:
     if re.search(r"\d{6}", subject or ""):
         raise MailboxError("subject must not contain the 6-digit secret")
     return code
+
+
+def parse_login_url(*, subject: str, body: str) -> str:
+    match = LOGIN_URL_RE.search(body or "")
+    if match is None:
+        raise MailboxError("no login URL in body")
+    url = match.group(1)
+    token_match = LOGIN_TOKEN_RE.search(url)
+    token = token_match.group(1) if token_match else ""
+    if token and token in (subject or ""):
+        raise MailboxError("subject must not contain the login token")
+    return url
 
 
 @dataclass(frozen=True)
@@ -98,6 +114,10 @@ class OtpMail:
     @property
     def code(self) -> str:
         return parse_otp_code(subject=self.subject, body=self.body)
+
+    @property
+    def login_url(self) -> str:
+        return parse_login_url(subject=self.subject, body=self.body)
 
 
 class Mailbox(Protocol):
@@ -120,16 +140,32 @@ def matching_otp(
     return [mail for mail in mails if not mail.deleted and mail.subject == subject]
 
 
+def snapshot_otp_uids(
+    mailbox: Mailbox, *, subject: str = OTP_SUBJECT
+) -> frozenset[str]:
+    mailbox.refresh()
+    return frozenset(
+        mail.uid for mail in matching_otp(mailbox.messages(), subject=subject)
+    )
+
+
 def find_new_otp(
-    mailbox: Mailbox, *, since: datetime, subject: str = OTP_SUBJECT
+    mailbox: Mailbox,
+    *,
+    since: datetime,
+    subject: str = OTP_SUBJECT,
+    seen_uids: frozenset[str] | None = None,
 ) -> OtpMail | None:
     mailbox.refresh()
     cutoff = _aware(since)
-    candidates = [
-        mail
-        for mail in matching_otp(mailbox.messages(), subject=subject)
-        if _aware(mail.date) >= cutoff
-    ]
+    candidates: list[OtpMail] = []
+    for mail in matching_otp(mailbox.messages(), subject=subject):
+        if seen_uids is not None:
+            if mail.uid in seen_uids:
+                continue
+        elif _aware(mail.date) < cutoff:
+            continue
+        candidates.append(mail)
     if not candidates:
         return None
     return max(candidates, key=lambda mail: _aware(mail.date))
@@ -161,11 +197,14 @@ def wait_for_new_otp(
     timeout_s: float = DEFAULT_POLL_TIMEOUT_S,
     poll_s: float = DEFAULT_POLL_S,
     subject: str = OTP_SUBJECT,
+    seen_uids: frozenset[str] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> OtpMail:
     deadline = time.monotonic() + timeout_s
     while True:
-        found = find_new_otp(mailbox, since=since, subject=subject)
+        found = find_new_otp(
+            mailbox, since=since, subject=subject, seen_uids=seen_uids
+        )
         if found is not None:
             return found
         if time.monotonic() >= deadline:
@@ -320,8 +359,26 @@ class ImapMailbox:
         except Exception:
             pass
 
+    def _reconnect(self) -> None:
+        self.close()
+        self._client = connect_imap(self.settings)
+        self._cache = []
+
+    def _ensure_connected(self) -> None:
+        try:
+            typ, _ = self._client.noop()
+            if typ != "OK":
+                raise MailboxError("IMAP NOOP failed")
+        except Exception:
+            self._reconnect()
+
     def refresh(self) -> None:
-        self._cache = self._fetch_all()
+        self._ensure_connected()
+        try:
+            self._cache = self._fetch_all()
+        except Exception:
+            self._reconnect()
+            self._cache = self._fetch_all()
 
     def messages(self) -> list[OtpMail]:
         if not self._cache:
@@ -343,7 +400,9 @@ class ImapMailbox:
 
     def _fetch_all(self) -> list[OtpMail]:
         typ, data = self._client.uid("SEARCH", None, "ALL")
-        if typ != "OK" or not data or not data[0]:
+        if typ != "OK":
+            raise MailboxError(f"IMAP SEARCH failed: {typ}")
+        if not data or not data[0]:
             return []
         uids = data[0].split()
         out: list[OtpMail] = []
