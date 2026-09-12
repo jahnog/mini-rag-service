@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html as html_lib
+import re
 from pathlib import Path
 
 import gradio as gr
@@ -9,12 +11,31 @@ CSS_PATH = Path(__file__).with_name("observatory.css")
 FAVICON_PATH = Path(__file__).with_name("favicon.png")
 OG_IMAGE_PATH = Path(__file__).with_name("og.png")
 PAGE_TITLE = "BCRA CAMEX"
+PAGE_DESCRIPTION = "Extracto no oficial CAMEX"
 THEME_COLOR = "#04111d"
 FAVICON_HREF = "/favicon.ico"
 OG_IMAGE_HREF = "/og.png"
 GRADIO_HEADER_IMAGE = (
     "https://raw.githubusercontent.com/gradio-app/gradio/main/"
     "js/_website/src/lib/assets/img/header-image.jpg"
+)
+_META_RE = re.compile(r"<meta\b([^>]*)/?>", re.IGNORECASE | re.DOTALL)
+_ATTR_RE = re.compile(r"""([^\s=]+)\s*=\s*(["'])(.*?)\2""", re.DOTALL)
+_GRADIO_HREF_RE = re.compile(
+    r"""href=(["'])https://gradio\.app/?\1""",
+    re.IGNORECASE,
+)
+_DROP_CARD_KEYS = frozenset({"twitter:creator"})
+_SET_CARD_KEYS = frozenset(
+    {
+        "og:title",
+        "twitter:title",
+        "og:description",
+        "twitter:description",
+        "og:image",
+        "twitter:image",
+        "og:url",
+    }
 )
 TEXT = "#f4fbff"
 TEXT_SUBDUED = "rgba(210, 228, 237, 0.8)"
@@ -43,8 +64,49 @@ def observatory_og_image_path() -> Path:
     return OG_IMAGE_PATH
 
 
-def rewrite_gradio_page_image(html: str) -> str:
-    return html.replace(GRADIO_HEADER_IMAGE, OG_IMAGE_HREF)
+def card_image_url(origin: str = "") -> str:
+    origin = origin.rstrip("/")
+    if origin.startswith(("http://", "https://")):
+        return f"{origin}{OG_IMAGE_HREF}"
+    return OG_IMAGE_HREF
+
+
+def card_page_url(origin: str = "") -> str:
+    origin = origin.rstrip("/")
+    if origin.startswith(("http://", "https://")):
+        return f"{origin}/"
+    return "/"
+
+
+def rewrite_gradio_html(html: str, *, origin: str = "") -> str:
+    image = card_image_url(origin)
+    page = card_page_url(origin)
+    values = {
+        "og:title": PAGE_TITLE,
+        "twitter:title": PAGE_TITLE,
+        "og:description": PAGE_DESCRIPTION,
+        "twitter:description": PAGE_DESCRIPTION,
+        "og:image": image,
+        "twitter:image": image,
+        "og:url": page,
+    }
+
+    def replace_meta(match: re.Match[str]) -> str:
+        attrs = {
+            name.lower(): value for name, _, value in _ATTR_RE.findall(match.group(1))
+        }
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key in _DROP_CARD_KEYS:
+            return ""
+        if key not in _SET_CARD_KEYS:
+            return match.group(0)
+        kind = "property" if "property" in attrs else "name"
+        content = html_lib.escape(values[key], quote=True)
+        return f'<meta {kind}="{key}" content="{content}" />'
+
+    rewritten = _META_RE.sub(replace_meta, html)
+    rewritten = rewritten.replace(GRADIO_HEADER_IMAGE, image)
+    return _GRADIO_HREF_RE.sub('href="/"', rewritten)
 
 
 def observatory_head() -> str:
@@ -54,8 +116,11 @@ def observatory_head() -> str:
         f'<link rel="icon" href="{FAVICON_HREF}">'
         f'<link rel="apple-touch-icon" href="{FAVICON_HREF}">'
         f'<meta property="og:title" content="{PAGE_TITLE}">'
+        f'<meta property="og:description" content="{PAGE_DESCRIPTION}">'
         f'<meta property="og:image" content="{OG_IMAGE_HREF}">'
+        f'<meta property="og:url" content="/">'
         f'<meta name="twitter:title" content="{PAGE_TITLE}">'
+        f'<meta name="twitter:description" content="{PAGE_DESCRIPTION}">'
         f'<meta name="twitter:image" content="{OG_IMAGE_HREF}">'
         '<script>document.documentElement.lang="es";</script>'
     )

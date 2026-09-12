@@ -66,7 +66,7 @@ from bcra_rag.ui.theme import (
     observatory_js,
     observatory_og_image_path,
     observatory_theme,
-    rewrite_gradio_page_image,
+    rewrite_gradio_html,
 )
 from bcra_rag.use_cases.answer_query import new_request_id
 
@@ -598,7 +598,7 @@ def build_blocks(
     return queued  # type: ignore[no-any-return]
 
 
-class _RewriteGradioPageImage(BaseHTTPMiddleware):
+class _RewriteGradioHtml(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         response = await call_next(request)
         content_type = response.headers.get("content-type", "")
@@ -607,7 +607,10 @@ class _RewriteGradioPageImage(BaseHTTPMiddleware):
         body = bytearray()
         async for chunk in response.body_iterator:
             body.extend(chunk)
-        html = rewrite_gradio_page_image(body.decode("utf-8", errors="replace"))
+        html = rewrite_gradio_html(
+            body.decode("utf-8", errors="replace"),
+            origin=str(request.base_url).rstrip("/"),
+        )
         headers = dict(response.headers)
         headers.pop("content-length", None)
         return Response(
@@ -623,7 +626,7 @@ def mount_ui(api: Any, blocks: gr.Blocks) -> Any:
         return FileResponse(observatory_og_image_path(), media_type="image/png")
 
     api.add_api_route("/og.png", og_image, methods=["GET"], include_in_schema=False)
-    api.add_middleware(_RewriteGradioPageImage)
+    api.add_middleware(_RewriteGradioHtml)
     mounted: Any = gr.mount_gradio_app(
         api,
         blocks,

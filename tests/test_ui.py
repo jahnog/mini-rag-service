@@ -51,7 +51,7 @@ from bcra_rag.ui.config import (
 from bcra_rag.ui.gradio_app import (
     _AUTH_REQUEST_JS,
     _AUTH_VERIFY_JS,
-    _RewriteGradioPageImage,
+    _RewriteGradioHtml,
     build_blocks,
     iter_observatory_turn,
     mount_ui,
@@ -59,6 +59,7 @@ from bcra_rag.ui.gradio_app import (
 from bcra_rag.ui.theme import (
     GRADIO_HEADER_IMAGE,
     OG_IMAGE_HREF,
+    PAGE_DESCRIPTION,
     PAGE_TITLE,
     observatory_css_path,
     observatory_favicon_path,
@@ -66,9 +67,63 @@ from bcra_rag.ui.theme import (
     observatory_js,
     observatory_og_image_path,
     observatory_theme,
-    rewrite_gradio_page_image,
+    rewrite_gradio_html,
 )
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
+
+_CARD_ORIGIN = "https://bcra.contentlabstudy.com"
+_GRADIO_CARD_HTML = f"""
+<meta property="og:title" content="Gradio" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="{{url}}" />
+<meta property="og:description" content="Click to try out the app!" />
+<meta
+	property="og:image"
+	content="{GRADIO_HEADER_IMAGE}"
+/>
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:creator" content="@Gradio" />
+<meta name="twitter:title" content="Gradio" />
+<meta name="twitter:description" content="Click to try out the app!" />
+<meta
+	name="twitter:image"
+	content="{GRADIO_HEADER_IMAGE}"
+/>
+<meta property="og:url" content="https://gradio.app/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="" />
+<meta property="og:title" content="BCRA CAMEX" />
+<meta property="og:description" content="" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:creator" content="@teamGradio" />
+<meta name="twitter:title" content="BCRA CAMEX" />
+<meta name="twitter:description" content="" />
+<meta name="twitter:image" content="" />
+<a href="https://gradio.app">Built with Gradio</a>
+"""
+_GRADIO_INTERNALS = """
+{"FileData":{"description":"The FileData class is a subclass of the GradioModel class"}}
+from gradio_client import Client
+https://bcra.contentlabstudy.com/gradio_api/call/v2/_turn
+"""
+
+
+def _assert_bcra_cards(html: str, *, image: str, page: str) -> None:
+    assert 'content="Gradio"' not in html
+    assert "@Gradio" not in html
+    assert "@teamGradio" not in html
+    assert "twitter:creator" not in html
+    assert "Click to try out the app!" not in html
+    assert "https://gradio.app" not in html
+    assert 'content="{url}"' not in html
+    assert GRADIO_HEADER_IMAGE not in html
+    assert html.count(f'property="og:title" content="{PAGE_TITLE}"') == 2
+    assert html.count(f'name="twitter:title" content="{PAGE_TITLE}"') == 2
+    assert html.count(f'content="{PAGE_DESCRIPTION}"') == 4
+    assert html.count(f'content="{image}"') == 4
+    assert html.count(f'property="og:url" content="{page}"') == 2
+    assert 'property="og:type" content="website"' in html
+    assert 'name="twitter:card" content="summary_large_image"' in html
 
 
 def test_observatory_css_tokens() -> None:
@@ -112,6 +167,8 @@ def test_observatory_theme_helpers() -> None:
     assert 'rel="icon"' in head
     assert 'href="/favicon.ico"' in head
     assert f'property="og:image" content="{OG_IMAGE_HREF}"' in head
+    assert f'property="og:description" content="{PAGE_DESCRIPTION}"' in head
+    assert f'name="twitter:description" content="{PAGE_DESCRIPTION}"' in head
     favicon = observatory_favicon_path()
     assert favicon.is_file()
     assert favicon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
@@ -151,14 +208,23 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     api.add_middleware.assert_called()
 
 
-def test_rewrite_gradio_page_image_swaps_header_photo() -> None:
-    html = f'<meta property="og:image" content="{GRADIO_HEADER_IMAGE}" />'
-    rewritten = rewrite_gradio_page_image(html)
-    assert OG_IMAGE_HREF in rewritten
-    assert GRADIO_HEADER_IMAGE not in rewritten
+def test_rewrite_gradio_html_rewrites_cards_and_spares_internals() -> None:
+    blob = _GRADIO_CARD_HTML + _GRADIO_INTERNALS
+    rewritten = rewrite_gradio_html(blob, origin=_CARD_ORIGIN)
+    _assert_bcra_cards(
+        rewritten,
+        image=f"{_CARD_ORIGIN}{OG_IMAGE_HREF}",
+        page=f"{_CARD_ORIGIN}/",
+    )
+    assert _GRADIO_INTERNALS in rewritten
+    assert "GradioModel" in rewritten
+    assert "gradio_client" in rewritten
+    assert "/gradio_api/call/v2/_turn" in rewritten
+    relative = rewrite_gradio_html(_GRADIO_CARD_HTML)
+    _assert_bcra_cards(relative, image=OG_IMAGE_HREF, page="/")
 
 
-def test_rewrite_middleware_swaps_html_image() -> None:
+def test_rewrite_middleware_rewrites_card_html() -> None:
     from starlette.applications import Starlette
     from starlette.responses import HTMLResponse, PlainTextResponse
     from starlette.routing import Route
@@ -166,7 +232,7 @@ def test_rewrite_middleware_swaps_html_image() -> None:
 
     async def homepage(request: object) -> HTMLResponse:
         del request
-        return HTMLResponse(f'<img src="{GRADIO_HEADER_IMAGE}">')
+        return HTMLResponse(_GRADIO_CARD_HTML + _GRADIO_INTERNALS)
 
     async def ping(request: object) -> PlainTextResponse:
         del request
@@ -175,11 +241,16 @@ def test_rewrite_middleware_swaps_html_image() -> None:
     inner = Starlette(
         routes=[Route("/", homepage), Route("/ping", ping)],
     )
-    inner.add_middleware(_RewriteGradioPageImage)
+    inner.add_middleware(_RewriteGradioHtml)
     client = TestClient(inner)
     page = client.get("/")
-    assert OG_IMAGE_HREF in page.text
-    assert GRADIO_HEADER_IMAGE not in page.text
+    origin = "http://testserver"
+    _assert_bcra_cards(
+        page.text,
+        image=f"{origin}{OG_IMAGE_HREF}",
+        page=f"{origin}/",
+    )
+    assert "GradioModel" in page.text
     pinged = client.get("/ping")
     assert pinged.text == "ok"
 
