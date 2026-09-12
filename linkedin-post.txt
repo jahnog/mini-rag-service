@@ -1,0 +1,28 @@
+Most RAG demos chat around the answer. This one is supposed to stop.
+
+I built **BCRA Mini-RAG**: a small RAG assistant over Argentine FX regulation (BCRA CAMEX). Ask what a circular says and you get a **cited clause** — Comunicación “A” number plus punto — or honest **silencio**.
+
+It is not a general BCRA chatbot and not legal advice.
+
+CAMEX is a living corpus: decades of Comunicaciones “A” plus a texto ordenado that is supposed to be the rule *hoy*. I wanted an assistant that would answer a clause question from that dump and then **stop**, instead of paraphrasing the regulation.
+
+What it does:
+
+- Ingests the official tipo-A catalog (Com. A 13 / 1981 → present) and the current *Exterior y Cambios* texto ordenado
+- Refreshes when new A’s appear or the TO checksum changes
+- Named Com. A NNNN routes to that document; “vigente / hoy” prefers the TO plus later A’s
+- Generation is structured: answer, deontic finding, citations
+- If the model cannot ground a clause, the finding is **silencio** and the UI abstains
+- Guardrails log every turn; L1 evals use citation-id exact as the headline metric
+
+I built the whole thing **spec-first** with OpenSpec — proposal, requirements, design, and tasks before the code. Ingest, retrieval, query answering, guardrails, the observatory UI, and L1 evals each started as a change on paper. The silencio rule and the structured generation contract were cheap to change there; the code is downstream.
+
+Stack: Python 3.11+, FastAPI, Gradio, Chroma, pydantic v2, OpenSpec, `uv`
+
+Try it: https://bcra.contentlabstudy.com/
+Source: https://github.com/jahnog/mini-rag-service
+Write-up: https://jahnog.github.io/BCRA-Mini-RAG/
+
+Answers are an unofficial extract of public `bcra.gob.ar` documents, dated as of the last dump refresh.
+
+#RAG #LLM #OpenSpec #Python #FinReg #BCRA #CAMEX
