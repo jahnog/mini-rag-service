@@ -51,15 +51,22 @@ from bcra_rag.ui.config import (
 from bcra_rag.ui.gradio_app import (
     _AUTH_REQUEST_JS,
     _AUTH_VERIFY_JS,
+    _RewriteGradioPageImage,
     build_blocks,
     iter_observatory_turn,
     mount_ui,
 )
 from bcra_rag.ui.theme import (
+    GRADIO_HEADER_IMAGE,
+    OG_IMAGE_HREF,
+    PAGE_TITLE,
     observatory_css_path,
+    observatory_favicon_path,
     observatory_head,
     observatory_js,
+    observatory_og_image_path,
     observatory_theme,
+    rewrite_gradio_page_image,
 )
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
@@ -98,10 +105,19 @@ def test_observatory_theme_helpers() -> None:
     assert path.name == "observatory.css"
     assert path.is_file()
     head = observatory_head()
+    assert f"<title>{PAGE_TITLE}</title>" in head
+    assert PAGE_TITLE == "BCRA CAMEX"
     assert 'name="theme-color"' in head
     assert "#04111d" in head
     assert 'rel="icon"' in head
-    assert "data:image/svg+xml" in head
+    assert 'href="/favicon.ico"' in head
+    assert f'property="og:image" content="{OG_IMAGE_HREF}"' in head
+    favicon = observatory_favicon_path()
+    assert favicon.is_file()
+    assert favicon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    og = observatory_og_image_path()
+    assert og.is_file()
+    assert og.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     theme = observatory_theme()
     assert theme is not None
     assert theme.body_background_fill_dark == "#04111d"
@@ -109,6 +125,7 @@ def test_observatory_theme_helpers() -> None:
     assert str(theme.button_secondary_text_color).lower() != "black"
     assert "#04111d" in str(theme.body_background_fill)
     js = observatory_js()
+    assert f"document.title = {PAGE_TITLE!r}" in js
     assert "lang = \"es\"" in js or "lang='es'" in js
     assert "classList.add(\"dark\")" in js or "classList.add('dark')" in js
 
@@ -130,6 +147,52 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["run_history"] is False
     assert kwargs["theme"] is not None
     assert kwargs["js"] == observatory_js()
+    assert kwargs["favicon_path"] == str(observatory_favicon_path())
+    api.add_middleware.assert_called()
+
+
+def test_rewrite_gradio_page_image_swaps_header_photo() -> None:
+    html = f'<meta property="og:image" content="{GRADIO_HEADER_IMAGE}" />'
+    rewritten = rewrite_gradio_page_image(html)
+    assert OG_IMAGE_HREF in rewritten
+    assert GRADIO_HEADER_IMAGE not in rewritten
+
+
+def test_rewrite_middleware_swaps_html_image() -> None:
+    from starlette.applications import Starlette
+    from starlette.responses import HTMLResponse, PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    async def homepage(request: object) -> HTMLResponse:
+        del request
+        return HTMLResponse(f'<img src="{GRADIO_HEADER_IMAGE}">')
+
+    async def ping(request: object) -> PlainTextResponse:
+        del request
+        return PlainTextResponse("ok")
+
+    inner = Starlette(
+        routes=[Route("/", homepage), Route("/ping", ping)],
+    )
+    inner.add_middleware(_RewriteGradioPageImage)
+    client = TestClient(inner)
+    page = client.get("/")
+    assert OG_IMAGE_HREF in page.text
+    assert GRADIO_HEADER_IMAGE not in page.text
+    pinged = client.get("/ping")
+    assert pinged.text == "ok"
+
+
+def test_page_images_are_served(tmp_path: Path) -> None:
+    client, _, _, _ = make_client(tmp_path)
+    icon = client.get("/favicon.ico")
+    assert icon.status_code == 200
+    assert icon.content[:8] == b"\x89PNG\r\n\x1a\n"
+    og = client.get("/og.png")
+    assert og.status_code == 200
+    assert og.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert "image/png" in (og.headers.get("content-type") or "")
 
 
 def test_append_messages_accepts_none_history() -> None:
@@ -664,6 +727,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         auth=build_auth(),
     )
     assert blocks is not None
+    assert blocks.title == PAGE_TITLE
     assert llm.calls == []
     assert L1_ACCORDION_OPEN_DEFAULT is False
     ids = _collect_elem_ids(blocks)

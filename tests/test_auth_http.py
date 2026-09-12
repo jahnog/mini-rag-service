@@ -413,6 +413,7 @@ def test_scanner_get_does_not_sign_in_or_burn(tmp_path: Path) -> None:
     client.get(f"/auth/link/{token}", follow_redirects=False)
     page = client.get("/auth/link", follow_redirects=False)
     assert page.status_code == 200
+    assert "<title>BCRA CAMEX</title>" in page.text
     assert "Iniciar sesión" in page.text
     assert OPS in page.text
     assert token not in page.text

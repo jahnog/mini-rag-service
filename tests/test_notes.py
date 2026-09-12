@@ -38,6 +38,9 @@ def test_readme_operator_bullets() -> None:
     assert "--run-prod-smoke" in readme
     assert "-m prod_smoke" in readme
     assert "./scripts/run-prod-smoke.sh" in readme
+    assert "run-prod-smoke-cron.sh" in readme
+    assert "10:11" in readme
+    assert "PROD_SMOKE_NOTIFY_TO" in readme
     assert "PROD_BASE_URL" in readme
     assert "PROD_PHOENIX_PROJECT_NAME" in readme
     assert "PROD_PHOENIX_COLLECTOR_ENDPOINT" in readme

@@ -41,7 +41,7 @@ BCRA CAMEX only. Never Banxico. Five ports, no Redis, no Next.js in v1. Default 
 
 Live server tests attach to an already-running process (`LIVE_BASE_URL`, default `http://127.0.0.1:8000`). They need IMAP (`LIVE_IMAP_*`), HTTP-local `AUTH_PUBLIC_ORIGIN` matching that origin, and Chromium for UI. HTTP-only: `-m live_http`.
 
-Production smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` sets `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. It needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP. It does not spawn uvicorn.
+Production smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` sets `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. It needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP. It does not spawn uvicorn. Laptop `scripts/run-prod-smoke-cron.sh` is the daily 10:11 wrapper; failure mail uses `PROD_SMOKE_NOTIFY_TO` or `LIVE_EMAIL`.
 
 ## OpenSpec
 

@@ -116,7 +116,7 @@ uv run pytest --run-live-server -m live_server -q
 ```
 <!-- /commands:test-live-server -->
 
-Production HTTP smoke against an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` exports `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` then runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. Does not spawn uvicorn. Needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP — not the laptop `bcra-rag-dev` Phoenix. Chat generation uses the process’s `LLM_*`. Default pytest skips these.
+Production HTTP smoke against an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` exports `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` then runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. Does not spawn uvicorn. Needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP — not the laptop `bcra-rag-dev` Phoenix. Chat generation uses the process’s `LLM_*`. Default pytest skips these. Laptop cron (local timezone) may run `scripts/run-prod-smoke-cron.sh` daily at 10:11; on failure it emails `PROD_SMOKE_NOTIFY_TO` or `LIVE_EMAIL` via `AUTH_SMTP_*`. Not a dump-host timer and not CI.
 
 <!-- commands:test-prod-smoke -->
 ```bash

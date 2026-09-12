@@ -35,7 +35,8 @@ def _shell(body: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BCRA Mini-RAG</title>
+  <title>BCRA CAMEX</title>
+  <link rel="icon" href="/favicon.ico">
   <style>
     body {{ background:{_PAGE}; color:{_TEXT}; font-family: Sora, "Segoe UI", Arial, sans-serif;
       margin:0; padding:2rem; }}

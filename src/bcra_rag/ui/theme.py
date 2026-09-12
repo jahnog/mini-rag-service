@@ -6,7 +6,16 @@ import gradio as gr
 from gradio.themes import Base, GoogleFont
 
 CSS_PATH = Path(__file__).with_name("observatory.css")
+FAVICON_PATH = Path(__file__).with_name("favicon.png")
+OG_IMAGE_PATH = Path(__file__).with_name("og.png")
+PAGE_TITLE = "BCRA CAMEX"
 THEME_COLOR = "#04111d"
+FAVICON_HREF = "/favicon.ico"
+OG_IMAGE_HREF = "/og.png"
+GRADIO_HEADER_IMAGE = (
+    "https://raw.githubusercontent.com/gradio-app/gradio/main/"
+    "js/_website/src/lib/assets/img/header-image.jpg"
+)
 TEXT = "#f4fbff"
 TEXT_SUBDUED = "rgba(210, 228, 237, 0.8)"
 SURFACE = "rgba(8, 26, 43, 0.78)"
@@ -26,29 +35,40 @@ def observatory_css_path() -> Path:
     return CSS_PATH
 
 
+def observatory_favicon_path() -> Path:
+    return FAVICON_PATH
+
+
+def observatory_og_image_path() -> Path:
+    return OG_IMAGE_PATH
+
+
+def rewrite_gradio_page_image(html: str) -> str:
+    return html.replace(GRADIO_HEADER_IMAGE, OG_IMAGE_HREF)
+
+
 def observatory_head() -> str:
-    icon = (
-        "data:image/svg+xml,"
-        "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
-        "%3Crect width='32' height='32' rx='8' fill='%2304111d'/%3E"
-        "%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%2372d6cb' "
-        "stroke-width='2'/%3E"
-        "%3C/svg%3E"
-    )
     return (
+        f"<title>{PAGE_TITLE}</title>"
         f'<meta name="theme-color" content="{THEME_COLOR}">'
-        f'<link rel="icon" href="{icon}">'
+        f'<link rel="icon" href="{FAVICON_HREF}">'
+        f'<link rel="apple-touch-icon" href="{FAVICON_HREF}">'
+        f'<meta property="og:title" content="{PAGE_TITLE}">'
+        f'<meta property="og:image" content="{OG_IMAGE_HREF}">'
+        f'<meta name="twitter:title" content="{PAGE_TITLE}">'
+        f'<meta name="twitter:image" content="{OG_IMAGE_HREF}">'
         '<script>document.documentElement.lang="es";</script>'
     )
 
 
 def observatory_js() -> str:
-    return """
-() => {
+    return f"""
+() => {{
+  document.title = {PAGE_TITLE!r};
   document.documentElement.lang = "es";
   document.documentElement.classList.add("dark");
   document.body.classList.add("dark");
-}
+}}
 """
 
 

@@ -9,6 +9,9 @@ from typing import Any
 
 import gradio as gr
 from fastapi import HTTPException
+from fastapi.responses import FileResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
 from bcra_rag.api.rate_limit import RateLimiter
@@ -56,10 +59,14 @@ from bcra_rag.ui.config import (
     trust_payload,
 )
 from bcra_rag.ui.theme import (
+    PAGE_TITLE,
     observatory_css_path,
+    observatory_favicon_path,
     observatory_head,
     observatory_js,
+    observatory_og_image_path,
     observatory_theme,
+    rewrite_gradio_page_image,
 )
 from bcra_rag.use_cases.answer_query import new_request_id
 
@@ -367,7 +374,7 @@ def build_blocks(
                 return card, _copy_update(copy_id), citation_card_markdown(card)
         return {}, _copy_update(""), citation_card_markdown(None)
 
-    with gr.Blocks(title="BCRA Mini-RAG", fill_height=True) as demo:
+    with gr.Blocks(title=PAGE_TITLE, fill_height=True) as demo:
         session_state = gr.State(None)
         cards_state = gr.State([])
         with gr.Column(
@@ -591,7 +598,32 @@ def build_blocks(
     return queued  # type: ignore[no-any-return]
 
 
+class _RewriteGradioPageImage(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        response = await call_next(request)
+        content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type:
+            return response
+        body = bytearray()
+        async for chunk in response.body_iterator:
+            body.extend(chunk)
+        html = rewrite_gradio_page_image(body.decode("utf-8", errors="replace"))
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        return Response(
+            content=html,
+            status_code=response.status_code,
+            headers=headers,
+            media_type=content_type,
+        )
+
+
 def mount_ui(api: Any, blocks: gr.Blocks) -> Any:
+    def og_image() -> FileResponse:
+        return FileResponse(observatory_og_image_path(), media_type="image/png")
+
+    api.add_api_route("/og.png", og_image, methods=["GET"], include_in_schema=False)
+    api.add_middleware(_RewriteGradioPageImage)
     mounted: Any = gr.mount_gradio_app(
         api,
         blocks,
@@ -602,5 +634,6 @@ def mount_ui(api: Any, blocks: gr.Blocks) -> Any:
         js=observatory_js(),
         footer_links=[],
         run_history=False,
+        favicon_path=str(observatory_favicon_path()),
     )
     return mounted
