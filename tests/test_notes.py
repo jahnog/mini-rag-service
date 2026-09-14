@@ -44,6 +44,8 @@ def test_readme_operator_bullets() -> None:
     assert "PROD_BASE_URL" in readme
     assert "PROD_PHOENIX_PROJECT_NAME" in readme
     assert "PROD_PHOENIX_COLLECTOR_ENDPOINT" in readme
+    assert "MATOMO_URL" in readme
+    assert "MATOMO_SITE_ID" in readme
     assert "playwright install chromium" in readme
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme

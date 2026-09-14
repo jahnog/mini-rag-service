@@ -62,6 +62,7 @@ from bcra_rag.ui.theme import (
     OG_IMAGE_HREF,
     PAGE_DESCRIPTION,
     PAGE_TITLE,
+    matomo_snippet,
     observatory_css_path,
     observatory_favicon_path,
     observatory_head,
@@ -169,6 +170,8 @@ def test_observatory_theme_helpers() -> None:
     assert path.name == "observatory.css"
     assert path.is_file()
     head = observatory_head()
+    assert "_paq" not in head
+    assert "matomo.js" not in head
     assert f"<title>{PAGE_TITLE}</title>" in head
     assert PAGE_TITLE == "BCRA CAMEX"
     assert 'name="theme-color"' in head
@@ -215,6 +218,61 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["js"] == observatory_js()
     assert kwargs["favicon_path"] == str(observatory_favicon_path())
     api.add_middleware.assert_called()
+
+
+def test_matomo_snippet_omits_invalid_or_blank() -> None:
+    assert matomo_snippet("", "42") == ""
+    assert matomo_snippet("https://tracker.example/matomo/", "") == ""
+    assert matomo_snippet("http://tracker.example/matomo/", "42") == ""
+    assert matomo_snippet('https://tracker.example/matomo/"', "42") == ""
+    assert matomo_snippet("https://user:pass@tracker.example/matomo/", "42") == ""
+    assert matomo_snippet("https://tracker.example/matomo/?x=1", "42") == ""
+    assert matomo_snippet("https://tracker.example/matomo/", "ab") == ""
+    assert matomo_snippet("javascript:alert(1)", "42") == ""
+    assert "matomo.js" not in observatory_head(
+        matomo_url="https://tracker.example/matomo/", matomo_site_id="nope"
+    )
+
+
+def test_matomo_snippet_cookieless_loopback_gate() -> None:
+    snippet = matomo_snippet("https://tracker.example/matomo", "42")
+    assert "disableCookies" in snippet
+    assert "setDoNotTrack" in snippet
+    assert "https://tracker.example/matomo/matomo.php" in snippet
+    assert "https://tracker.example/matomo/matomo.js" in snippet
+    assert '"42"' in snippet
+    assert "localhost" in snippet
+    assert "127.0.0.1" in snippet
+    assert "matomo=1" in snippet
+    assert "@" not in snippet
+    assert "Pregunt" not in snippet
+    head = observatory_head(
+        matomo_url="https://tracker.example/matomo/", matomo_site_id="42"
+    )
+    assert snippet in head
+    assert f"<title>{PAGE_TITLE}</title>" in head
+
+
+def test_mount_ui_passes_matomo_head(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from bcra_rag.settings import Settings
+
+    settings = Settings(
+        data_dir=tmp_path,
+        matomo_url="https://tracker.example/matomo/",
+        matomo_site_id="42",
+        _env_file=None,
+    )
+    api = MagicMock()
+    blocks = MagicMock()
+    with patch("bcra_rag.ui.gradio_app.gr.mount_gradio_app") as mount:
+        mount.return_value = api
+        mount_ui(api, blocks, settings)
+    kwargs = mount.call_args.kwargs
+    assert kwargs["head"] == observatory_head(
+        matomo_url=settings.matomo_url, matomo_site_id=settings.matomo_site_id
+    )
 
 
 def test_rewrite_gradio_html_rewrites_cards_and_spares_internals() -> None:
