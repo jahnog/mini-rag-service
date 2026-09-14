@@ -26,6 +26,7 @@ from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatResponse
 from bcra_rag.settings import Settings
 from bcra_rag.ui.config import (
+    AUTH_CLEAR,
     AUTH_CODE_LABEL,
     AUTH_EMAIL_LABEL,
     AUTH_LOGOUT,
@@ -382,17 +383,21 @@ def build_blocks(
             elem_classes=["layout-user"],
         ) as shell:
             with gr.Column(scale=0, elem_id="observatory-topbar"):
-                gr.Markdown(title_markdown(health))
+                gr.Markdown(title_markdown(health), elem_id="observatory-title")
                 with gr.Column(elem_id="auth-login"):
                     with gr.Row(elem_id="auth-login-fields") as auth_fields:
                         auth_email = gr.Textbox(
                             label=AUTH_EMAIL_LABEL,
+                            show_label=False,
+                            placeholder=AUTH_EMAIL_LABEL,
                             scale=2,
                             elem_id="auth-email",
                         )
                         send_code = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
                         auth_code = gr.Textbox(
                             label=AUTH_CODE_LABEL,
+                            show_label=False,
+                            placeholder=AUTH_CODE_LABEL,
                             scale=1,
                             elem_id="auth-code",
                         )
@@ -433,7 +438,7 @@ def build_blocks(
                         show_label=False,
                         elem_id="observatory-chat",
                         height="100%",
-                        min_height=480,
+                        min_height=192,
                         buttons=[],
                         feedback_options=[],
                         placeholder="La conversación aparece acá.",
@@ -455,7 +460,7 @@ def build_blocks(
                             elem_id="observatory-send",
                         )
                         clear = gr.Button(
-                            "Clear", variant="secondary", scale=0, elem_id="observatory-clear"
+                            AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
                         )
                     demo_box = gr.Textbox(
                         label="Demo key",

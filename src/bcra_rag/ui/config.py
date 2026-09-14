@@ -29,15 +29,16 @@ LAYOUT_USER = "Usuario"
 LAYOUT_STAFF_CLASS = "layout-staff"
 LAYOUT_USER_CLASS = "layout-user"
 LAYOUT_HELP = (
-    "Staff (IA) muestra el razonamiento, el inspector de citas, "
-    "el log de guardrails, Calidad L1 y las fechas del dump.\n\n"
-    "Usuario deja solo la pregunta, la respuesta, Enviar, Clear y los ejemplos."
+    "Staff (IA) muestra el inspector de citas, el log de guardrails, "
+    "Calidad L1 y las fechas del dump.\n\n"
+    "Usuario deja solo la pregunta, la respuesta, Enviar, Limpiar y los ejemplos."
 )
 AUTH_EMAIL_LABEL = "Correo"
 AUTH_SEND = "Enviar código"
 AUTH_CODE_LABEL = "Código"
 AUTH_VERIFY = "Verificar"
 AUTH_LOGOUT = "Cerrar sesión"
+AUTH_CLEAR = "Limpiar"
 AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
 AUTH_NOTICE = "Tenés que ingresar con tu email."
 
@@ -52,10 +53,7 @@ def banner_markdown(health: HealthResponse) -> str:
 
 def title_markdown(health: HealthResponse) -> str:
     del health
-    return (
-        "BCRA Mini-RAG · extracto no oficial CAMEX\n\n"
-        "# Preguntá por una cláusula. Recibí cita o silencio."
-    )
+    return "BCRA CAMEX · extracto no oficial"
 
 
 def dump_date(last_refresh: str | None) -> str:
