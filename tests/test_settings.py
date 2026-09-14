@@ -60,6 +60,8 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.embedding_max_chars == 2048
     assert settings.llm_enable_thinking is True
     assert settings.llm_timeout_s == 60.0
+    assert settings.matomo_url == ""
+    assert settings.matomo_site_id == ""
 
 
 def test_readme_how_to_run_names_auth_vars() -> None:

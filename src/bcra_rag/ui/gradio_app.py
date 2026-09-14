@@ -626,10 +626,14 @@ class _RewriteGradioHtml(BaseHTTPMiddleware):
         )
 
 
-def mount_ui(api: Any, blocks: gr.Blocks) -> Any:
+def mount_ui(
+    api: Any, blocks: gr.Blocks, settings: Settings | None = None
+) -> Any:
     def og_image() -> FileResponse:
         return FileResponse(observatory_og_image_path(), media_type="image/png")
 
+    matomo_url = settings.matomo_url if settings is not None else ""
+    matomo_site_id = settings.matomo_site_id if settings is not None else ""
     api.add_api_route("/og.png", og_image, methods=["GET"], include_in_schema=False)
     api.add_middleware(_RewriteGradioHtml)
     mounted: Any = gr.mount_gradio_app(
@@ -638,7 +642,9 @@ def mount_ui(api: Any, blocks: gr.Blocks) -> Any:
         path="/",
         theme=observatory_theme(),
         css_paths=observatory_css_path(),
-        head=observatory_head(),
+        head=observatory_head(
+            matomo_url=matomo_url, matomo_site_id=matomo_site_id
+        ),
         js=observatory_js(),
         footer_links=[],
         run_history=False,

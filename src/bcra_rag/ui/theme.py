@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import html as html_lib
+import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import gradio as gr
 from gradio.themes import Base, GoogleFont
@@ -109,7 +111,63 @@ def rewrite_gradio_html(html: str, *, origin: str = "") -> str:
     return _GRADIO_HREF_RE.sub('href="/"', rewritten)
 
 
-def observatory_head() -> str:
+_MATOMO_BAD_CHARS = re.compile(r"""[\s'"<>\\]""")
+_MATOMO_SITE_ID = re.compile(r"^[0-9]+$")
+
+
+def normalized_matomo_url(url: str) -> str | None:
+    raw = (url or "").strip()
+    if not raw or _MATOMO_BAD_CHARS.search(raw):
+        return None
+    if "javascript:" in raw.lower():
+        return None
+    parsed = urlparse(raw)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    if parsed.params or parsed.query or parsed.fragment:
+        return None
+    path = parsed.path or "/"
+    if not path.endswith("/"):
+        path += "/"
+    return urlunparse(("https", parsed.netloc, path, "", "", ""))
+
+
+def matomo_snippet(url: str = "", site_id: str = "") -> str:
+    origin = normalized_matomo_url(url)
+    sid = (site_id or "").strip()
+    if origin is None or not _MATOMO_SITE_ID.fullmatch(sid):
+        return ""
+    tracker = json.dumps(origin + "matomo.php")
+    script = json.dumps(origin + "matomo.js")
+    sid_js = json.dumps(sid)
+    return (
+        "<script>(function(){"
+        "var host=(location.hostname||'').toLowerCase();"
+        "var loop=host==='localhost'||host==='127.0.0.1'"
+        "||host==='::1'||host==='[::1]';"
+        "var forced=/(?:^|[?&])matomo=1(?:&|$)/.test(location.search||'');"
+        "if(loop&&!forced)return;"
+        "var _paq=window._paq=window._paq||[];"
+        '_paq.push(["disableCookies"]);'
+        '_paq.push(["setDoNotTrack",true]);'
+        f"_paq.push(['setTrackerUrl',{tracker}]);"
+        f"_paq.push(['setSiteId',{sid_js}]);"
+        '_paq.push(["enableLinkTracking"]);'
+        '_paq.push(["enableHeartBeatTimer",15]);'
+        '_paq.push(["trackPageView"]);'
+        'var d=document,g=d.createElement("script"),'
+        's=d.getElementsByTagName("script")[0];'
+        "g.async=true;"
+        f"g.src={script};"
+        "if(s&&s.parentNode)s.parentNode.insertBefore(g,s);"
+        "else (d.head||d.documentElement).appendChild(g);"
+        "})();</script>"
+    )
+
+
+def observatory_head(*, matomo_url: str = "", matomo_site_id: str = "") -> str:
     return (
         f"<title>{PAGE_TITLE}</title>"
         f'<meta name="theme-color" content="{THEME_COLOR}">'
@@ -123,6 +181,7 @@ def observatory_head() -> str:
         f'<meta name="twitter:description" content="{PAGE_DESCRIPTION}">'
         f'<meta name="twitter:image" content="{OG_IMAGE_HREF}">'
         '<script>document.documentElement.lang="es";</script>'
+        + matomo_snippet(matomo_url, matomo_site_id)
     )
 
 

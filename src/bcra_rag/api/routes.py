@@ -126,7 +126,7 @@ def create_fastapi(
         auth=resolved_auth,
         turn_evaluator=resolved_evaluator,
     )
-    return cast(FastAPI, mount_ui(api, blocks))
+    return cast(FastAPI, mount_ui(api, blocks, settings))
 
 
 def _new_request_id() -> str:
