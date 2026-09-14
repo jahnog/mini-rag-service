@@ -1,9 +1,20 @@
+from pathlib import Path
+
 from bcra_rag.adapters.embeddings import DeterministicEmbeddingFunction
 from bcra_rag.adapters.index_chroma import ChromaIndex
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.domain.chunkers import StructuredChunker
 from bcra_rag.domain.models import Chunk
 from bcra_rag.settings import Settings
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+CHROMA_HTTP_NEEDLES = (
+    "HttpClient",
+    "AsyncHttpClient",
+    "chromadb.api.fastapi",
+    "chromadb.server",
+)
 
 
 def test_fake_index_upsert_sets_chunker_and_events() -> None:
@@ -210,6 +221,34 @@ def test_chroma_upsert_batches_chunks(tmp_path) -> None:
     assert stub.calls[0]["ids"] == ["A13:1", "A13:2"]
     assert stub.calls[1]["ids"] == ["A13:3"]
     assert stub.calls[0]["documents"] == ["uno", "dos"]
+
+
+def test_chroma_source_never_wires_http_server() -> None:
+    hits: list[str] = []
+    for path in SRC.rglob("*.py"):
+        rel = path.relative_to(ROOT).as_posix()
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            for needle in CHROMA_HTTP_NEEDLES:
+                if needle in line:
+                    hits.append(f"{rel}:{lineno}: {needle}")
+    adapter = (SRC / "bcra_rag" / "adapters" / "index_chroma.py").read_text(
+        encoding="utf-8"
+    )
+    assert "PersistentClient" in adapter
+    assert "chromadb.api.rust.RustBindingsAPI" in adapter
+    assert hits == []
+
+
+def test_chroma_uses_embedded_rust_client(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
+    collection = index._get_collection()
+    chroma_settings = collection._client.get_settings()
+    assert chroma_settings.chroma_api_impl == "chromadb.api.rust.RustBindingsAPI"
+    assert chroma_settings.anonymized_telemetry is False
 
 
 def test_chroma_smoke_with_deterministic_embeddings(tmp_path) -> None:

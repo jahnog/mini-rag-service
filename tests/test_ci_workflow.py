@@ -30,6 +30,17 @@ def test_coverage_gate_invariants() -> None:
     assert "fail_under = 80" in pyproject
 
 
+def test_chromadb_floor_and_unpatched_advisory_ignores() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    required = pyproject["project"]["dependencies"]
+    assert any(item.startswith("chromadb>=1.5.9") for item in required)
+    audit = pyproject["tool"]["uv"]["audit"]["ignore-until-fixed"]
+    assert "GHSA-f4j7-r4q5-qw2c" in audit
+    assert "GHSA-36p7-vc44-83pf" in audit
+    assert "GHSA-2wm9-hf6c-p5cr" in audit
+    assert "GHSA-xph7-9rjv-w5fr" in audit
+
+
 def test_pypi_phoenix_package_is_not_a_dependency() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
