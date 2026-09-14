@@ -53,10 +53,7 @@ def banner_markdown(health: HealthResponse) -> str:
 
 def title_markdown(health: HealthResponse) -> str:
     del health
-    return (
-        "BCRA CAMEX · extracto no oficial\n\n"
-        "# Preguntá por una cláusula. Recibí cita o silencio."
-    )
+    return "BCRA CAMEX · extracto no oficial"
 
 
 def dump_date(last_refresh: str | None) -> str:

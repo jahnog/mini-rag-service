@@ -151,6 +151,10 @@ def test_observatory_css_tokens() -> None:
     assert "layout-user" in css
     assert "#observatory-shell.layout-user .thought-group" in css
     assert "12rem" in css
+    assert "display: block" in css
+    assert "#observatory-title" in css
+    assert "white-space: nowrap" in css
+    assert ".fillable" in css
     assert "icon-button" in css
     assert ".bot-row" in css
     assert "480px" not in css.split("#observatory-chat")[1].split("}")[0]
@@ -595,6 +599,7 @@ def test_banner_and_canned_prompts() -> None:
     assert "no oficial" in title.lower()
     assert "BCRA CAMEX" in title
     assert "Mini-RAG" not in title
+    assert "#" not in title
     assert not title.lstrip().startswith("*")
     assert TO_AS_OF not in title
     assert LAST_REFRESH not in title
@@ -812,6 +817,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     for elem_id in (
         "observatory-shell",
         "observatory-topbar",
+        "observatory-title",
         "observatory-layout",
         "observatory-stage",
         "observatory-side",

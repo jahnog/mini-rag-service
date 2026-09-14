@@ -18,8 +18,8 @@ IBM 1–4 take/leave (unchanged): ground in dump ids + `last_refresh` / `to_as_o
 
 **Goals:**
 
-- Logged-out 1280×720 shows Pregunta + Enviar without scrolling (topbar ≤ 240px; chat floor 12rem then flex).
-- Login row matches Pregunta chrome (`show_label=False` + placeholders); Clear labeled Limpiar; kicker `BCRA CAMEX · extracto no oficial`.
+- Logged-out 1280×720 shows Pregunta + Enviar without scrolling (topbar ≤ 160px; chat floor 12rem then flex).
+- Login row matches Pregunta chrome (`show_label=False` + placeholders); Clear labeled Limpiar; kicker `BCRA CAMEX · extracto no oficial` with no H1 slogan.
 - Hide the chat-panel trash that duplicates Clear. Enviar/Limpiar one row at 375px.
 - Unit tests; `src` coverage >= 80%.
 
@@ -47,7 +47,13 @@ Alternatives: two nested Rows (adds height); hide labels with CSS (fragile Gradi
 
 Button value `Limpiar`, `elem_id="observatory-clear"`. Typed `/clear` unchanged. LAYOUT_HELP Usuario line says Limpiar; keep two lines starting with Staff/Usuario and `inspector de citas`. Drop “el razonamiento,” so the Staff line fits beside the radio. `#layout-toggle { align-items: center }`. Live Gherkin still clicks `#observatory-clear`.
 
-`title_markdown` kicker `BCRA CAMEX · extracto no oficial`. Do not change `OTP_SUBJECT`.
+`title_markdown` is the kicker `BCRA CAMEX · extracto no oficial` only (no H1 slogan; Pregunta placeholder keeps the CTA). Do not change `OTP_SUBJECT`.
+
+### Decision: compact topbar, do not move auth_status
+
+Gradio `Markdown` renders `<span class="md prose">` as `display: inline` wrapping block `<p>`/`<h1>`, which adds ~20px line-boxes above and below each topbar Markdown. Force `#observatory-topbar .md, #observatory-topbar .prose { display: block }`. `#auth-status` stays inside `#auth-login` (live locators and `auth_chrome()` unchanged). At `min-width: 1121px`, grid the four existing topbar children: `#observatory-title` | `#auth-login` on row 1, `#layout-toggle` row 2, `#observatory-freeze` row 3. Gradio’s inner `.main.fillable` defaults to `max-width: 1024px` and was squeezing the login row onto two lines; set `.gradio-container .main` / `.fillable` / `.contain` and `#observatory-shell` to `width: 100%` with `max-width: none` so the existing 1500px container can actually fill. Target logged-out topbar ≤ 160px.
+
+Alternatives: move status onto the Vista row (Blocks churn); keep the H1 slogan on the same paragraph (wraps at 375px and duplicates the placeholder).
 
 Hide only the chatbot **panel** Clear icon (`#observatory-chat button.icon-button` with Clear title/aria), not per-message copy. Stretch `.bot.message` for the 401 notice. Pills `flex: 1 1 18rem`. `#observatory-actions { flex-wrap: nowrap }` and drop `min-width: 7.5rem`.
 
@@ -58,6 +64,7 @@ Alternatives: mass-replace “Clear” in every spec scenario (noise); hide ever
 - [Gradio still paints a 480px chat despite `min_height=192`] → CSS `min-height: 12rem !important` on `#observatory-chat`; assert both in `test_ui.py`.
 - [Placeholder-only auth fields fail a11y or live locators] → `label=` remains; live `field()` already targets `textarea, input` inside `#auth-email`.
 - [375px Enviar/Limpiar still wrap] → nowrap + smaller min-width; verify in browser at 375×812.
+- [Gradio Markdown inline strut leaves ~40px per widget] → `display: block` on `#observatory-topbar .md`; verify topbar ≤ 160px at 1280×720.
 - [Staff inspector looks unchanged] → accepted this sitting.
 
 ## Migration Plan

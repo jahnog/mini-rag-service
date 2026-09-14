@@ -383,7 +383,7 @@ def build_blocks(
             elem_classes=["layout-user"],
         ) as shell:
             with gr.Column(scale=0, elem_id="observatory-topbar"):
-                gr.Markdown(title_markdown(health))
+                gr.Markdown(title_markdown(health), elem_id="observatory-title")
                 with gr.Column(elem_id="auth-login"):
                     with gr.Row(elem_id="auth-login-fields") as auth_fields:
                         auth_email = gr.Textbox(
