@@ -35,8 +35,10 @@ SEND_GAP_S = 65.0
 VERIFY_GAP_S = 2.5
 CHAT_TIMEOUT_S = 480.0
 CHAT_RETRY_STATUSES = frozenset({502, 503, 504})
-CHAT_RETRY_ATTEMPTS = 3
+CHAT_RETRY_ATTEMPTS = 2
 CHAT_RETRY_GAP_S = 30.0
+# Slow Apache 502 (~proxy wait) is a finished user turn; do not pile onto the one worker.
+CHAT_FAST_FAIL_S = 15.0
 
 
 class ProdHttpError(RuntimeError):
@@ -115,16 +117,22 @@ def post_chat(
     *,
     sleep: Callable[[float], None] = time.sleep,
     attempts: int = CHAT_RETRY_ATTEMPTS,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> httpx.Response:
     last: httpx.Response | None = None
-    for attempt in range(max(1, attempts)):
+    max_attempts = max(1, attempts)
+    for attempt in range(max_attempts):
+        started = monotonic()
         response = client.post("/chat", json={"message": message})
+        elapsed = monotonic() - started
         raise_for_limiter(response, what="POST /chat")
         if response.status_code not in CHAT_RETRY_STATUSES:
             return require_chat_json(response, what="POST /chat")
         last = response
-        if attempt + 1 < max(1, attempts):
-            sleep(CHAT_RETRY_GAP_S)
+        fast = elapsed < CHAT_FAST_FAIL_S
+        if (not fast) or (attempt + 1 >= max_attempts):
+            break
+        sleep(CHAT_RETRY_GAP_S)
     assert last is not None
     return require_chat_json(last, what="POST /chat")
 

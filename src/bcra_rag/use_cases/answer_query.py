@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import secrets
@@ -337,6 +338,7 @@ class AnswerQuery:
             query,
             on_thinking=on_thinking,
             filters=request.filters,
+            timeout_s=self._settings.llm_timeout_s,
         )
         if generated.draft is None:
             return self._finalize(
@@ -436,6 +438,7 @@ async def generate_from_context(
     *,
     on_thinking: OnThinking | None = None,
     filters: ChatFilters | None = None,
+    timeout_s: float,
 ) -> GeneratedFromContext:
     ctx.turn_ids = {
         str(chunk.metadata.get("doc_id") or "")
@@ -445,7 +448,8 @@ async def generate_from_context(
     ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
     prompt = _prompt(query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter)
     try:
-        draft = await llm.complete(prompt, on_thinking=on_thinking)
+        async with asyncio.timeout(timeout_s):
+            draft = await llm.complete(prompt, on_thinking=on_thinking)
         try:
             pipeline.tracer.record_tokens(draft.prompt_tokens, draft.completion_tokens)
         except Exception:

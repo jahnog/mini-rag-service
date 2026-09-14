@@ -10,6 +10,8 @@ from bcra_rag.auth.mail_copy import OTP_SUBJECT, otp_body
 from tests.features.live.http_client import ProcessLimiterError
 from tests.features.live.mailbox import FakeMailbox, MailboxTimeout, OtpMail
 from tests.prod.http_client import (
+    CHAT_FAST_FAIL_S,
+    CHAT_RETRY_ATTEMPTS,
     CHAT_TIMEOUT_S,
     DEFAULT_NEW_MAIL_TIMEOUT_S,
     SEND_GAP_S,
@@ -277,7 +279,26 @@ def test_chat_502_names_status_not_json_decode(matching_origin: None) -> None:
         post_chat(client, "Qué dice la Comunicación A 3500?", sleep=lambda _: None)
     assert "JSONDecodeError" not in type(excinfo.value).__name__
     assert "Proxy Error" in str(excinfo.value)
-    assert len(respx.calls) == 3
+    assert len(respx.calls) == CHAT_RETRY_ATTEMPTS
+
+
+@respx.mock
+def test_chat_slow_502_is_not_retried(matching_origin: None) -> None:
+    respx.post(f"{BASE}/chat").mock(return_value=httpx.Response(502, text=PROXY_502))
+    stamps = iter([0.0, CHAT_FAST_FAIL_S + 1.0])
+
+    def monotonic() -> float:
+        return next(stamps)
+
+    client = make_client(BASE)
+    with pytest.raises(ProdHttpError, match="502"):
+        post_chat(
+            client,
+            "Qué dice la Comunicación A 3500?",
+            sleep=lambda _: None,
+            monotonic=monotonic,
+        )
+    assert len(respx.calls) == 1
 
 
 def test_remaining_send_gap() -> None:
@@ -287,6 +308,8 @@ def test_remaining_send_gap() -> None:
     assert VERIFY_GAP_S >= 2.0
     assert DEFAULT_NEW_MAIL_TIMEOUT_S >= 180
     assert CHAT_TIMEOUT_S >= 480
+    assert CHAT_RETRY_ATTEMPTS == 2
+    assert CHAT_FAST_FAIL_S <= 15
     assert remaining_send_gap_s(NOW, now=NOW, gap_s=VERIFY_GAP_S) == VERIFY_GAP_S
     assert remaining_send_gap_s(
         NOW, now=NOW + timedelta(seconds=VERIFY_GAP_S), gap_s=VERIFY_GAP_S
