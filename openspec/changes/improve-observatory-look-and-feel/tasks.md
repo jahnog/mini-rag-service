@@ -1,0 +1,13 @@
+## 1. assistant-ui chrome
+
+- [x] 1.1 In `config.py`, set `title_markdown` kicker to `BCRA CAMEX · extracto no oficial`; shorten LAYOUT_HELP to two lines (Staff starts with Staff, Usuario starts with Usuario, keep `inspector de citas` and `Enviar`, Usuario line says Limpiar, drop “el razonamiento,”). Add `AUTH_CLEAR = "Limpiar"`. Verify `uv run pytest tests/test_ui.py::test_banner_and_canned_prompts tests/test_ui.py::test_layout_toggle_visibility -q`
+
+- [x] 1.2 In `gradio_app.py`, Clear button value `AUTH_CLEAR` / `Limpiar` with `elem_id="observatory-clear"`; email/code `show_label=False` and placeholders from `AUTH_EMAIL_LABEL` / `AUTH_CODE_LABEL`; `gr.Chatbot(min_height=192)` keep `height="100%"`. Verify `uv run pytest tests/test_ui.py -q` after updating `min_height == 192` and Limpiar button value
+
+- [x] 1.3 In `observatory.css`: `#observatory-chat { min-height: 12rem }` (remove 480px); compact topbar/auth/status; `#layout-toggle { align-items: center }`; hide `#observatory-chat button.icon-button` whose title/aria is Clear; stretch `.bot.message`; pills `flex: 1 1 18rem`; `#observatory-actions { flex-wrap: nowrap }` and drop `min-width: 7.5rem`; auth 2×2 at max-width 1120px. Keep `content: "Guardrails"` and `min-height: 44px`. Verify `uv run pytest tests/test_ui.py::test_observatory_css_tokens -q` with tokens for `12rem`, icon-button, actions nowrap
+
+- [x] 1.4 Run `uv run pytest tests/test_ui.py -q` then `uv run pytest -q` (src coverage >= 80%), `uv run ruff check .`, `uv run mypy src`. Browser-check 1280×720 and 375×812 logged-out: Pregunta+Enviar visible on desktop without scroll; Limpiar; no panel trash; actions one row on mobile. Do not run live-server, prod smoke, or paid L1
+
+- [x] 1.5 In `config.py`, `title_markdown` is kicker-only (no `#` heading). In `gradio_app.py`, title Markdown `elem_id="observatory-title"`. In `observatory.css`: `#observatory-topbar .md` `display: block`; tighter topbar padding/gap; drop `#auth-login` bottom margin; auth buttons `white-space: nowrap`; desktop grid at min-width 1121px (`#observatory-title` | `#auth-login`, `#layout-toggle` row 2, `#observatory-freeze` row 3). Do not move `#auth-status` or change LAYOUT_HELP. Verify `uv run pytest tests/test_ui.py::test_banner_and_canned_prompts tests/test_ui.py::test_observatory_css_tokens tests/test_ui.py::test_build_blocks_does_not_call_run_l1 -q`
+
+- [x] 1.6 Run `uv run pytest tests/test_ui.py -q` then `uv run pytest -q` (src coverage >= 80%), `uv run ruff check .`, `uv run mypy src`. Browser-check logged-out 1280×720 (topbar ≤ 160px, Pregunta+Enviar on-screen), ~1248×671 (Enviar on-screen), 375×812 (login+Pregunta on first screen, auth buttons nowrap, Enviar/Limpiar one row). Do not run live-server, prod smoke, or paid L1

@@ -9,6 +9,7 @@ from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
 from bcra_rag.ui.config import (
+    AUTH_CLEAR,
     AUTH_EMAIL_LABEL,
     AUTH_LOGOUT,
     AUTH_NOTICE,
@@ -71,7 +72,7 @@ from bcra_rag.ui.theme import (
 )
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
-_CARD_ORIGIN = "https://bcra.contentlabstudy.com"
+_CARD_ORIGIN = "https://cards.example.test"
 _GRADIO_CARD_HTML = f"""
 <meta property="og:title" content="Gradio" />
 <meta property="og:type" content="website" />
@@ -104,7 +105,7 @@ _GRADIO_CARD_HTML = f"""
 _GRADIO_INTERNALS = """
 {"FileData":{"description":"The FileData class is a subclass of the GradioModel class"}}
 from gradio_client import Client
-https://bcra.contentlabstudy.com/gradio_api/call/v2/_turn
+https://cards.example.test/gradio_api/call/v2/_turn
 """
 
 
@@ -149,6 +150,14 @@ def test_observatory_css_tokens() -> None:
     assert ".thought-group .content" in css
     assert "layout-user" in css
     assert "#observatory-shell.layout-user .thought-group" in css
+    assert "12rem" in css
+    assert "display: block" in css
+    assert "#observatory-title" in css
+    assert "white-space: nowrap" in css
+    assert ".fillable" in css
+    assert "icon-button" in css
+    assert ".bot-row" in css
+    assert "480px" not in css.split("#observatory-chat")[1].split("}")[0]
     thought_css = "".join(css.split(".thought-group")[1:])
     assert "h1" in thought_css
     assert "0.82rem" in thought_css
@@ -588,6 +597,9 @@ def test_banner_and_canned_prompts() -> None:
     assert "10" in topbar
     assert "no oficial" in topbar.lower()
     assert "no oficial" in title.lower()
+    assert "BCRA CAMEX" in title
+    assert "Mini-RAG" not in title
+    assert "#" not in title
     assert not title.lstrip().startswith("*")
     assert TO_AS_OF not in title
     assert LAST_REFRESH not in title
@@ -805,6 +817,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     for elem_id in (
         "observatory-shell",
         "observatory-topbar",
+        "observatory-title",
         "observatory-layout",
         "observatory-stage",
         "observatory-side",
@@ -838,7 +851,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     assert chatbots
     assert list(getattr(chatbots[0], "buttons", None) or []) == []
     assert getattr(chatbots[0], "height", None) == "100%"
-    assert getattr(chatbots[0], "min_height", None) == 480
+    assert getattr(chatbots[0], "min_height", None) == 192
     assert getattr(chatbots[0], "group_consecutive_messages", True) is False
     topbar = _widget_by_elem_id(blocks, "observatory-topbar")
     assert topbar is not None
@@ -902,6 +915,8 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert AUTH_SEND in button_vals
     assert AUTH_LOGOUT in button_vals
+    assert AUTH_CLEAR in button_vals
+    assert "Clear" not in button_vals
     css = observatory_css_path().read_text(encoding="utf-8")
     assert "#layout-toggle" in css
     assert "#layout-toggle-help" in css
@@ -947,6 +962,7 @@ def test_layout_toggle_visibility() -> None:
     assert "status" not in thought_rows[1]["metadata"]
     assert apply_layout(LAYOUT_USER, authenticated=True)[1] is not thought_rows
     assert "Enviar" in LAYOUT_HELP
+    assert AUTH_CLEAR in LAYOUT_HELP
     help_lines = [line.strip() for line in LAYOUT_HELP.splitlines() if line.strip()]
     assert len(help_lines) == 2
     assert help_lines[0].startswith("Staff")
