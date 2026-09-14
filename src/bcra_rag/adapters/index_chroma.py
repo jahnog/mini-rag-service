@@ -41,9 +41,17 @@ class ChromaIndex:
     def _get_collection(self) -> Any:
         if self._collection is None:
             import chromadb
+            from chromadb.config import Settings as ChromaSettings
 
             self._settings.index_dir.mkdir(parents=True, exist_ok=True)
-            client = chromadb.PersistentClient(path=str(self._settings.index_dir))
+            # Embedded local client (RustBindingsAPI).
+            client = chromadb.PersistentClient(
+                path=str(self._settings.index_dir),
+                settings=ChromaSettings(
+                    chroma_api_impl="chromadb.api.rust.RustBindingsAPI",
+                    anonymized_telemetry=False,
+                ),
+            )
             ef = resolve_embedding_function(
                 self._settings, self._embedding_function
             )

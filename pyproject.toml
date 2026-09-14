@@ -1,11 +1,11 @@
 [project]
 name = "bcra-rag"
-version = "0.7.9"
+version = "0.7.10"
 description = "BCRA CAMEX mini-RAG"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "chromadb>=1.0.0",
+  "chromadb>=1.5.9",
   "fastapi>=0.115.0",
   "gradio>=5.0.0",
   "httpx>=0.28.0",
@@ -54,6 +54,16 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
+
+# Chroma FastAPI-server CVEs; we only use PersistentClient (RustBindingsAPI).
+# Re-audit when a patched release exists.
+[tool.uv.audit]
+ignore-until-fixed = [
+  "GHSA-f4j7-r4q5-qw2c",
+  "GHSA-36p7-vc44-83pf",
+  "GHSA-2wm9-hf6c-p5cr",
+  "GHSA-xph7-9rjv-w5fr",
+]
 
 [tool.ruff]
 src = ["src", "tests"]
