@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send AUTH_SMTP_* mail when laptop production smoke fails. Stdlib only."""
+"""Send AUTH_SMTP_* mail when laptop production smoke finishes. Stdlib only."""
 
 from __future__ import annotations
 
@@ -45,11 +45,12 @@ def notify(
     }
     timeout_s = float(env.get("AUTH_SMTP_TIMEOUT_S") or "10")
     timed_out = exit_code in {"124", "137"}
-    subject = (
-        "BCRA Mini-RAG production smoke TIMED OUT"
-        if timed_out
-        else "BCRA Mini-RAG production smoke FAILED"
-    )
+    if timed_out:
+        subject = "BCRA Mini-RAG production smoke TIMED OUT"
+    elif exit_code.strip() == "0":
+        subject = "BCRA Mini-RAG production smoke OK"
+    else:
+        subject = "BCRA Mini-RAG production smoke FAILED"
     tail = ""
     if log_path is not None and log_path.is_file():
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()

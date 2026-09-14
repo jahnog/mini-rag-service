@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -9,12 +10,14 @@ from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.composition import default_pipeline
+from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.turn_eval import TurnScores
 from bcra_rag.logconfig import configure_logging
+from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import AnswerQuery
+from bcra_rag.use_cases.answer_query import AnswerQuery, generate_from_context
 from tests.chat_fixtures import IN_CORPUS_DRAFT, LAST_REFRESH, TO_AS_OF, seed_ready
 
 
@@ -480,6 +483,62 @@ async def test_llm_failure_is_silencio_not_exception_text(tmp_path: Path) -> Non
     assert "RuntimeError" not in response.answer
     assert "LLM_API_KEY" not in response.answer
     assert response.thinking is None
+
+
+class _SlowThinkingLlm:
+    def __init__(self, draft: LlmDraft, *, chunk_s: float = 0.05, n: int = 20) -> None:
+        self.calls: list[str] = []
+        self.draft = draft
+        self.chunk_s = chunk_s
+        self.n = n
+
+    async def complete(
+        self, prompt: str, *, on_thinking: OnThinking | None = None
+    ) -> LlmDraft:
+        self.calls.append(prompt)
+        acc = ""
+        for _ in range(self.n):
+            acc += "pienso "
+            if on_thinking is not None:
+                await on_thinking(acc)
+            await asyncio.sleep(self.chunk_s)
+        return self.draft
+
+
+@pytest.mark.asyncio
+async def test_thinking_past_timeout_is_silencio_not_partial_draft(
+    tmp_path: Path,
+) -> None:
+    settings, _, _ = seed_ready(tmp_path)
+    hits = [
+        Chunk(
+            "A3500:1",
+            "Tipo de cambio de referencia 2002.",
+            {"doc_id": "A3500", "numero": "A3500"},
+        )
+    ]
+    ctx = RailContext(
+        raw="q",
+        text="Qué dice la Comunicación A 3500?",
+        hits=hits,
+        last_refresh=LAST_REFRESH,
+        to_as_of=TO_AS_OF,
+    )
+    llm = _SlowThinkingLlm(IN_CORPUS_DRAFT)
+    result = await generate_from_context(
+        llm,
+        default_pipeline(settings),
+        ctx,
+        "Qué dice la Comunicación A 3500?",
+        timeout_s=0.2,
+    )
+    assert result.draft is None
+    assert ctx.finding is Finding.SILENCIO
+    assert ctx.citations == []
+    assert "liquidar" not in ctx.answer
+    assert "TimeoutError" not in ctx.answer
+    assert "pienso" not in ctx.answer
+    assert llm.calls
 
 
 @pytest.mark.asyncio

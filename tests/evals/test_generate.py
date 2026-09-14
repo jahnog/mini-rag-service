@@ -34,6 +34,7 @@ async def test_generate_from_context_does_not_search(tmp_path: Path) -> None:
         default_pipeline(settings),
         ctx,
         "Qué dice la Comunicación A 3500?",
+        timeout_s=settings.llm_timeout_s,
     )
     assert result.draft is not None
     assert index.search_calls == []

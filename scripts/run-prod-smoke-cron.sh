@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Laptop cron wrapper for production smoke. Emails PROD_SMOKE_NOTIFY_TO or
-# LIVE_EMAIL via AUTH_SMTP_* only when the suite fails or times out.
+# LIVE_EMAIL via AUTH_SMTP_* when the suite finishes (OK, FAILED, or TIMED OUT).
+# An overlapping skip that never started does not mail.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -67,11 +68,7 @@ DURATION="$(( $(date +%s) - START ))"
   cat "$RUN_LOG"
 } >>"$LOG"
 
-if [[ "$CODE" -eq 0 ]]; then
-  exit 0
-fi
-
-python3 "${ROOT}/scripts/notify_prod_smoke_failure.py" \
+python3 "${ROOT}/scripts/notify_prod_smoke.py" \
   --exit-code "$CODE" \
   --duration "$DURATION" \
   --log "$RUN_LOG" || echo "$(date -Is) notify failed" >>"$LOG"

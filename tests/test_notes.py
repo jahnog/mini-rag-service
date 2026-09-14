@@ -66,6 +66,9 @@ def test_readme_operator_bullets() -> None:
     assert "2048" in readme
     assert "EMBEDDING_BACKEND=onnx" in readme
     assert "LLM_API_KEY" in readme
+    assert "LLM_TIMEOUT_S" in readme
+    assert "wall-clock" in readme
+    assert "reverse-proxy" in readme
     assert "python -m bcra_rag.jobs.ingest" in readme
     assert "python -m bcra_rag.jobs.refresh" in readme
     assert "does **not** pull new catalog ids" in readme or "does not pull new catalog" in readme

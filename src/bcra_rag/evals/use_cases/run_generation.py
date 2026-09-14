@@ -42,7 +42,13 @@ async def run_generation(
             to_as_of=health.to_as_of,
         )
         started = time.perf_counter()
-        await generate_from_context(llm, pipeline, ctx, gold.question)
+        await generate_from_context(
+            llm,
+            pipeline,
+            ctx,
+            gold.question,
+            timeout_s=settings.llm_timeout_s,
+        )
         latency_ms = (time.perf_counter() - started) * 1000
         finding = ctx.finding if isinstance(ctx.finding, Finding) else Finding.SILENCIO
         samples.append(
