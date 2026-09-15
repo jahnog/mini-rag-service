@@ -7,19 +7,21 @@ Give staff one screen with cited clauses, a this-query trust panel, and last-run
 ## Requirements
 
 ### Requirement: Banner
-The assistant interface SHALL show that the corpus is a BCRA CAMEX unofficial extract. In the staff layout it SHALL also show `to_as_of`, `last_refresh`, last Comunicación id, and document count without opening a settings page. Those dump freeze chips SHALL NOT be shown in the end-user layout.
+The assistant interface SHALL show that the corpus is a BCRA CAMEX unofficial extract. The always-visible title SHALL name BCRA CAMEX and that the extract is unofficial. In the staff layout it SHALL also show `to_as_of`, `last_refresh`, last Comunicación id, and document count without opening a settings page. Those dump freeze chips SHALL NOT be shown in the end-user layout.
 
 #### Scenario: Banner after ingest
 - **GIVEN** a dump with last_refresh 2026-09-01, to_as_of A 8307, last A 8464
 - **WHEN** the interface loads
 - **THEN** those values are visible without opening a settings page
 - **AND** the unofficial CAMEX extract wording is visible
+- **AND** the visible title names BCRA CAMEX
 
 #### Scenario: Freeze chips hidden in end-user layout
 - **GIVEN** a dump with last_refresh 2026-09-01, to_as_of A 8307, last A 8464
 - **WHEN** the user selects the end-user layout
 - **THEN** `to_as_of`, `last_refresh`, last Comunicación id, and document count are not shown as freeze chips
 - **AND** the unofficial CAMEX extract wording remains visible
+- **AND** the visible title still names BCRA CAMEX
 
 ### Requirement: Observatory shell
 The assistant interface SHALL be one screen with a topbar, a dominant chat stage, and a footer. In the staff layout it SHALL also show a side inspector. The topbar SHALL show that the corpus is a BCRA CAMEX unofficial extract. In the staff layout the topbar SHALL also show `to_as_of`, `last_refresh`, last Comunicación id, and document count as chips without opening a settings page. The chat stage SHALL hold the conversation, the question input, suggested prompts, send, Clear, and the abstain banner when it applies. In the staff layout the side inspector SHALL hold citation cards, the this-query trust log, and the Calidad L1 section. The end-user layout SHALL NOT show the side inspector. The footer SHALL state that the extract is unofficial, not BCRA, not legal advice, and dated as of `last_refresh`. When the side inspector is visible, on a wide viewport the chat stage SHALL sit to the left of the inspector, and on a narrow viewport the inspector SHALL sit below the chat stage.
@@ -61,8 +63,8 @@ The assistant interface SHALL be one screen with a topbar, a dominant chat stage
 - **THEN** the side inspector is not shown
 - **AND** the chat stage, footer, and management control remain visible
 
-### Requirement: Dark observatory chrome
-The assistant interface SHALL use a dark background, glass panels, kicker labels, and pill badges on that one screen. Suggested prompts SHALL appear as pills whose text is the existing canned mix (tipo de cambio de referencia A 3500/A 8359, liquidación de exportaciones, a 2001–2002 superseded-trap, and Com. A 9999). Chat and prompts MUST remain usable without opening a second page. In the staff layout, citations and trust MUST remain usable on that same screen.
+### Requirement: Editorial observatory chrome
+The assistant interface SHALL use a navy background, gold primary actions, blue links, kicker labels, and pill badges on that one screen. Suggested prompts SHALL appear as pills whose text is the existing canned mix (tipo de cambio de referencia A 3500/A 8359, liquidación de exportaciones, a 2001–2002 superseded-trap, and Com. A 9999). Chat and prompts MUST remain usable without opening a second page. In the staff layout, citations and trust MUST remain usable on that same screen.
 
 #### Scenario: Suggested prompts remain pills on the stage
 - **GIVEN** the interface is shown
@@ -83,6 +85,13 @@ The assistant interface SHALL use a dark background, glass panels, kicker labels
 - **WHEN** the user asks a named Com. A that is in the dump
 - **THEN** the answer is on the same screen as the question input
 - **AND** the interface does not open a second product UI
+
+#### Scenario: Navy editorial chrome is visible
+- **GIVEN** the interface is shown
+- **WHEN** the user looks at the screen
+- **THEN** the page background is navy
+- **AND** the primary send action is gold
+- **AND** links are blue
 
 ### Requirement: Chat and canned prompts
 The interface SHALL provide a chat input, three suggested prompts that are answerable from the dump (tipo de cambio de referencia A 3500/A 8359, liquidación de exportaciones, and a 2001–2002 superseded-trap), and one out-of-corpus prompt (Com. A 9999).
@@ -187,12 +196,17 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **THEN** Calidad L1 is not shown
 
 ### Requirement: Clear
-The interface SHALL provide a Clear control and SHALL treat typed `/clear` as the same action. Session id SHALL persist across turns in the same UI session until cleared.
+The interface SHALL provide a Clear control labeled Limpiar and SHALL treat typed `/clear` as the same action. Session id SHALL persist across turns in the same UI session until cleared.
 
 #### Scenario: Clear button
 - **GIVEN** a session with prior turns
 - **WHEN** the user clicks Clear
 - **THEN** the next question does not use those turns
+
+#### Scenario: Clear is labeled Limpiar
+- **GIVEN** the interface is shown
+- **WHEN** the user looks at the Clear control
+- **THEN** the visible label is Limpiar
 
 #### Scenario: Session id persists
 - **GIVEN** the interface has minted a session id
@@ -271,6 +285,23 @@ In the end-user layout the interface SHALL show the question input, the conversa
 - **AND** a session with prior turns
 - **WHEN** the user clicks Clear
 - **THEN** the next question does not use those turns
+
+### Requirement: First-screen composer
+While the client is not authenticated, the assistant interface SHALL keep the question input and send on the same first screen as the login row. On a wide laptop viewport the question input and send MUST be visible without scrolling away from the login row. The interface MUST NOT open a second product UI.
+
+#### Scenario: Wide viewport keeps send with login
+- **GIVEN** the interface is shown without a session
+- **AND** the interface is shown on a wide laptop viewport
+- **WHEN** the user looks at the screen
+- **THEN** an email field and a send-code control are visible
+- **AND** the question input and send are visible without scrolling
+
+#### Scenario: Narrow viewport still one screen
+- **GIVEN** the interface is shown without a session
+- **AND** the interface is shown on a narrow viewport
+- **WHEN** the user looks at the screen
+- **THEN** an email field and a send-code control are visible
+- **AND** the question input remains on the same screen
 
 ### Requirement: Login chrome on the same screen
 While the client is not authenticated, the assistant interface SHALL show a login row on the same screen: an email field, a control to send the one-time secret, a 6-digit field, a control to verify, and a status message. Copy SHALL be Spanish. While authenticated, that row SHALL hide the request/verify fields and SHALL show the signed-in email plus a logout control. Login and logout MUST NOT open a second product UI. A short confirm step for a mail login link MAY appear and MUST then return to this same assistant screen with the logout control visible. Logout MUST NOT clear the conversation by itself.

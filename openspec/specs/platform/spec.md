@@ -77,13 +77,20 @@ The serving process MAY export per-turn traces to a collector endpoint when that
 - **THEN** a structured chat response is still returned
 
 ### Requirement: Language-model timeout
-The system SHALL bound a language-model call with a configured timeout (default 60 seconds). On timeout the turn SHALL be silencio with abstain reason that the model was unavailable, and MUST NOT invent CAMEX text.
+The system SHALL bound a language-model call with a configured timeout (default 60 seconds). That bound SHALL be wall-clock for the whole call, including while a streaming thinking trace is still arriving. On timeout the turn SHALL be silencio with abstain reason that the model was unavailable, citations SHALL be empty, and the serving process SHALL still return a structured chat response. The system MUST NOT invent CAMEX text from a partial stream.
 
 #### Scenario: Timed-out generation is silencio
 - **GIVEN** the language-model call exceeds the configured timeout
 - **WHEN** the request is processed
 - **THEN** finding is silencio
 - **AND** citations are empty
+
+#### Scenario: Thinking tokens past the bound still silencio
+- **GIVEN** the language-model provider keeps sending thinking tokens past the configured timeout
+- **WHEN** the request is processed
+- **THEN** finding is silencio
+- **AND** citations are empty
+- **AND** the serving process still returns a structured chat response
 
 ### Requirement: Daily language-model turn caps
 The system SHALL count an authenticated chat question that passes the session check (and the demo-secret check when that secret is configured) toward daily caps. Chat-clear MUST NOT count. Unauthenticated requests MUST NOT count. After 30 counted turns in the current UTC day for that normalized email, or 100 counted turns in the current UTC day for the serving process, whichever happens first, a further counted question SHALL be HTTP 429, MUST NOT call the language model, and MUST NOT produce CAMEX clauses. A refused cap turn MUST NOT itself increment either cap. The process SHALL log that the email cap or the process cap was reached without persisting the full email, the session credential, or message text. Unauthenticated requests MUST NOT consume either cap. Chat-clear MUST NOT consume either cap. The existing per-client burst rate limit SHALL still apply after these caps. Plus-tags SHALL share the email cap of the collapsed mailbox.
