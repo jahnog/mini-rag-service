@@ -19,31 +19,71 @@
 }
 
 html,
-body,
-.gradio-container {
-  min-height: 100%;
+body {
+  height: 100%;
+  max-height: 100dvh;
+  overflow: hidden;
   color-scheme: dark;
   color: var(--text-primary);
   font-family: Sora, "Segoe UI", sans-serif;
   background: #050821;
 }
 
+html,
+body,
+gradio-app {
+  display: flex;
+  flex-direction: column;
+}
+
+gradio-app {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .gradio-container {
   position: relative;
   z-index: 1;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: 100dvh !important;
   max-width: 1500px !important;
   width: 100% !important;
   margin: 0 auto !important;
   padding: clamp(0.9rem, 1.6vw, 1.4rem) !important;
+  overflow: hidden !important;
   background: transparent !important;
+  color-scheme: dark;
+  color: var(--text-primary);
+  font-family: Sora, "Segoe UI", sans-serif;
 }
 
 .gradio-container .main,
 .gradio-container .fillable,
+.gradio-container .wrap,
 .gradio-container .contain,
+.gradio-container .contain > .column,
 #observatory-shell {
   max-width: none !important;
   width: 100% !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+.gradio-container .main,
+.gradio-container .fillable,
+.gradio-container .wrap,
+.gradio-container .contain,
+.gradio-container .contain > .column {
+  overflow: hidden !important;
 }
 
 .gradio-container footer,
@@ -82,7 +122,11 @@ footer.svelte-1ax1toq,
   flex-direction: column;
   flex: 1 1 auto;
   gap: 0.6rem;
-  min-height: calc(100dvh - 2 * clamp(0.9rem, 1.6vw, 1.4rem));
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
 }
 
 #observatory-topbar {
@@ -105,12 +149,18 @@ footer.svelte-1ax1toq,
 
 #observatory-stage,
 #observatory-side {
-  min-height: 0;
+  min-height: 0 !important;
+  max-height: 100%;
   gap: 0.5rem !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
 }
 
 #observatory-stage {
   flex-wrap: nowrap !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
 }
 
 #observatory-topbar,
@@ -173,12 +223,27 @@ footer.svelte-1ax1toq,
   flex: 1 1 auto !important;
   gap: 1rem !important;
   min-height: 0;
+  overflow: hidden;
 }
 
 #observatory-chat {
   flex: 1 1 auto !important;
   min-height: 12rem;
   height: auto !important;
+  max-height: 100%;
+  overflow: hidden !important;
+}
+
+@media (max-width: 1120px) {
+  #observatory-chat {
+    min-height: 8rem !important;
+  }
+}
+
+#observatory-chat .bubble-wrap,
+#observatory-chat .message-wrap {
+  overflow-y: auto !important;
+  min-height: 0 !important;
 }
 
 #observatory-freeze,

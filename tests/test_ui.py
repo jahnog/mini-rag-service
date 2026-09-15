@@ -158,6 +158,8 @@ def test_observatory_css_tokens() -> None:
     assert "layout-user" in css
     assert "#observatory-shell.layout-user .thought-group" in css
     assert "12rem" in css
+    assert "max-height: 100dvh" in css
+    assert "overflow: hidden" in css
     assert "display: block" in css
     assert "#observatory-title" in css
     assert "white-space: nowrap" in css
@@ -165,6 +167,7 @@ def test_observatory_css_tokens() -> None:
     assert "icon-button" in css
     assert ".bot-row" in css
     assert "480px" not in css.split("#observatory-chat")[1].split("}")[0]
+    assert "min-height: calc(100dvh" not in css
     thought_css = "".join(css.split(".thought-group")[1:])
     assert "h1" in thought_css
     assert "0.82rem" in thought_css
