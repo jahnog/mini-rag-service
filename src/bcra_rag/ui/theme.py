@@ -14,7 +14,7 @@ FAVICON_PATH = Path(__file__).with_name("favicon.png")
 OG_IMAGE_PATH = Path(__file__).with_name("og.png")
 PAGE_TITLE = "BCRA CAMEX"
 PAGE_DESCRIPTION = "Extracto no oficial CAMEX"
-THEME_COLOR = "#04111d"
+THEME_COLOR = "#050821"
 FAVICON_HREF = "/favicon.ico"
 OG_IMAGE_HREF = "/og.png"
 GRADIO_HEADER_IMAGE = (
@@ -39,19 +39,19 @@ _SET_CARD_KEYS = frozenset(
         "og:url",
     }
 )
-TEXT = "#f4fbff"
-TEXT_SUBDUED = "rgba(210, 228, 237, 0.8)"
-SURFACE = "rgba(8, 26, 43, 0.78)"
-SURFACE_STRONG = "rgba(5, 18, 30, 0.9)"
-BORDER = "rgba(124, 203, 214, 0.16)"
-BORDER_STRONG = "rgba(124, 203, 214, 0.3)"
-ACCENT = "#72d6cb"
-ACCENT_STRONG = "#9ce7df"
-INPUT_BG = "rgba(4, 15, 25, 0.55)"
-SECONDARY_BG = "rgba(4, 15, 25, 0.42)"
-PRIMARY_FILL = "linear-gradient(135deg, #9ce7df, #72d6cb)"
-PRIMARY_TEXT = "#03101c"
-SELECTED_FILL = "rgba(114, 214, 203, 0.22)"
+TEXT = "#ffffff"
+TEXT_SUBDUED = "#b5c5e8"
+SURFACE = "#121548"
+SURFACE_STRONG = "#0b123d"
+BORDER = "rgba(181, 197, 232, 0.28)"
+BORDER_STRONG = "#425cc7"
+ACCENT = "#f4b223"
+ACCENT_STRONG = "#425cc7"
+INPUT_BG = "#0b123d"
+SECONDARY_BG = "#0b123d"
+PRIMARY_FILL = "#f4b223"
+PRIMARY_TEXT = "#121548"
+SELECTED_FILL = "rgba(244, 178, 35, 0.22)"
 
 
 def observatory_css_path() -> Path:
@@ -222,7 +222,7 @@ def observatory_theme() -> Base:
         panel_background_fill_dark=SURFACE_STRONG,
         panel_border_color=BORDER,
         panel_border_color_dark=BORDER,
-        block_radius="28px",
+        block_radius="8px",
         border_color_accent=ACCENT,
         border_color_accent_dark=ACCENT,
         color_accent=ACCENT,
@@ -258,8 +258,8 @@ def observatory_theme() -> Base:
         checkbox_label_border_color_selected_dark=ACCENT,
     )
     return Base(
-        primary_hue=gr.themes.colors.teal,
-        secondary_hue=gr.themes.colors.sky,
+        primary_hue=gr.themes.colors.amber,
+        secondary_hue=gr.themes.colors.blue,
         neutral_hue=gr.themes.colors.slate,
         font=GoogleFont("Sora", weights=(400, 500, 600, 700)),
     ).set(**fills)

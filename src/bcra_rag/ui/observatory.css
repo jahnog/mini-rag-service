@@ -1,21 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg-deep: #04111d;
-  --bg-mid: #020811;
-  --surface: rgba(8, 26, 43, 0.78);
-  --surface-strong: rgba(5, 18, 30, 0.9);
-  --border-soft: rgba(124, 203, 214, 0.16);
-  --border-strong: rgba(124, 203, 214, 0.3);
-  --text-primary: #f4fbff;
-  --text-secondary: rgba(210, 228, 237, 0.8);
-  --accent: #72d6cb;
-  --accent-strong: #9ce7df;
-  --accent-warm: #ffd27d;
-  --success: #8ff5d1;
-  --warning: #ffc16d;
+  --bg-deep: #050821;
+  --bg-mid: #121548;
+  --surface: #121548;
+  --surface-strong: #0b123d;
+  --border-soft: rgba(181, 197, 232, 0.28);
+  --border-strong: #425cc7;
+  --text-primary: #ffffff;
+  --text-secondary: #b5c5e8;
+  --accent: #f4b223;
+  --accent-strong: #425cc7;
+  --accent-warm: #f4b223;
+  --success: #50e2e3;
+  --warning: #f4b223;
   --danger: #ff8f9d;
-  --radius-lg: 28px;
-  --shadow-lg: 0 26px 56px rgba(1, 8, 14, 0.35);
+  --radius-lg: 8px;
+  --shadow-lg: 0 12px 32px rgba(5, 8, 33, 0.45);
 }
 
 html,
@@ -25,23 +25,7 @@ body,
   color-scheme: dark;
   color: var(--text-primary);
   font-family: Sora, "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(114, 214, 203, 0.22), transparent 28%),
-    radial-gradient(circle at 82% 8%, rgba(255, 210, 125, 0.12), transparent 24%),
-    linear-gradient(180deg, #06111b 0%, #04111d 46%, #020811 100%);
-}
-
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: 120px 120px;
-  opacity: 0.28;
+  background: #050821;
 }
 
 .gradio-container {
@@ -75,13 +59,19 @@ footer.svelte-1ax1toq,
 #observatory-shell,
 #observatory-topbar,
 #observatory-stage,
-#observatory-side,
-#observatory-footer {
-  background: linear-gradient(180deg, var(--surface), var(--surface-strong));
+#observatory-side {
+  background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: 28px;
+  border-radius: 8px;
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(20px);
+}
+
+#observatory-footer {
+  background: #121548;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+  color: #ffffff;
 }
 
 #observatory-shell {
@@ -135,10 +125,13 @@ footer.svelte-1ax1toq,
 }
 
 #observatory-topbar p,
-#observatory-footer p,
 .obs-empty,
 .obs-trust-detail {
   color: var(--text-secondary);
+}
+
+#observatory-footer p {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 #observatory-topbar p,
@@ -220,6 +213,10 @@ footer.svelte-1ax1toq,
   height: 40px !important;
   min-height: 40px !important;
   white-space: nowrap;
+  border: 1px solid var(--accent) !important;
+  color: var(--accent) !important;
+  background: transparent !important;
+  border-radius: 999px !important;
 }
 
 #auth-status,
@@ -279,19 +276,19 @@ footer.svelte-1ax1toq,
 
 #observatory-stage .bubble-wrap,
 #observatory-stage .message-wrap {
-  background: rgba(5, 18, 30, 0.55) !important;
+  background: transparent !important;
   width: 100% !important;
 }
 
 #observatory-stage .user.message {
-  background: rgba(114, 214, 203, 0.16) !important;
+  background: rgba(244, 178, 35, 0.18) !important;
   color: var(--text-primary) !important;
-  border: 1px solid var(--border-strong) !important;
+  border: 1px solid var(--accent) !important;
 }
 
 #observatory-stage .bot.message,
 #observatory-stage .assistant.message {
-  background: rgba(4, 15, 25, 0.72) !important;
+  background: var(--surface-strong) !important;
   color: var(--text-primary) !important;
   border: 1px solid var(--border-soft) !important;
   width: 100% !important;
@@ -387,10 +384,10 @@ footer.svelte-1ax1toq,
 }
 
 #abstain-banner {
-  color: var(--warning);
-  border: 1px solid rgba(255, 193, 109, 0.35);
-  border-radius: 18px;
-  background: rgba(38, 23, 18, 0.55);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(244, 178, 35, 0.12);
   padding: 0.55rem 0.85rem;
 }
 
@@ -437,9 +434,9 @@ footer.svelte-1ax1toq,
 }
 
 #observatory-stage button.secondary:not(.observatory-pill) {
-  border: 1px solid var(--border-strong) !important;
-  color: var(--text-primary) !important;
-  background: rgba(4, 15, 25, 0.55) !important;
+  border: 1px solid var(--accent) !important;
+  color: var(--accent) !important;
+  background: transparent !important;
 }
 
 #observatory-pills {
@@ -456,8 +453,8 @@ footer.svelte-1ax1toq,
   min-height: 2.4rem;
   white-space: normal !important;
   border-radius: 999px !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  background: rgba(4, 15, 25, 0.4) !important;
+  border: 1px solid var(--border-soft) !important;
+  background: var(--surface-strong) !important;
   color: var(--text-primary) !important;
   padding: 0.4rem 0.9rem !important;
   line-height: 1.3 !important;
@@ -466,9 +463,10 @@ footer.svelte-1ax1toq,
 
 button.primary,
 .primary {
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent)) !important;
-  color: #03101c !important;
+  background: var(--accent) !important;
+  color: #121548 !important;
   border: 0 !important;
+  border-radius: 999px !important;
 }
 
 .obs-chips {
@@ -481,8 +479,8 @@ button.primary,
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: rgba(4, 15, 25, 0.55);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-strong);
   color: var(--text-primary);
   padding: 0.28rem 0.7rem;
   font-size: 0.82rem;
@@ -491,27 +489,27 @@ button.primary,
 }
 
 .obs-chip.pass {
-  border-color: rgba(143, 245, 209, 0.45);
+  border-color: var(--success);
   color: var(--success);
 }
 
 .obs-chip.warn {
-  border-color: rgba(255, 193, 109, 0.45);
+  border-color: var(--warning);
   color: var(--warning);
 }
 
 .obs-chip.block {
-  border-color: rgba(255, 143, 157, 0.45);
+  border-color: var(--danger);
   color: var(--danger);
 }
 
 .obs-chip.redact {
-  border-color: rgba(255, 193, 109, 0.45);
+  border-color: var(--warning);
   color: var(--warning);
 }
 
 .obs-chip.skipped {
-  border-color: rgba(210, 228, 237, 0.2);
+  border-color: var(--border-soft);
   color: var(--text-secondary);
 }
 
