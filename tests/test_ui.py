@@ -130,10 +130,16 @@ def _assert_bcra_cards(html: str, *, image: str, page: str) -> None:
 
 def test_observatory_css_tokens() -> None:
     css = observatory_css_path().read_text(encoding="utf-8")
-    assert "#04111d" in css
-    assert "#72d6cb" in css
-    assert "28px" in css
+    assert "#f4b223" in css
+    assert "#425cc7" in css
+    assert "#121548" in css
+    assert "#050821" in css
+    assert "8px" in css
     assert "color-scheme: dark" in css
+    assert "backdrop-filter" not in css
+    assert "body::after" not in css
+    assert "#04111d" not in css
+    assert "#72d6cb" not in css
     assert ".obs-chip" in css
     assert "#observatory-pills" in css
     assert "#observatory-chat" in css
@@ -152,6 +158,8 @@ def test_observatory_css_tokens() -> None:
     assert "layout-user" in css
     assert "#observatory-shell.layout-user .thought-group" in css
     assert "12rem" in css
+    assert "max-height: 100dvh" in css
+    assert "overflow: hidden" in css
     assert "display: block" in css
     assert "#observatory-title" in css
     assert "white-space: nowrap" in css
@@ -159,6 +167,7 @@ def test_observatory_css_tokens() -> None:
     assert "icon-button" in css
     assert ".bot-row" in css
     assert "480px" not in css.split("#observatory-chat")[1].split("}")[0]
+    assert "min-height: calc(100dvh" not in css
     thought_css = "".join(css.split(".thought-group")[1:])
     assert "h1" in thought_css
     assert "0.82rem" in thought_css
@@ -175,7 +184,7 @@ def test_observatory_theme_helpers() -> None:
     assert f"<title>{PAGE_TITLE}</title>" in head
     assert PAGE_TITLE == "BCRA CAMEX"
     assert 'name="theme-color"' in head
-    assert "#04111d" in head
+    assert "#050821" in head
     assert 'rel="icon"' in head
     assert 'href="/favicon.ico"' in head
     assert f'property="og:image" content="{OG_IMAGE_HREF}"' in head
@@ -189,10 +198,10 @@ def test_observatory_theme_helpers() -> None:
     assert og.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     theme = observatory_theme()
     assert theme is not None
-    assert theme.body_background_fill_dark == "#04111d"
+    assert theme.body_background_fill_dark == "#050821"
     assert "neutral_100" not in str(theme.input_background_fill)
     assert str(theme.button_secondary_text_color).lower() != "black"
-    assert "#04111d" in str(theme.body_background_fill)
+    assert "#050821" in str(theme.body_background_fill)
     js = observatory_js()
     assert f"document.title = {PAGE_TITLE!r}" in js
     assert "lang = \"es\"" in js or "lang='es'" in js
