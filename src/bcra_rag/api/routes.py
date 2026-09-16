@@ -3,9 +3,17 @@ from __future__ import annotations
 from typing import Any, cast
 
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
-from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
+from bcra_rag.api.chat_stream import json_chat_chunks
+from bcra_rag.api.handle import (
+    client_id_for,
+    demo_key_for,
+    handle_turn,
+    prepare_turn,
+    run_prepared_turn,
+)
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, build_auth, mount_auth
@@ -66,13 +74,9 @@ def create_fastapi(
         return dump_health(settings, index)
 
     @api.post("/chat", response_model=ChatResponse)
-    async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
-        return await handle_turn(
+    async def chat(payload: ChatRequest, request: Request) -> StreamingResponse:
+        prepared = prepare_turn(
             settings=settings,
-            index=index,
-            llm=llm,
-            sessions=sessions,
-            pipeline=pipeline,
             limiter=api.state.limiter,
             turn_caps=api.state.turn_caps,
             auth=resolved_auth,
@@ -80,13 +84,28 @@ def create_fastapi(
             message=payload.message,
             session_id=payload.session_id,
             k=payload.k,
-            filters=payload.filters,
-            request_id=getattr(request.state, "request_id", "unknown"),
             client_id=client_id_for(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
             demo_key=demo_key_for(request),
-            turn_evaluator=resolved_evaluator,
+        )
+        return StreamingResponse(
+            json_chat_chunks(
+                run_prepared_turn(
+                    prepared,
+                    settings=settings,
+                    index=index,
+                    llm=llm,
+                    sessions=sessions,
+                    pipeline=pipeline,
+                    message=payload.message,
+                    k=payload.k,
+                    filters=payload.filters,
+                    request_id=getattr(request.state, "request_id", "unknown"),
+                    turn_evaluator=resolved_evaluator,
+                )
+            ),
+            media_type="application/json",
         )
 
     @api.post("/chat/clear", response_model=ChatResponse)

@@ -29,7 +29,7 @@ def test_cron_wrapper_invariants() -> None:
     assert text.startswith("#!/usr/bin/env bash")
     assert "set -euo pipefail" in text
     assert "flock -n 9" in text
-    assert "15m" in text
+    assert "25m" in text
     assert "run-prod-smoke.sh" in text
     assert "direnv export bash" in text
     assert "PROD_SMOKE_NOTIFY_TO" in text
