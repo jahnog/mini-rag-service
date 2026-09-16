@@ -40,6 +40,11 @@ AUTH_VERIFY = "Verificar"
 AUTH_LOGOUT = "Cerrar sesión"
 AUTH_CLEAR = "Limpiar"
 AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
+AUTH_STATUS_SENDING = "Enviando…"
+AUTH_STATUS_SMTP_OK = "Código enviado"
+AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
+AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
+AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu email."
 
 

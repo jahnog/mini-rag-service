@@ -14,7 +14,12 @@ from bcra_rag.ui.config import (
     AUTH_LOGOUT,
     AUTH_NOTICE,
     AUTH_SEND,
+    AUTH_STATUS_FLASH_MS,
     AUTH_STATUS_GENERIC,
+    AUTH_STATUS_SENDING,
+    AUTH_STATUS_SMTP_FAIL,
+    AUTH_STATUS_SMTP_OK,
+    AUTH_STATUS_SMTP_PROBLEM,
     CANNED_PROMPTS,
     EMPTY_CITATION_CARD,
     EMPTY_TRUST,
@@ -65,13 +70,13 @@ from bcra_rag.ui.theme import (
     matomo_snippet,
     observatory_css_path,
     observatory_css_paths,
-    weblab_css_path,
     observatory_favicon_path,
     observatory_head,
     observatory_js,
     observatory_og_image_path,
     observatory_theme,
     rewrite_gradio_html,
+    weblab_css_path,
 )
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
@@ -171,6 +176,8 @@ def test_observatory_css_tokens() -> None:
     assert "overflow: hidden" in css
     assert "display: block" in css
     assert "#observatory-title" in css
+    assert "#auth-status.auth-status-ok" in css
+    assert "#auth-status.auth-status-err" in css
     assert "white-space: nowrap" in css
     assert ".fillable" in css
     assert "icon-button" in css
@@ -1011,6 +1018,29 @@ def test_auth_js_posts_token_email_request() -> None:
     assert "if (r.ok)" in _AUTH_REQUEST_JS
     assert "r.status === 403" in _AUTH_REQUEST_JS
     assert "r.status === 422" in _AUTH_REQUEST_JS
+    assert AUTH_STATUS_GENERIC in _AUTH_REQUEST_JS
+    assert AUTH_STATUS_SENDING in _AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_OK in _AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_FAIL in _AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_PROBLEM in _AUTH_REQUEST_JS
+    assert "No se pudo pedir el código." not in _AUTH_REQUEST_JS
+    assert str(AUTH_STATUS_FLASH_MS) in _AUTH_REQUEST_JS
+    assert "auth-status-ok" in _AUTH_REQUEST_JS
+    assert "auth-status-err" in _AUTH_REQUEST_JS
+    assert "__authSendToken" in _AUTH_REQUEST_JS
+    assert "readText() !== msg" in _AUTH_REQUEST_JS
+    assert "paint(msg, kind)" in _AUTH_REQUEST_JS
+    assert "aria-live" in _AUTH_REQUEST_JS
+    assert "Demasiados intentos. Probá más tarde." in _AUTH_REQUEST_JS
+    assert "flash = false" in _AUTH_REQUEST_JS
+    assert "Autenticación no configurada." not in _AUTH_REQUEST_JS
+    css = observatory_css_path().read_text(encoding="utf-8")
+    assert "#auth-status.auth-status-ok" in css
+    assert "#auth-status.auth-status-err" in css
+    assert "var(--success)" in css
+    assert "var(--danger)" in css
+    status_css = css[css.find("#auth-status") : css.find("#layout-toggle")]
+    assert "white-space: nowrap" not in status_css
     assert 'fetch("/auth/verify"' in _AUTH_VERIFY_JS
 
 

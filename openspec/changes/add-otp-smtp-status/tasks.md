@@ -1,0 +1,7 @@
+## 1. assistant-ui — send-code mail-server status
+
+- [x] 1.1 In `src/bcra_rag/ui/config.py` add `AUTH_STATUS_SENDING`, `AUTH_STATUS_SMTP_OK`, `AUTH_STATUS_SMTP_FAIL`, and `AUTH_STATUS_FLASH_MS = 2000`. Keep `AUTH_STATUS_GENERIC`. Verify `uv run pytest tests/test_ui.py::test_banner_and_canned_prompts -q` still sees the idle hint.
+
+- [x] 1.2 Rewrite `_AUTH_REQUEST_JS` in `src/bcra_rag/ui/gradio_app.py`: inject copy with `json.dumps`; paint `Enviando…` during fetch; HTTP 200 → SMTP ok, 503/`fetch` throw → SMTP fail, 429/403/422 unchanged; return that string; `setTimeout(0)` re-applies `auth-status-ok`/`auth-status-err`; after `AUTH_STATUS_FLASH_MS` restore generic only if visible text still equals this click’s SMTP line; token + disable `#auth-send` during fetch; `aria-live="polite"` once; still `fn=None` (no Python `.then()`). Verify `uv run pytest tests/test_ui.py::test_auth_js_posts_token_email_request -q`: `/auth/request`, `same-origin`, ok/fail/sending strings, `2000`, class names, token/text-match revert, 429 string present and not passed to the flash timer.
+
+- [x] 1.3 In `src/bcra_rag/ui/observatory.css` color `#auth-status.auth-status-ok` (and inner `p` / `.md`) with `var(--success)` and `.auth-status-err` with `var(--danger)`. Do not nowrap `#auth-status`. Verify `uv run pytest tests/test_ui.py::test_observatory_css_tokens tests/test_ui.py::test_auth_js_posts_token_email_request -q` and `uv run ruff check src/bcra_rag/ui tests/test_ui.py`.

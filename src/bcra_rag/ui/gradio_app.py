@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
@@ -31,7 +32,12 @@ from bcra_rag.ui.config import (
     AUTH_EMAIL_LABEL,
     AUTH_LOGOUT,
     AUTH_SEND,
+    AUTH_STATUS_FLASH_MS,
     AUTH_STATUS_GENERIC,
+    AUTH_STATUS_SENDING,
+    AUTH_STATUS_SMTP_FAIL,
+    AUTH_STATUS_SMTP_OK,
+    AUTH_STATUS_SMTP_PROBLEM,
     AUTH_VERIFY,
     CANNED_PROMPTS,
     L1_ACCORDION_OPEN_DEFAULT,
@@ -90,8 +96,44 @@ def _abstain_update(text: str, *, visible: bool) -> Any:
 
 TurnRunner = Callable[..., Awaitable[ChatResponse]]
 
-_AUTH_REQUEST_JS = """
+_AUTH_REQUEST_JS = (
+    """
 async (email) => {
+  const generic = __AUTH_GENERIC__;
+  const sending = __AUTH_SENDING__;
+  const smtpOk = __AUTH_SMTP_OK__;
+  const smtpFail = __AUTH_SMTP_FAIL__;
+  const smtpProblem = __AUTH_SMTP_PROBLEM__;
+  const flashMs = __AUTH_FLASH_MS__;
+  const okClass = "auth-status-ok";
+  const errClass = "auth-status-err";
+  const token = (window.__authSendToken = (window.__authSendToken || 0) + 1);
+  const sendBtn = document.querySelector("#auth-send button")
+    || document.querySelector("#auth-send");
+  const host = document.querySelector("#auth-status");
+  if (host && !host.getAttribute("aria-live")) {
+    host.setAttribute("aria-live", "polite");
+  }
+  const readText = () => {
+    const node = document.querySelector(
+      "#auth-status p, #auth-status .md, #auth-status"
+    );
+    return (node && node.textContent ? node.textContent : "").trim();
+  };
+  const paint = (text, kind) => {
+    const root = document.querySelector("#auth-status");
+    if (!root) return;
+    root.classList.remove(okClass, errClass);
+    if (kind === "ok") root.classList.add(okClass);
+    if (kind === "err") root.classList.add(errClass);
+    const node = root.querySelector("p") || root.querySelector(".md");
+    if (node) node.textContent = text;
+  };
+  if (sendBtn) sendBtn.disabled = true;
+  paint(sending, "idle");
+  let msg = smtpFail;
+  let kind = "err";
+  let flash = true;
   try {
     const r = await fetch("/auth/request", {
       method: "POST",
@@ -99,17 +141,60 @@ async (email) => {
       credentials: "same-origin",
       body: JSON.stringify({email: email || ""}),
     });
-    if (r.ok) return "Si el correo está habilitado, vas a recibir un código.";
-    if (r.status === 429) return "Demasiados intentos. Probá más tarde.";
-    if (r.status === 503) return "Autenticación no configurada.";
-    if (r.status === 403) return "Origen inválido.";
-    if (r.status === 422) return "Correo inválido.";
-    return "No se pudo pedir el código.";
+    if (r.ok) {
+      msg = smtpOk;
+      kind = "ok";
+    } else if (r.status === 429) {
+      msg = "Demasiados intentos. Probá más tarde.";
+      kind = "idle";
+      flash = false;
+    } else if (r.status === 403) {
+      msg = "Origen inválido.";
+      kind = "idle";
+      flash = false;
+    } else if (r.status === 422) {
+      msg = "Correo inválido.";
+      kind = "idle";
+      flash = false;
+    } else if (r.status === 503) {
+      msg = smtpFail;
+      kind = "err";
+    } else {
+      msg = smtpProblem;
+      kind = "err";
+    }
   } catch (e) {
-    return "No se pudo pedir el código.";
+    msg = smtpProblem;
+    kind = "err";
+    flash = true;
   }
+  if (sendBtn) sendBtn.disabled = false;
+  paint(msg, kind);
+  if (flash) {
+    setTimeout(() => {
+      if (token !== window.__authSendToken) return;
+      const root = document.querySelector("#auth-status");
+      if (!root) return;
+      root.classList.toggle(okClass, kind === "ok");
+      root.classList.toggle(errClass, kind === "err");
+    }, 0);
+    setTimeout(() => {
+      if (token !== window.__authSendToken) return;
+      if (readText() !== msg) return;
+      paint(generic, "idle");
+    }, flashMs);
+  }
+  return msg;
 }
-"""
+""".replace("__AUTH_GENERIC__", json.dumps(AUTH_STATUS_GENERIC, ensure_ascii=False))
+    .replace("__AUTH_SENDING__", json.dumps(AUTH_STATUS_SENDING, ensure_ascii=False))
+    .replace("__AUTH_SMTP_OK__", json.dumps(AUTH_STATUS_SMTP_OK, ensure_ascii=False))
+    .replace("__AUTH_SMTP_FAIL__", json.dumps(AUTH_STATUS_SMTP_FAIL, ensure_ascii=False))
+    .replace(
+        "__AUTH_SMTP_PROBLEM__", json.dumps(AUTH_STATUS_SMTP_PROBLEM, ensure_ascii=False)
+    )
+    .replace("__AUTH_FLASH_MS__", json.dumps(AUTH_STATUS_FLASH_MS))
+)
 
 _AUTH_VERIFY_JS = """
 async (email, code) => {
