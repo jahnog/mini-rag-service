@@ -97,7 +97,6 @@ footer.svelte-1ax1toq,
 }
 
 #observatory-shell,
-#observatory-topbar,
 #observatory-stage,
 #observatory-side {
   background: var(--surface);
@@ -106,12 +105,23 @@ footer.svelte-1ax1toq,
   box-shadow: var(--shadow-lg);
 }
 
-#observatory-footer {
-  background: #121548;
+/* Chrome is flat, matching weblab: the topbar and footer are hairline
+   bars, not floating cards. Stage and side stay cards. */
+#observatory-topbar {
+  background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 0;
   box-shadow: none;
-  color: #ffffff;
+}
+
+#observatory-footer {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-primary);
 }
 
 #observatory-shell {
@@ -181,7 +191,7 @@ footer.svelte-1ax1toq,
 }
 
 #observatory-footer p {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-secondary);
 }
 
 #observatory-topbar p,
