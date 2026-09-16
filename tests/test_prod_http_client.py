@@ -307,7 +307,7 @@ def test_remaining_send_gap() -> None:
     assert SEND_GAP_S > 60
     assert VERIFY_GAP_S >= 2.0
     assert DEFAULT_NEW_MAIL_TIMEOUT_S >= 180
-    assert CHAT_TIMEOUT_S >= 480
+    assert CHAT_TIMEOUT_S >= 720
     assert CHAT_RETRY_ATTEMPTS == 2
     assert CHAT_FAST_FAIL_S <= 15
     assert remaining_send_gap_s(NOW, now=NOW, gap_s=VERIFY_GAP_S) == VERIFY_GAP_S

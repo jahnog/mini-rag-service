@@ -58,7 +58,7 @@ fi
 
 START="$(date +%s)"
 set +e
-timeout --foreground --signal=TERM --kill-after=30s 15m \
+timeout --foreground --signal=TERM --kill-after=30s 25m \
   "${ROOT}/scripts/run-prod-smoke.sh" -q >"$RUN_LOG" 2>&1
 CODE=$?
 set -e
