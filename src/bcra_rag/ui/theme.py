@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 import gradio as gr
 from gradio.themes import Base, GoogleFont
 
+WEBLAB_CSS_PATH = Path(__file__).with_name("weblab.css")
 CSS_PATH = Path(__file__).with_name("observatory.css")
 FAVICON_PATH = Path(__file__).with_name("favicon.png")
 OG_IMAGE_PATH = Path(__file__).with_name("og.png")
@@ -54,8 +55,16 @@ PRIMARY_TEXT = "#121548"
 SELECTED_FILL = "rgba(244, 178, 35, 0.22)"
 
 
+def weblab_css_path() -> Path:
+    return WEBLAB_CSS_PATH
+
+
 def observatory_css_path() -> Path:
     return CSS_PATH
+
+
+def observatory_css_paths() -> list[Path]:
+    return [WEBLAB_CSS_PATH, CSS_PATH]
 
 
 def observatory_favicon_path() -> Path:

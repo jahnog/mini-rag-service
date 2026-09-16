@@ -1,21 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg-deep: #050821;
-  --bg-mid: #121548;
-  --surface: #121548;
-  --surface-strong: #0b123d;
-  --border-soft: rgba(181, 197, 232, 0.28);
-  --border-strong: #425cc7;
-  --text-primary: #ffffff;
-  --text-secondary: #b5c5e8;
-  --accent: #f4b223;
-  --accent-strong: #425cc7;
-  --accent-warm: #f4b223;
-  --success: #50e2e3;
-  --warning: #f4b223;
-  --danger: #ff8f9d;
-  --radius-lg: 8px;
-  --shadow-lg: 0 12px 32px rgba(5, 8, 33, 0.45);
+  --bg-deep: var(--wl-bg);
+  --bg-mid: var(--wl-surface);
+  --surface: var(--wl-surface);
+  --surface-strong: var(--wl-surface-strong);
+  --border-soft: var(--wl-border);
+  --border-strong: var(--wl-blue);
+  --text-primary: var(--wl-text);
+  --text-secondary: var(--wl-muted);
+  --accent: var(--wl-gold);
+  --accent-strong: var(--wl-blue);
+  --accent-warm: var(--wl-gold);
+  --success: var(--wl-success);
+  --warning: var(--wl-gold);
+  --danger: var(--wl-danger);
+  --radius-lg: var(--wl-radius);
+  --shadow-lg: var(--wl-shadow);
 }
 
 html,

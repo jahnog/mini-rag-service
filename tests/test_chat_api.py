@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from uuid import UUID
 
@@ -10,7 +11,8 @@ from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.auth import AuthSettings, FakeMailer, build_auth
 from bcra_rag.composition import build_app
-from bcra_rag.schemas import Finding
+from bcra_rag.ports.llm import OnThinking
+from bcra_rag.schemas import Finding, LlmDraft
 from tests.chat_fixtures import (
     AUTH_EMAIL,
     AUTH_SECRET,
@@ -39,6 +41,40 @@ def test_chat_named_a3500(tmp_path: Path) -> None:
     assert body["session_id"]
     assert body["request_id"]
     ids = [c["id"] for c in body["citations"]]
+    assert "A3500" in ids
+    assert llm.calls
+
+
+class _DelayedLlm:
+    def __init__(self, inner: FakeLlm, delay_s: float) -> None:
+        self.inner = inner
+        self.delay_s = delay_s
+
+    @property
+    def calls(self) -> list[str]:
+        return self.inner.calls
+
+    async def complete(
+        self, prompt: str, *, on_thinking: OnThinking | None = None
+    ) -> LlmDraft:
+        await asyncio.sleep(self.delay_s)
+        return await self.inner.complete(prompt, on_thinking=on_thinking)
+
+
+def test_chat_keeps_json_contract_across_proxy_keepalives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import bcra_rag.api.chat_stream as chat_stream
+
+    monkeypatch.setattr(chat_stream, "CHAT_HTTP_HEARTBEAT_S", 0.05)
+    llm = _DelayedLlm(FakeLlm(IN_CORPUS_DRAFT), delay_s=0.18)
+    client, _, _, _ = make_client(tmp_path, llm=llm)
+    response = client.post("/chat", json={"message": "Qué dice la Comunicación A 3500?"})
+    assert response.status_code == 200
+    assert response.content.startswith(b"\n")
+    assert response.content.count(b"\n") >= 3
+    body = response.json()
+    ids = [item["id"] for item in body["citations"]]
     assert "A3500" in ids
     assert llm.calls
 

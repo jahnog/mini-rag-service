@@ -64,6 +64,8 @@ from bcra_rag.ui.theme import (
     PAGE_TITLE,
     matomo_snippet,
     observatory_css_path,
+    observatory_css_paths,
+    weblab_css_path,
     observatory_favicon_path,
     observatory_head,
     observatory_js,
@@ -129,11 +131,18 @@ def _assert_bcra_cards(html: str, *, image: str, page: str) -> None:
 
 
 def test_observatory_css_tokens() -> None:
+    weblab = weblab_css_path().read_text(encoding="utf-8")
     css = observatory_css_path().read_text(encoding="utf-8")
-    assert "#f4b223" in css
-    assert "#425cc7" in css
-    assert "#121548" in css
-    assert "#050821" in css
+    assert "#f4b223" in weblab
+    assert "#425cc7" in weblab
+    assert "#121548" in weblab
+    assert "#050821" in weblab
+    assert "#b5c5e8" in weblab
+    assert "backdrop-filter" not in weblab
+    assert "#72d6cb" not in weblab
+    assert "#04111d" not in weblab
+    css_root = css.split("html,")[0]
+    assert "--accent: var(--wl-gold)" in css_root
     assert "8px" in css
     assert "color-scheme: dark" in css
     assert "backdrop-filter" not in css
@@ -178,6 +187,10 @@ def test_observatory_theme_helpers() -> None:
     path = observatory_css_path()
     assert path.name == "observatory.css"
     assert path.is_file()
+    weblab = weblab_css_path()
+    assert weblab.name == "weblab.css"
+    assert weblab.is_file()
+    assert observatory_css_paths() == [weblab, path]
     head = observatory_head()
     assert "_paq" not in head
     assert "matomo.js" not in head
@@ -219,7 +232,7 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert result is api
     kwargs = mount.call_args.kwargs
     assert kwargs["path"] == "/"
-    assert kwargs["css_paths"] == observatory_css_path()
+    assert kwargs["css_paths"] == observatory_css_paths()
     assert kwargs["head"] == observatory_head()
     assert kwargs["footer_links"] == []
     assert kwargs["run_history"] is False

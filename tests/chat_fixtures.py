@@ -12,6 +12,7 @@ from bcra_rag.composition import build_app
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.urls import TO_PDF_URL
+from bcra_rag.ports.llm import LlmPort
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 
@@ -121,13 +122,13 @@ def seed_ready(tmp_path: Path) -> tuple[Settings, FakeIndex, Manifest]:
 def make_client(
     tmp_path: Path,
     *,
-    llm: FakeLlm | None = None,
+    llm: LlmPort | None = None,
     settings: Settings | None = None,
     index: FakeIndex | None = None,
     sessions: InMemorySessionStore | None = None,
     auth: AuthModule | None = None,
     authenticate: bool = True,
-) -> tuple[TestClient, FakeLlm, FakeIndex, InMemorySessionStore]:
+) -> tuple[TestClient, LlmPort, FakeIndex, InMemorySessionStore]:
     seeded_settings, seeded_index, _ = seed_ready(tmp_path)
     resolved_settings = settings or seeded_settings
     resolved_index = index if index is not None else seeded_index
