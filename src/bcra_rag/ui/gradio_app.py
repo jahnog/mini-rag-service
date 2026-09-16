@@ -61,7 +61,7 @@ from bcra_rag.ui.config import (
 )
 from bcra_rag.ui.theme import (
     PAGE_TITLE,
-    observatory_css_path,
+    observatory_css_paths,
     observatory_favicon_path,
     observatory_head,
     observatory_js,
@@ -641,7 +641,7 @@ def mount_ui(
         blocks,
         path="/",
         theme=observatory_theme(),
-        css_paths=observatory_css_path(),
+        css_paths=observatory_css_paths(),
         head=observatory_head(
             matomo_url=matomo_url, matomo_site_id=matomo_site_id
         ),
