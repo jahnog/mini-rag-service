@@ -170,7 +170,7 @@ The staff layout SHALL show the per-query guardrail log as chips grouped by stag
 - **AND** that it would have blocked
 
 ### Requirement: L1 accordion
-In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. If the stored file is the unpublished shipped sample, the expanded section SHALL say the numbers are a sample and not an operator run. Results from an operator run need no such banner. The end-user layout SHALL NOT show Calidad L1.
+In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, when those blocks exist. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.
 
 #### Scenario: Accordion starts collapsed
 - **GIVEN** the interface has just loaded
@@ -182,6 +182,7 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **AND** a stored L1 results file
 - **WHEN** the user expands Calidad L1
 - **THEN** citation-id exact, hit@5, and A vs B from that file are shown
+- **AND** retrieval and generation headings are shown when those blocks exist
 - **AND** no eval request is sent to a model from the client
 
 #### Scenario: Unpublished fixture is labeled
@@ -190,10 +191,52 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **WHEN** the user expands Calidad L1
 - **THEN** the section states that the numbers are a sample or unpublished
 
+#### Scenario: Skipped generation is not zero
+- **GIVEN** the staff layout
+- **AND** the stored L1 results mark generation skipped
+- **WHEN** the user expands Calidad L1
+- **THEN** generation is labeled skipped
+- **AND** faithfulness is not shown as 0
+
+#### Scenario: Published dump-host run has no sample banner
+- **GIVEN** the staff layout
+- **AND** the dump index was ready
+- **AND** the stored L1 results are not labeled unpublished or sample
+- **AND** the serving process has reloaded after a dump-host operator L1 run
+- **WHEN** the user expands Calidad L1
+- **THEN** the stored operator numbers are shown
+- **AND** the section does not state that the numbers are a sample or unpublished
+- **AND** retrieval and generation headings are shown when those blocks exist
+
+#### Scenario: Sample banner survives reload when unpublished
+- **GIVEN** the staff layout
+- **AND** the stored L1 results are labeled unpublished or sample
+- **AND** the serving process has reloaded
+- **WHEN** the user expands Calidad L1
+- **THEN** the section states that the numbers are a sample or unpublished
+
 #### Scenario: End-user layout hides Calidad L1
 - **GIVEN** the interface is in the end-user layout
 - **WHEN** the user looks at the screen
 - **THEN** Calidad L1 is not shown
+
+### Requirement: Unauthenticated send does not query
+The assistant interface SHALL NOT produce a CAMEX answer, silencio clause, thinking trace, or citation inspector update from Enviar, Enter, Clear, or a canned prompt while the client is not authenticated. The user SHALL see a Spanish notice that they must sign in. The language model MUST NOT be called. Clear while unauthenticated MUST keep prior conversation turns and MUST NOT empty the conversation.
+
+#### Scenario: Enviar while logged out
+- **GIVEN** the interface is shown without a session
+- **WHEN** the user sends a question
+- **THEN** the language model is not called
+- **AND** a Spanish notice tells them to sign in
+- **AND** the citation inspector is not shown
+
+#### Scenario: Clear while logged out
+- **GIVEN** the interface is shown without a session
+- **AND** prior conversation turns are visible
+- **WHEN** the user clicks Clear
+- **THEN** the language model is not called
+- **AND** a Spanish notice tells them to sign in
+- **AND** those prior turns remain
 
 ### Requirement: Clear
 The interface SHALL provide a Clear control labeled Limpiar and SHALL treat typed `/clear` as the same action. Session id SHALL persist across turns in the same UI session until cleared.
@@ -214,13 +257,28 @@ The interface SHALL provide a Clear control labeled Limpiar and SHALL treat type
 - **THEN** that question uses the same session id
 
 ### Requirement: Layout toggle
-The assistant interface SHALL provide a management control that switches between a staff layout and an end-user layout without leaving the assistant. The default on load SHALL be the staff layout. The control SHALL remain visible in both layouts. A visible label next to the control SHALL name both layouts and SHALL state that staff shows the citation inspector, the per-query guardrail log, Calidad L1, and dump freeze dates, and that end-user keeps the question, the answer, send, Clear, and suggested prompts. Switching layout MUST NOT clear the conversation or the session.
+The assistant interface SHALL provide a management control that switches between a staff layout and an end-user layout without leaving the assistant. The default on load SHALL be the end-user layout, including when a valid session exists. The control SHALL remain visible in both layouts. A visible label next to the control SHALL name both layouts and SHALL state that staff shows the citation inspector, the per-query guardrail log, Calidad L1, and dump freeze dates, and that end-user keeps the question, the answer, send, Clear, and suggested prompts. Switching layout MUST NOT clear the conversation or the session. Selecting the staff layout SHALL apply staff chrome only when the client is authenticated; when the client is not authenticated, freeze chips, the side inspector, the trust log, Calidad L1, and thinking MUST stay hidden and the conversation MUST remain on the end-user layout.
 
 #### Scenario: Default load is staff
 - **GIVEN** a dump with last_refresh 2026-09-01, to_as_of A 8307, last A 8464
 - **WHEN** the interface loads
-- **THEN** freeze chips, citation inspector chrome, the trust panel, and Calidad L1 are present
+- **THEN** freeze chips, citation inspector chrome, the trust panel, and Calidad L1 are not shown
+- **AND** the question input, send, Clear, and suggested prompts are visible
+- **AND** the unofficial CAMEX extract wording is visible
 - **AND** Calidad L1 is not expanded into the main chat column
+
+#### Scenario: Authenticated reload still defaults to end-user
+- **GIVEN** a valid session
+- **WHEN** the interface loads
+- **THEN** the end-user layout is shown
+- **AND** selecting the staff layout reveals freeze chips and the side inspector without a new one-time secret
+
+#### Scenario: Unauthenticated staff selection does not reveal chrome
+- **GIVEN** the interface is shown without a session
+- **WHEN** the user selects the staff layout
+- **THEN** freeze chips, citation inspector chrome, the trust panel, Calidad L1, and thinking are not shown
+- **AND** the management control remains visible
+- **AND** the interface does not navigate away from the assistant
 
 #### Scenario: Label names both layouts and what changes
 - **GIVEN** the interface is shown
@@ -230,23 +288,102 @@ The assistant interface SHALL provide a management control that switches between
 - **AND** the label states that end-user keeps the question, the answer, send, Clear, and suggested prompts
 
 #### Scenario: Switch to end-user hides debug chrome
-- **GIVEN** the interface is in the staff layout
+- **GIVEN** an authenticated session
+- **AND** the interface is in the staff layout
 - **WHEN** the user selects the end-user layout
 - **THEN** the citation inspector, the guardrail log, Calidad L1, and dump freeze chips are not shown
 - **AND** the question input, conversation, send, Clear, and suggested prompts remain
 - **AND** the management control and its label remain visible
 
 #### Scenario: Switch back restores staff chrome
-- **GIVEN** the interface is in the end-user layout
+- **GIVEN** an authenticated session
+- **AND** the interface is in the end-user layout
 - **WHEN** the user selects the staff layout
 - **THEN** freeze chips, citation inspector chrome, the trust panel, and Calidad L1 are present again
 - **AND** the interface does not navigate away from the assistant
 
 #### Scenario: Layout switch keeps the session
-- **GIVEN** a session with prior turns
+- **GIVEN** an authenticated session with prior turns
 - **WHEN** the user switches from staff to end-user layout without clearing
 - **THEN** those turns remain in the conversation
 - **AND** a later question without Clear uses the same session
+
+### Requirement: Thinking in the output box
+The chat stage SHALL show a thinking region in the conversation output box that is visually distinct from the assistant answer (muted relative to the answer, not the same bubble). That region SHALL appear in the staff layout. The end-user layout SHALL NOT show the thinking region. While a turn is in flight, the thinking region SHALL show live motion (a spinner and/or pulse) so the user can tell work is happening. While the language model is producing a reasoning trace, the thinking region SHALL show that trace text as it is received, before the cited answer appears — not only a title or label. After the turn completes, that region SHALL remain expanded and collapsible. Prior turns MAY keep their thinking region collapsed. The cited answer, silencio text, and `Fuente:` line MUST NOT appear inside the thinking region. When `thinking` is absent, empty, or null, the conversation SHALL NOT leave an empty thinking region; the answer or silencio text SHALL still appear. The thinking region MUST NOT replace the cited answer, the `Fuente:` line, or the abstain banner. Clear SHALL drop prior turns including any thinking region. Switching layout MUST NOT clear the thinking region of the current conversation; the end-user layout SHALL hide it and the staff layout SHALL show it again.
+
+#### Scenario: Pending motion on send
+- **GIVEN** the interface is shown in the staff layout
+- **WHEN** the user sends a question
+- **THEN** the output box shows a thinking region with live motion before the cited answer or silencio appears
+
+#### Scenario: Trace is distinct from the cited answer
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a reasoning trace with a cited JSON answer
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the thinking region shows that trace text, not only a title or label
+- **AND** the assistant answer bubble shows the cited clause with a `Fuente:` line
+- **AND** the thinking region and the answer are visually distinct
+- **AND** the cited clause and `Fuente:` line are not inside the thinking region
+
+#### Scenario: Trace appears as it is received
+- **GIVEN** the index is ready
+- **AND** the language-model provider emits a reasoning trace before the cited JSON answer
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the thinking region shows that trace text while the turn is still in flight
+- **AND** the cited answer is not yet in the conversation
+- **AND** after the turn completes the thinking region stays expanded and collapsible
+- **AND** the cited answer appears below the thinking region, not inside it
+
+#### Scenario: Named Com. A still answers in chat
+- **GIVEN** Comunicación A 8359 is in the dump
+- **AND** the language-model provider returns a reasoning trace
+- **WHEN** the user asks what Comunicación A 8359 says
+- **THEN** the conversation shows the answer
+- **AND** the thinking region is above that answer
+- **AND** the thinking region is not the citation inspector
+
+#### Scenario: No leftover thinking when the model is not called
+- **GIVEN** the interface is shown
+- **AND** finding will be silencio without a language-model call (empty retrieval or a blocking guardrail)
+- **WHEN** the user asks that question
+- **THEN** the conversation shows the silencio answer
+- **AND** the output box does not leave an empty thinking region
+
+#### Scenario: No leftover thinking when the provider has no trace
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a cited JSON answer and no reasoning trace
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the conversation shows the answer
+- **AND** the output box does not leave an empty thinking region
+
+#### Scenario: Staff layout shows thinking; end-user layout hides it
+- **GIVEN** a turn whose response includes a thinking trace
+- **WHEN** the user is in the staff layout
+- **THEN** the thinking region is in the chat stage
+- **WHEN** the user selects the end-user layout without clearing
+- **THEN** the thinking region is not shown
+- **AND** the cited answer remains
+- **AND** the citation inspector is not shown
+- **WHEN** the user selects the staff layout again without clearing
+- **THEN** the thinking region is shown again
+
+#### Scenario: Clear drops thinking
+- **GIVEN** a session whose conversation includes a thinking region
+- **WHEN** the user clicks Clear
+- **THEN** the next question does not use those turns
+- **AND** the thinking region from the prior turn is gone
+
+### Requirement: Staff payloads stay off the wire in Usuario
+When the layout is the end-user layout, or the client is not authenticated, the assistant interface MUST NOT stream a thinking trace into the conversation and MUST NOT fill the citation inspector or the per-query guardrail log for that turn. Authenticated staff layout keeps the existing thinking, inspector, and trust contracts.
+
+#### Scenario: Usuario turn does not stream thinking
+- **GIVEN** an authenticated session
+- **AND** the interface is in the end-user layout
+- **AND** the language-model provider would return a reasoning trace
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the conversation shows the cited answer
+- **AND** the thinking region is not shown
+- **AND** the citation inspector is not shown
 
 ### Requirement: End-user layout
 In the end-user layout the interface SHALL show the question input, the conversation, send, Clear, and the four canned prompts (tipo de cambio de referencia A 3500/A 8359, liquidación de exportaciones, a 2001–2002 superseded-trap, and Com. A 9999). It SHALL hide the citation inspector, the per-query guardrail log, and Calidad L1. It SHALL NOT show dump freeze chips (`to_as_of`, `last_refresh`, last Comunicación id, document count). The footer SHALL still state that the extract is unofficial, not BCRA, not legal advice, and dated as of `last_refresh`. When finding is silencio, an abstain banner SHALL remain visible in the chat column.

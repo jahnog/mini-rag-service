@@ -1,9 +1,30 @@
 # authentication Specification
 
 ## Purpose
-TBD — Update Purpose after archive. Authentication proves mailbox control with a one-time secret or a mail login link.
+
+Prove control of an allowlisted email with a short-lived 6-digit one-time secret or a mail login link, keep that person signed in for a day, stop anonymous queries, and limit mail so the one-time secret cannot be used as an open relay.
 
 ## Requirements
+
+### Requirement: Standalone authentication
+Authentication SHALL own one-time secrets, session credentials, mail delivery, and send/verify limits as a standalone capability. Retrieval, ingest, chunking, catalog fetch, and the language-model path MUST NOT implement those. Chat SHALL depend on authentication only by requiring a valid session. The assistant interface SHALL depend on it only by asking whether a session is valid (to send a query or to show staff chrome). Ingest and refresh MUST still run when authentication is missing or misconfigured. `GET /health` SHALL still succeed without a session.
+
+#### Scenario: Ingest does not require a session
+- **GIVEN** no session credential
+- **AND** authentication is misconfigured
+- **WHEN** an ingest or refresh job runs
+- **THEN** it does not fail for lack of a session
+
+#### Scenario: Chat depends only on session validity
+- **GIVEN** an authenticated session
+- **AND** Comunicación A 3500 is in the dump
+- **WHEN** the client asks what Comunicación A 3500 says
+- **THEN** a citation id is `A3500`
+
+#### Scenario: Health stays public when auth is a separate capability
+- **GIVEN** no session credential
+- **WHEN** the client requests health
+- **THEN** the response is HTTP 200
 
 ### Requirement: Request a one-time secret
 The system SHALL accept a request that names an email and SHALL send a cryptographically random 6-digit one-time secret to that email when the email is on the configured allowlist, mail is configured, and no send limit is exceeded. The secret SHALL expire 5 minutes after it is issued. When that mailbox already has an unexpired unused secret, a later request SHALL return the same success shape, MUST NOT send a message, MUST NOT consume send limits, and MUST leave the existing secret, any unused login token, and the login-intent binding for the requesting browser valid. The one-time secret SHALL appear in the plaintext body and, when an HTML body is sent, in that HTML body, and MUST NOT appear in the message subject. When a public origin is configured, the same message SHALL also include a login URL under that origin (trailing slash on the origin omitted) whose path carries a high-entropy login token, never the 6-digit secret and never the mailbox. The system SHALL store only keyed hashes of the 6-digit secret and of the login token, never the digits or the token itself. The login token SHALL expire when the 6-digit secret expires. When the public origin is unset, the message MUST NOT include a login URL. The message SHALL be sent as a plaintext part and an HTML part that carry the same facts (code, expiry, ignore line, and the URL when present). When the email is not on the allowlist, or mail is not configured, the system MUST NOT send a message and MUST still return the same success shape as a send (no oracle). Malformed emails (missing `@`, whitespace, header-injection characters, unreasonable length) SHALL be rejected without sending. Two overlapping requests for the same mailbox MUST result in at most one message.
@@ -76,6 +97,43 @@ The system SHALL accept a request that names an email and SHALL send a cryptogra
 - **AND** the plaintext body contains a 6-digit secret
 - **AND** neither the plaintext body nor the HTML body contains a login URL
 
+### Requirement: Allowlist
+The system SHALL send a one-time secret only to emails on a configured allowlist, compared after normalizing the address (trim, lowercase, collapse a `+tag` in the local part). An empty allowlist SHALL send nothing. When the configured allowlist contains the token `*` (comma-separated entries, trimmed), every well-formed email SHALL be treated as allowlisted and SHALL receive a secret when mail is configured and no send limit is exceeded. Other entries in the same list SHALL NOT restrict that wildcard. Every authenticated email MAY use the end-user layout and MAY switch to the staff layout.
+
+#### Scenario: Empty allowlist sends nothing
+- **GIVEN** the allowlist is empty
+- **WHEN** a client requests a one-time secret for any well-formed email
+- **THEN** no message is sent
+- **AND** the response shape matches a successful request
+
+#### Scenario: Plus-tag matches the allowlisted mailbox
+- **GIVEN** the allowlist includes `ops@example.com`
+- **AND** mail is configured
+- **WHEN** a client requests a one-time secret for `ops+staff@example.com`
+- **THEN** a message is sent to the requested address
+- **AND** that mailbox counts as `ops@example.com` for send limits and allowlist match
+
+#### Scenario: Wildcard allowlist sends to any well-formed email
+- **GIVEN** the allowlist contains `*`
+- **AND** mail is configured
+- **WHEN** a client requests a one-time secret for `stranger@example.com`
+- **THEN** a message is sent to `stranger@example.com`
+- **AND** the body contains a 6-digit secret
+- **AND** the subject does not contain that secret
+
+#### Scenario: Wildcard with other entries still sends
+- **GIVEN** the allowlist contains `*` and `ops@example.com`
+- **AND** mail is configured
+- **WHEN** a client requests a one-time secret for `stranger@example.com`
+- **THEN** a message is sent to `stranger@example.com`
+
+#### Scenario: Plus-tag under wildcard still collapses for limits
+- **GIVEN** the allowlist contains `*`
+- **AND** mail is configured
+- **WHEN** a client requests a one-time secret for `ops+staff@example.com`
+- **THEN** a message is sent to `ops+staff@example.com`
+- **AND** that mailbox counts as `ops@example.com` for send limits
+
 ### Requirement: Verify the one-time secret
 Submitting the same email and the current unexpired 6-digit secret SHALL authenticate that email for 24 hours. The secret SHALL be single-use. Using the login token SHALL also consume the 6-digit secret, and using the 6-digit secret SHALL consume the login token. Comparison SHALL NOT leak the secret through timing of a digit-by-digit mismatch. Five failed attempts for a given secret SHALL burn it (and its login token). An expired, burned, or unknown secret SHALL fail with the same generic error. Success SHALL set an HTTP-only session credential the browser sends on later requests. The credential MUST NOT be readable from page script. The credential SHALL be marked Secure when the public origin is HTTPS, when a trusted forwarded proto is HTTPS, when the request Origin or Referer is HTTPS, or when the request URL is HTTPS. Logout SHALL forget the credential with the same Secure flag. A local HTTP demo without those HTTPS signals SHALL omit Secure.
 
@@ -127,6 +185,83 @@ Submitting the same email and the current unexpired 6-digit secret SHALL authent
 - **THEN** the session credential is HTTP-only
 - **AND** it is not marked Secure
 
+### Requirement: Send and verify limits
+The system SHALL refuse to send or verify without revealing which bucket fired, using HTTP 429 when a limit applies, and MUST NOT send mail on a refused send. A coalesced request that does not send MUST NOT consume send limits. A send attempt that fails to deliver MUST still consume send limits. Defaults:
+
+- at most 5 distinct normalized emails per client identity per UTC day
+- at most 1 send per normalized email per 60 seconds
+- at most 10 sends per normalized email per UTC day
+- at most 20 sends per client identity per UTC day
+- at most 5 failed verifies per secret, then burn
+- at most 15 failed verifies per client identity per hour, then a 15-minute cooldown
+- at most 1 verify per normalized email per 2 seconds
+- at most 200 sends per process per UTC day
+
+When the wait is known (the 60-second per-email gap), the response SHALL include `Retry-After`. Client identity SHALL be the connecting address unless a trusted-proxy setting is on, in which case it SHALL be the first `X-Forwarded-For` hop. Plus-tags SHALL NOT create extra distinct-email budget.
+
+#### Scenario: Sixth distinct email from one client is refused
+- **GIVEN** one client has already requested secrets for 5 distinct emails today
+- **WHEN** that client requests a secret for a sixth distinct allowlisted email
+- **THEN** no message is sent
+- **AND** the response is HTTP 429
+
+#### Scenario: Second send to the same email within a minute is refused
+- **GIVEN** a secret was sent to `ops@example.com` 10 seconds ago
+- **AND** that secret has expired
+- **WHEN** a client requests another secret for `ops@example.com`
+- **THEN** no message is sent
+- **AND** the response is HTTP 429
+
+#### Scenario: Failed send still consumes the minute budget
+- **GIVEN** mail is configured but delivery fails
+- **WHEN** a client requests a one-time secret for an allowlisted email
+- **THEN** a second request for that email within a minute is HTTP 429
+- **AND** no one-time secret authenticates from the failed send
+
+### Requirement: Logout and session probe
+The system SHALL end the session when the client logs out, and SHALL forget the credential on the browser. Logout MUST NOT clear chat conversation memory by itself. A session probe SHALL report whether the client is authenticated and, when authenticated, the email. The probe MUST NOT require a secret. Unauthenticated probe SHALL succeed with `authenticated` false (not HTTP 401).
+
+#### Scenario: Logout blocks later chat
+- **GIVEN** an authenticated client
+- **WHEN** the client logs out
+- **THEN** a later chat request is unauthenticated
+- **AND** HTTP 401 is returned
+- **AND** the language model is not called
+
+#### Scenario: Probe without a session
+- **GIVEN** no session credential
+- **WHEN** the client probes the session
+- **THEN** the response indicates not authenticated
+- **AND** the status is not HTTP 401
+
+### Requirement: Chat requires a valid session
+Every chat turn and every chat-clear SHALL require a valid unexpired session. Without one, the system SHALL respond HTTP 401, MUST NOT retrieve, MUST NOT call the language model, MUST NOT mint or write chat session memory, and MUST NOT produce CAMEX clauses. The assistant interface and the HTTP chat endpoints SHALL share this check. `GET /health` SHALL remain public. Authentication endpoints SHALL remain usable without a session. If the signing secret is missing or shorter than 32 characters, authentication endpoints SHALL fail closed (HTTP 503) and chat SHALL still reject unauthenticated clients.
+
+#### Scenario: Unauthenticated chat is 401
+- **GIVEN** no session credential
+- **WHEN** the client posts a CAMEX question
+- **THEN** the response is HTTP 401
+- **AND** the language model is not called
+- **AND** retrieval is not performed
+- **AND** no chat session id is minted
+
+#### Scenario: Unauthenticated clear is 401
+- **GIVEN** no session credential
+- **WHEN** the client posts chat-clear
+- **THEN** the response is HTTP 401
+- **AND** the language model is not called
+
+#### Scenario: Authenticated named Com. A still answers
+- **GIVEN** an authenticated session
+- **AND** Comunicación A 3500 is in the dump
+- **WHEN** the client asks what Comunicación A 3500 says
+- **THEN** a citation id is `A3500`
+
+#### Scenario: Health stays public
+- **GIVEN** no session credential
+- **WHEN** the client requests health
+- **THEN** the response is HTTP 200
+
 ### Requirement: Logs must not leak secrets
 Process logs SHALL NOT persist the one-time secret, the login token, the session credential, or the full email. They MAY persist a request id, a short hash prefix of the email, and an outcome (`sent`, `limited`, `invalid`, `verified`).
 
@@ -163,6 +298,17 @@ When a public origin is configured, POST authentication requests (request a secr
 - **WHEN** a client GETs the login URL with Referer `https://mail.google.com`
 - **THEN** the request is not rejected for origin
 - **AND** the client is not authenticated from that GET alone
+
+### Requirement: Mail send fails closed
+When mail delivery fails or exceeds the configured send timeout (default 10 seconds), the system SHALL NOT install a one-time secret, SHALL NOT authenticate, and SHALL fail closed with HTTP 503 on authentication endpoints. The error MUST NOT name the mailbox or the digits. A later successful send after the per-email wait MAY issue a new secret.
+
+#### Scenario: Failed delivery does not authenticate
+- **GIVEN** an allowlisted email
+- **AND** mail delivery fails
+- **WHEN** a client requests a one-time secret
+- **THEN** the response is HTTP 503
+- **AND** no one-time secret for that request authenticates
+- **AND** the response does not contain the mailbox or digits
 
 ### Requirement: Consume a login link
 A login URL issued with a one-time secret SHALL authenticate that mailbox for 24 hours when consumed, under the same session-credential rules as a correct 6-digit secret (HTTP-only, not readable from page script, Secure under the same HTTPS signals, 24-hour lifetime, single-use). The hop whose URL still contains the token MUST NOT set a session credential: it MAY store a short-lived HTTP-only cookie scoped to the login-link path and MUST redirect to a token-free login-link URL. A session MAY be set on that token-free GET only when the browser that requested the secret presents the matching intent cookie and the request is a top-level document navigation. Otherwise a valid unused token SHALL show a Spanish confirm page that names the mailbox and authenticates only on a user POST. Missing navigation headers SHALL NOT auto-authenticate (confirm instead). HEAD MUST NOT authenticate and MUST NOT consume the token. An expired, burned, unknown, or already-used token SHALL show the same generic Spanish failure and a token-free link back to the assistant, without setting a session. GET hops on the login-link path MUST NOT require a matching Origin or Referer (mail clients send a foreign Referer). A mismatched origin on the confirm POST SHALL be rejected without authenticating and MUST NOT consume the token. Failed login-link consumes SHALL count toward the same per-client verify-failure limits as a wrong 6-digit secret and MUST NOT burn a different mailbox's unused secret. The confirm page MUST NOT embed the token. Login-link cookies MUST NOT be sent on chat requests. Responses on the login-link path SHALL forbid storing, framing, and leaking a Referer. Process logs MUST NOT persist the login-link cookie value.
