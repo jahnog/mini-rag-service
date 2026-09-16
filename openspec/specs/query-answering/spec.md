@@ -7,7 +7,7 @@ Turn a user question into a short cited answer or silencio, with a structured re
 ## Requirements
 
 ### Requirement: Structured cited answer
-The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag and reason, `last_refresh`, `to_as_of`, per-query guardrail log, retrieval sidecar, request id, and session id. Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary.
+The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag and reason, `last_refresh`, `to_as_of`, per-query guardrail log, retrieval sidecar, request id, session id, and optional `thinking` (a reasoning trace from the language-model provider; absent, empty, or null when none). Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary. A chat request MUST NOT accept `thinking` as an input field.
 
 #### Scenario: Successful in-corpus answer
 - **GIVEN** the index is ready
@@ -24,6 +24,81 @@ The system SHALL return a structured response that includes: answer text with a 
 - **AND** abstain is true
 - **AND** citations are empty
 - **AND** the answer names `last_refresh`
+
+#### Scenario: Chat request does not accept thinking as input
+- **GIVEN** a ready index
+- **WHEN** a client posts a chat body that includes a `thinking` field
+- **THEN** the request is rejected
+- **AND** extra unknown fields remain rejected at the boundary
+
+### Requirement: Reasoning trace
+When the language model is called and the provider returns a reasoning trace, the structured response SHALL include that trace as `thinking`, separate from `answer`. `thinking` MUST NOT be concatenated into `answer` or into a `Fuente:` line. `thinking` MUST NOT include the JSON answer object when the provider copies that object into the reasoning trace. When the provider returns no trace, `thinking` SHALL be absent, empty, or null. Paths that do not call the language model (`/clear`, a blocking guardrail, empty retrieval, index not ready) SHALL NOT invent a thinking trace. A failed language-model call SHALL leave `thinking` absent, empty, or null and MUST NOT put exception text in `thinking` or `answer`. Session memory SHALL store the answer text, not the thinking trace.
+
+#### Scenario: In-corpus answer with a trace
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a reasoning trace with the cited JSON answer
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** the response `thinking` contains that trace
+- **AND** `answer` still contains a `Fuente:` line
+- **AND** `answer` does not contain the thinking trace concatenated into the clause
+- **AND** the response includes `last_refresh` and `to_as_of`
+
+#### Scenario: In-corpus answer without a trace
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a cited JSON answer and no reasoning trace
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** `thinking` is absent, empty, or null
+- **AND** `answer` still contains a `Fuente:` line
+
+#### Scenario: Named Com. A still cites the dump
+- **GIVEN** the index is ready
+- **AND** Comunicación A 8359 is in the dump
+- **AND** the language-model provider returns a reasoning trace
+- **WHEN** the user asks what Comunicación A 8359 says
+- **THEN** the chat response citations include dump id `A8359`
+- **AND** `thinking` is the provider trace, not the citation id
+
+#### Scenario: Empty retrieval is silencio without thinking
+- **GIVEN** retrieval returns no usable hits
+- **WHEN** the user asks a question
+- **THEN** finding is silencio
+- **AND** the language model is not called
+- **AND** `thinking` is absent, empty, or null
+
+#### Scenario: Typed /clear has no thinking
+- **GIVEN** a session with prior turns
+- **WHEN** the user sends `/clear`
+- **THEN** the acknowledgement has no retrieved citations
+- **AND** the language model is not called
+- **AND** `thinking` is absent, empty, or null
+
+#### Scenario: Failed language-model call has no thinking
+- **GIVEN** the index is ready
+- **WHEN** the language-model call fails or no key is configured
+- **THEN** finding is `silencio`
+- **AND** `abstain_reason` is `llm_unavailable`
+- **AND** `thinking` is absent, empty, or null
+- **AND** the answer does not contain exception text
+
+#### Scenario: JSON body copied into the reasoning trace is stripped
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a reasoning trace that also contains the JSON answer object
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** `thinking` does not include that JSON object
+- **AND** `answer` still comes from the JSON body
+
+#### Scenario: JSON thinking with an answer property shows that text
+- **GIVEN** the index is ready
+- **AND** the language-model provider returns a reasoning trace that is a JSON object with an `answer` string
+- **WHEN** the user asks an in-corpus vigente question
+- **THEN** `thinking` is that `answer` string
+- **AND** `thinking` does not include the JSON braces or the `answer` key
+
+#### Scenario: Follow-up does not replay thinking
+- **GIVEN** the user asked about punto 3.8.5 and received a cited answer with a thinking trace
+- **WHEN** the user asks “y ese punto?” in the same session
+- **THEN** the new answer includes a citation that exists in the dump
+- **AND** session memory for the prior turn is the answer text, not the thinking trace
 
 ### Requirement: Finding matches the clause
 The system SHALL set finding to `obligacion` or `prohibicion` only when the cited snippet actually carries a duty or prohibition (deber, deberá, no podrán, queda prohibido, or a numbered duty). Otherwise it SHALL use definicion, procedimiento, permiso, or silencio. That check SHALL run deterministically after generation and MUST NOT require a second language-model call.
@@ -179,3 +254,42 @@ When the system composes the latest message with prior-turn text for retrieval, 
 - **WHEN** the user asks “y el clima en Madrid?”
 - **THEN** finding is silencio
 - **AND** the language model is not called
+
+### Requirement: Named-fetch snippet salvage
+When retrieval is a named Comunicación fetch and that dump id is in this turn’s hits, and the language-model draft is not finding `silencio`, the system SHALL publish a citation whose id is that dump id and whose snippet is a verbatim substring of the fetched section when either: the draft already cites that dump id, or the draft omits citations but the answer text names that dump id. A paraphrased or empty snippet field MUST NOT cause `silencio` with abstain reason `cite-or-abstain` on that named path. If the draft omits citations and never names the dump id, cite-or-abstain SHALL still abstain. Vigente and similar retrieval SHALL keep requiring a this-turn dump id and a verbatim snippet without this salvage.
+
+#### Scenario: Named A 3500 paraphrased snippet still cites
+- **GIVEN** Comunicación A 3500 is in the dump
+- **AND** the language-model draft finding is not silencio
+- **AND** the draft cites dump id `A3500` with a snippet that is not a verbatim substring of the fetched section
+- **WHEN** the user asks what Comunicación A 3500 says
+- **THEN** the response cites dump id `A3500`
+- **AND** the citation snippet is a substring of the fetched section
+- **AND** finding is not silencio
+
+#### Scenario: Named A 3500 answer names the id without citations
+- **GIVEN** Comunicación A 3500 is in the dump
+- **AND** the language-model draft finding is not silencio
+- **AND** the draft citations are empty
+- **AND** the draft answer names `A3500`
+- **WHEN** the user asks what Comunicación A 3500 says
+- **THEN** the response cites dump id `A3500`
+- **AND** the citation snippet is a substring of the fetched section
+
+#### Scenario: Named A 3500 uncited draft stays silencio
+- **GIVEN** Comunicación A 3500 is in the dump
+- **AND** the language-model draft finding is not silencio
+- **AND** the draft citations are empty
+- **AND** the draft answer does not name `A3500`
+- **WHEN** the user asks what Comunicación A 3500 says
+- **THEN** finding is silencio
+- **AND** abstain reason is `cite-or-abstain`
+- **AND** citations are empty
+
+#### Scenario: Similar-route paraphrase stays silencio
+- **GIVEN** the index is ready
+- **AND** retrieval is not a named Comunicación fetch
+- **AND** the language-model draft cites a this-turn dump id with a paraphrased snippet
+- **WHEN** the user asks an in-corpus question that does not name a single Comunicación
+- **THEN** finding is silencio
+- **AND** abstain reason is `cite-or-abstain`

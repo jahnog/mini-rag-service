@@ -34,13 +34,36 @@ The system SHALL reject a message longer than the configured maximum (default 40
 - **AND** the language model is not called
 
 ### Requirement: Rate limit
-The system SHALL apply a crude per-client rate limit (default 20 chat requests per 60 seconds) and SHALL queue concurrent UI users. Extra requests SHALL be rejected or delayed and MUST NOT each produce a full CAMEX answer. An optional shared demo secret MAY be required when the UI is on a public URL. A local demo MAY leave that secret unset.
+The system SHALL apply a crude per-client rate limit (default 20 chat requests per 60 seconds) and SHALL queue concurrent UI users. Extra requests SHALL be rejected or delayed and MUST NOT each produce a full CAMEX answer. An optional shared demo secret MAY be required when the UI is on a public URL. A local demo MAY leave that secret unset. Client identity for this limit SHALL use the same trusted-proxy rule as authentication (connecting address unless trusted-proxy is on). Unauthenticated requests MUST NOT consume this chat budget (they fail authentication first).
 
 #### Scenario: Repeated requests are limited
-- **GIVEN** a client that exceeds the configured request rate
+- **GIVEN** an authenticated client that exceeds the configured request rate
 - **WHEN** further chat requests are sent
 - **THEN** those extra requests are rejected or delayed
 - **AND** they do not each produce a full CAMEX answer
+
+#### Scenario: Unauthenticated 401 does not eat the chat budget
+- **GIVEN** no session credential
+- **AND** the chat rate limit is 2 requests per 60 seconds
+- **WHEN** three unauthenticated chat requests are sent
+- **THEN** each is HTTP 401
+- **AND** a later authenticated request is not rejected solely because of those three
+
+### Requirement: Unauthenticated chat is rejected
+`POST /chat` and `POST /chat/clear` SHALL require a valid session. Without one they SHALL return HTTP 401, MUST NOT retrieve, MUST NOT call the language model, MUST NOT write chat session memory, and MUST NOT produce invented CAMEX text. An optional shared demo secret, when configured, SHALL still be required in addition to the session (not instead of it). The existing per-client chat rate limit SHALL apply only after the session is accepted.
+
+#### Scenario: Repeated unauthenticated posts do not call the model
+- **GIVEN** no session credential
+- **WHEN** several chat requests are sent
+- **THEN** each response is HTTP 401
+- **AND** the language model is not called
+
+#### Scenario: Demo secret is not a substitute for the session
+- **GIVEN** a configured demo secret
+- **AND** no session credential
+- **WHEN** a chat request is sent with that demo secret
+- **THEN** the response is HTTP 401
+- **AND** the language model is not called
 
 ### Requirement: Single-process session memory
 Chat session memory is in-process. The serving process SHALL run as one worker. v1 MUST NOT serve chat from multiple replicas that do not share that memory.
@@ -51,30 +74,193 @@ Chat session memory is in-process. The serving process SHALL run as one worker. 
 - **THEN** each session keeps its own last turns
 - **AND** one session’s `/clear` does not wipe the other
 
+### Requirement: Chat memory is bound to the authenticated email
+Chat turn memory SHALL belong to the authenticated email. The public session id on the wire SHALL remain a UUID. A later authenticated client that presents the same session id under a different email MUST NOT retrieve, continue, or send those prior turns to the language model. The same email with the same session id SHALL still resume. Unauthenticated requests still MUST NOT write chat session memory.
+
+#### Scenario: Follow-up does not leak across mailboxes
+- **GIVEN** an authenticated session for `ops@example.com` with a prior turn
+- **AND** that turn’s session id
+- **WHEN** `other@example.com` is authenticated and posts a follow-up with that session id
+- **THEN** the language model is not given the prior turn from `ops@example.com`
+- **AND** the response is not HTTP 401
+
+#### Scenario: Same mailbox still follows up
+- **GIVEN** an authenticated session for `ops@example.com` with a prior turn
+- **WHEN** that mailbox posts a follow-up with the same session id
+- **THEN** the language model receives that prior turn
+
 ### Requirement: Automated tests with fakes
-The project SHALL provide a test command that runs unit and acceptance tests with fakes (no live LLM key required for L1) and SHALL emit a coverage report for the deterministic core.
+The project SHALL provide a test command that runs unit and acceptance tests with fakes (no live LLM key required for L1) and SHALL emit a coverage report for the deterministic core. That default command MUST NOT require a running serving process, live mail, a browser, or a language-model key. Live acceptance against the local serving process SHALL be a separate operator command and MUST NOT run as part of the default command. The live BCRA catalog download command MUST NOT execute live acceptance.
 
 #### Scenario: Default test command
 - **GIVEN** the repository test command
 - **WHEN** it runs
 - **THEN** unit and Gherkin suites execute with fakes
 - **AND** a coverage report file is produced
+- **AND** live mail, a browser, and a running serving process are not required
+
+#### Scenario: Live acceptance is not the default
+- **GIVEN** the repository default test command
+- **WHEN** it runs
+- **THEN** live acceptance scenarios against the local serving process do not execute
+
+#### Scenario: Catalog download does not run live acceptance
+- **GIVEN** the live BCRA catalog download command
+- **WHEN** it runs
+- **THEN** live acceptance scenarios against the local serving process do not execute
 
 ### Requirement: Shared dump for refresh and chat
-Refresh and chat SHALL read the same dump and index on the host that stores them.
+Refresh, chat, and operator L1 on the dump host SHALL read the same dump and index on the host that stores them.
 
 #### Scenario: Same dump for API and refresh
 - **GIVEN** ingest wrote documents on the host dump
 - **WHEN** the API answers a question
 - **THEN** it reads that same dump and index
 
+#### Scenario: Same dump for dump-host L1
+- **GIVEN** ingest wrote documents on the host dump
+- **AND** the index is ready
+- **WHEN** the operator runs L1 on that host
+- **THEN** L1 reads that same dump and index
+
+### Requirement: Operator dump-host L1
+An operator MAY run L1 on the dump host against the same dump and index that chat uses. That command MUST accept the same suite choices as the laptop operator command (retrieval only, generation only, both, and skip the judge). It MUST NOT start the assistant interface.
+
+#### Scenario: Dump-host L1 uses the host dump
+- **GIVEN** ingest wrote documents on the host dump
+- **AND** the index is ready
+- **WHEN** the operator runs L1 on that host
+- **THEN** scoring uses that same dump and index
+- **AND** the static results document is written
+
+### Requirement: Dump-host L1 serializes with host jobs
+Dump-host L1 MUST serialize with ingest and refresh so those jobs do not run at the same time as L1.
+
+#### Scenario: Dump-host L1 does not overlap refresh
+- **GIVEN** a scheduled refresh is running
+- **WHEN** the operator starts dump-host L1
+- **THEN** L1 waits until refresh finishes
+- **OR** refresh waits until L1 finishes
+
+#### Scenario: Dump-host L1 does not overlap ingest
+- **GIVEN** ingest is running
+- **WHEN** the operator starts dump-host L1
+- **THEN** L1 waits until ingest finishes
+- **OR** ingest waits until L1 finishes
+
+### Requirement: Dump-host L1 stops and reloads serving
+Dump-host L1 MUST stop the serving process for the duration of the run. In-process chat sessions MUST NOT survive that stop. After the run finishes or fails, the serving process MUST be running again. After a dump-host operator run, staff Calidad L1 SHALL read the reloaded static document.
+
+#### Scenario: Named Com. A still answers after L1 reload
+- **GIVEN** the dump contains Comunicación A 3500
+- **AND** a dump-host L1 run has finished and the serving process has reloaded
+- **WHEN** the user asks what Comunicación A 3500 says
+- **THEN** a structured chat response is still returned
+
+#### Scenario: Clear still works after L1 reload
+- **GIVEN** a dump-host L1 run has finished and the serving process has reloaded
+- **WHEN** the user clicks Clear
+- **THEN** Clear is still available
+- **AND** the next question does not use turns from before the reload
+
+#### Scenario: Serving is up if L1 fails
+- **GIVEN** dump-host L1 has failed
+- **WHEN** the operator inspects the host
+- **THEN** the serving process is running
+
 ### Requirement: Optional trace collector
-The serving process MAY export per-turn traces to a collector endpoint when that endpoint is configured. Export MUST fail open: a collector error MUST NOT fail chat. When the endpoint is unset, the process SHALL still answer. Default automated tests MUST NOT require a live collector.
+The serving process MAY export per-turn traces to a collector endpoint when that endpoint is configured. When the endpoint is set, the process MAY also send a configured API key with those exports. An unset key SHALL still export to an unauthenticated collector. Export MUST fail open: a collector error, including an authentication failure, MUST NOT fail chat. When the endpoint is unset, the process SHALL still answer. When the endpoint is set, retrieval steps MAY be exported as retriever spans that include retrieved document identifiers and truncated document text. Default automated tests MUST NOT require a live collector or a real collector key. Hostnames MUST NOT be hardcoded; the collector URL is configuration.
 
 #### Scenario: Unset collector still answers
 - **GIVEN** no collector endpoint is configured
 - **WHEN** the user asks an in-corpus question
 - **THEN** a structured chat response is still returned
+
+#### Scenario: Retriever spans on chat
+- **GIVEN** a collector endpoint is configured
+- **WHEN** the user asks what is required today to liquidate
+- **THEN** a retriever span MAY be exported for that turn
+- **AND** chat still returns a structured response if export fails
+
+#### Scenario: Named Com. A still answers when collector auth fails
+- **GIVEN** a collector endpoint is configured
+- **AND** the collector rejects the request as unauthenticated
+- **WHEN** the user asks what Comunicación A 3500 says
+- **THEN** a structured chat response is still returned
+
+#### Scenario: Unset key still answers with a collector
+- **GIVEN** a collector endpoint is configured
+- **AND** no collector API key is configured
+- **WHEN** the user asks a vigente question
+- **THEN** a structured chat response is still returned
+
+#### Scenario: Clear still works when the collector has a key
+- **GIVEN** a collector endpoint is configured
+- **AND** a collector API key is configured
+- **WHEN** the user sends `/clear`
+- **THEN** the acknowledgement has no retrieved citations
+- **AND** the language model is not called
+
+### Requirement: Chat process does not load eval scoring
+The serving process SHALL answer chat without loading evaluation scoring or the judge. Optional retriever spans on chat MUST NOT pull in the evaluation operator. Default automated tests MUST NOT require the judge extra for chat.
+
+#### Scenario: Chat without judge extra
+- **GIVEN** the judge extra is not installed
+- **WHEN** the user asks a named Comunicación A that is in the dump
+- **THEN** a structured chat response is still returned
+
+### Requirement: Namespaced eval annotations
+When a collector endpoint is configured, an operator L1 run MAY attach scores as annotations on exported spans. Annotation names SHALL be prefixed with the suite (`retrieval.` or `generation.`). A collector error MUST NOT fail the static L1 write. When the endpoint is unset, L1 SHALL still write the static results document. Default automated tests MUST NOT require a live collector.
+
+#### Scenario: Unset collector still writes L1
+- **GIVEN** no collector endpoint is configured
+- **WHEN** an operator L1 run completes
+- **THEN** the static results document is written
+- **AND** the run is not treated as failed
+
+#### Scenario: Collector error does not wipe results
+- **GIVEN** a collector endpoint is configured
+- **AND** the collector rejects annotations
+- **WHEN** an operator L1 run finishes scoring
+- **THEN** the static results document still contains the scores
+
+#### Scenario: Annotations are namespaced
+- **GIVEN** a collector endpoint is configured
+- **AND** both suites ran
+- **WHEN** annotations are exported
+- **THEN** retrieval scores use a `retrieval.` prefix
+- **AND** generation scores use a `generation.` prefix
+
+### Requirement: Oracle generation does not search
+When generation is scored with oracle context, the serving index MUST NOT be searched for those gold questions. Retriever spans MUST NOT be emitted for that oracle generation. Chat turns that retrieve as usual MAY still export retriever spans when the collector is set.
+
+#### Scenario: Oracle generation has no retriever span
+- **GIVEN** a collector endpoint is configured
+- **AND** generation context is oracle
+- **WHEN** L1 scores a gold question
+- **THEN** no retriever search span is exported for that generation
+- **AND** a structured generation result is still produced
+
+#### Scenario: Chat retrieve still fail-open
+- **GIVEN** a collector endpoint is configured
+- **WHEN** the user asks a named Comunicación A that is in the dump
+- **THEN** a structured chat response is still returned even if span export fails
+
+### Requirement: Local traces alongside optional collector
+The serving process MAY export per-turn traces to a collector endpoint when that endpoint is configured. Export MUST fail open: a collector error MUST NOT fail chat. Whether or not that endpoint is set, the process SHALL also write compact per-span records to a dump-host traces file. A failure to write that file MUST NOT fail chat. Default automated tests MUST NOT require a live collector.
+
+#### Scenario: Unset collector still answers and still writes local traces
+- **GIVEN** no collector endpoint is configured
+- **WHEN** the user asks an in-corpus question
+- **THEN** a structured chat response is still returned
+- **AND** the dump-host traces file includes a `chat.turn` record
+
+#### Scenario: Collector error still answers
+- **GIVEN** a collector endpoint is configured
+- **AND** export to that collector fails
+- **WHEN** the user asks an in-corpus question
+- **THEN** a structured chat response is still returned
+- **AND** the dump-host traces file still includes a `chat.turn` record
 
 ### Requirement: Language-model timeout
 The system SHALL bound a language-model call with a configured timeout (default 60 seconds). That bound SHALL be wall-clock for the whole call, including while a streaming thinking trace is still arriving. On timeout the turn SHALL be silencio with abstain reason that the model was unavailable, citations SHALL be empty, and the serving process SHALL still return a structured chat response. The system MUST NOT invent CAMEX text from a partial stream.
@@ -138,3 +324,26 @@ The system SHALL count an authenticated chat question that passes the session ch
 - **AND** Comunicación A 3500 is in the dump
 - **WHEN** the client asks what Comunicación A 3500 says
 - **THEN** a citation id is `A3500`
+
+### Requirement: Production smoke is a separate operator command
+The project SHALL provide a production-smoke command, separate from the default test command and from live local-acceptance, that exercises the already-running serving process at a configured public origin. That command MUST NOT run as part of the default test command or the default CI workflow. The live local-acceptance command and the live BCRA catalog download command MUST NOT execute production smoke. This requirement does not change the existing fakes-only default test command.
+
+#### Scenario: Production smoke is not the default
+- **GIVEN** the repository default test command
+- **WHEN** it runs
+- **THEN** production smoke scenarios against the public origin do not execute
+
+#### Scenario: Default CI does not run production smoke
+- **GIVEN** the default CI workflow
+- **WHEN** it runs
+- **THEN** production smoke scenarios do not execute
+
+#### Scenario: Catalog download does not run production smoke
+- **GIVEN** the live BCRA catalog download command
+- **WHEN** it runs
+- **THEN** production smoke scenarios against the public origin do not execute
+
+#### Scenario: Live acceptance does not run production smoke
+- **GIVEN** the live local-acceptance command
+- **WHEN** it runs
+- **THEN** production smoke scenarios against the public origin do not execute
