@@ -4,7 +4,7 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
 
 ## 1. platform — settings
 
-- [ ] 1.1 `src/bcra_rag/settings.py`, after `llm_enable_thinking: bool = True` (~line 32), add:
+- [x] 1.1 `src/bcra_rag/settings.py`, after `llm_enable_thinking: bool = True` (~line 32), add:
   ```python
   llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
   llm_max_tokens: int = Field(default=1500, ge=64)
@@ -12,11 +12,11 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
   llm_reasoning_budget: int = Field(default=0, ge=0)
   llm_thinking_user_layout: bool = False
   ```
-- [ ] 1.2 `tests/test_settings.py::test_chat_settings_defaults` (~line 41): add `monkeypatch.delenv` for `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_SEED`, `LLM_REASONING_BUDGET`, `LLM_THINKING_USER_LAYOUT` (raising=False) and assert `settings.llm_temperature == 0.1`, `settings.llm_max_tokens == 1500`, `settings.llm_seed is None`, `settings.llm_reasoning_budget == 0`, `settings.llm_thinking_user_layout is False`. Add `test_llm_generation_settings_from_env` setting the five env vars (`"0.7"`, `"800"`, `"7"`, `"512"`, `"true"`) and asserting the parsed values. Verify: `uv run pytest tests/test_settings.py -q` → passes.
+- [x] 1.2 `tests/test_settings.py::test_chat_settings_defaults` (~line 41): add `monkeypatch.delenv` for `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_SEED`, `LLM_REASONING_BUDGET`, `LLM_THINKING_USER_LAYOUT` (raising=False) and assert `settings.llm_temperature == 0.1`, `settings.llm_max_tokens == 1500`, `settings.llm_seed is None`, `settings.llm_reasoning_budget == 0`, `settings.llm_thinking_user_layout is False`. Add `test_llm_generation_settings_from_env` setting the five env vars (`"0.7"`, `"800"`, `"7"`, `"512"`, `"true"`) and asserting the parsed values. Verify: `uv run pytest tests/test_settings.py -q` → passes.
 
 ## 2. platform — port and adapters
 
-- [ ] 2.1 `src/bcra_rag/ports/llm.py`: add
+- [x] 2.1 `src/bcra_rag/ports/llm.py`: add
   ```python
   class LlmBadJson(ValueError):
       """The model body is not a usable JSON answer object."""
@@ -31,9 +31,9 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
       thinking: bool | None = None,
   ) -> LlmDraft: ...
   ```
-- [ ] 2.2 `src/bcra_rag/schemas.py::LlmDraft` (~line 79-89): add `ttft_ms: float = 0.0` and `thinking_chars: int = 0` after `completion_tokens`.
-- [ ] 2.3 `src/bcra_rag/adapters/llm_fake.py`: `FakeLlm.__init__` adds `self.thinking_args: list[bool | None] = []`; both `FakeLlm.complete` and `UnavailableLlm.complete` accept `thinking: bool | None = None` and append it to `self.thinking_args` (UnavailableLlm gets the same list attribute). Also give `FakeLlm` an optional constructor kwarg `fail_first: type[Exception] | None = None` — when set, the first `complete` call records `thinking` in `self.thinking_args`, then raises `fail_first("bad")` and clears the flag, so a retry sees `thinking_args == [None, False]` (used by the retry test).
-- [ ] 2.4 `src/bcra_rag/adapters/llm_openai.py`:
+- [x] 2.2 `src/bcra_rag/schemas.py::LlmDraft` (~line 79-89): add `ttft_ms: float = 0.0` and `thinking_chars: int = 0` after `completion_tokens`.
+- [x] 2.3 `src/bcra_rag/adapters/llm_fake.py`: `FakeLlm.__init__` adds `self.thinking_args: list[bool | None] = []`; both `FakeLlm.complete` and `UnavailableLlm.complete` accept `thinking: bool | None = None` and append it to `self.thinking_args` (UnavailableLlm gets the same list attribute). Also give `FakeLlm` an optional constructor kwarg `fail_first: type[Exception] | None = None` — when set, the first `complete` call records `thinking` in `self.thinking_args`, then raises `fail_first("bad")` and clears the flag, so a retry sees `thinking_args == [None, False]` (used by the retry test).
+- [x] 2.4 `src/bcra_rag/adapters/llm_openai.py`:
   - import `LlmBadJson` from `bcra_rag.ports.llm`.
   - Replace `parse_llm_draft` body (~line 63-81): call `payload = _extract_json_object(raw)` (new helper below), keep the finding coercion, wrap `LlmDraft.model_validate(...)` in `try/except ValidationError as exc: raise LlmBadJson(str(exc)) from exc` (`from pydantic import ValidationError`).
   - Add:
@@ -57,7 +57,7 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
     ```
   - `_thinking_extra_body(base_url: str, enabled: bool, budget: int = 0)` (~line 216): when `budget > 0` add `"reasoning_budget": budget` to the returned dict.
   - `LlmAdapter.complete(self, prompt, *, on_thinking=None, thinking: bool | None = None)` (~line 151): `enabled = self._settings.llm_enable_thinking if thinking is None else thinking`; kwargs gain `"temperature": self._settings.llm_temperature`, `"max_tokens": self._settings.llm_max_tokens`, and `"seed": self._settings.llm_seed` only when not `None`; `extra = _thinking_extra_body(base_url, enabled, self._settings.llm_reasoning_budget)`. Measure `started = time.perf_counter()` before `create()`, set `ttft_ms` at the first chunk where `assembler.feed_chunk(chunk)` returns true (`ttft_ms = (time.perf_counter() - started) * 1000` once). Track `finish_reason`: for each chunk, `choices = getattr(chunk, "choices", None) or []`; if `choices` and `getattr(choices[0], "finish_reason", None) == "length"` set `truncated = True`. After the loop, if `truncated` raise `LlmBadJson("truncated")`. Return `draft.model_copy(update={..., "ttft_ms": round(ttft_ms, 1), "thinking_chars": len(thinking)})`.
-- [ ] 2.5 Tests in `tests/test_llm_port.py`:
+- [x] 2.5 Tests in `tests/test_llm_port.py`:
   - `test_parse_llm_draft_missing_answer_fails` (~line 146): expect `LlmBadJson` instead of `ValidationError`.
   - Add:
     ```python
@@ -117,8 +117,8 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
 
 ## 3. query-answering — typed failures, retry, timings
 
-- [ ] 3.1 `src/bcra_rag/domain/guardrails/types.py::RailContext` (~line 74-93): add `timings: dict[str, float] = field(default_factory=dict)` and `generate_reason: str | None = None`.
-- [ ] 3.2 `src/bcra_rag/use_cases/answer_query.py`:
+- [x] 3.1 `src/bcra_rag/domain/guardrails/types.py::RailContext` (~line 74-93): add `timings: dict[str, float] = field(default_factory=dict)` and `generate_reason: str | None = None`.
+- [x] 3.2 `src/bcra_rag/use_cases/answer_query.py`:
   - imports: `import time` (if absent), `from bcra_rag.ports.llm import LlmBadJson, LlmPort, OnThinking`.
   - Add near `GeneratedFromContext`:
     ```python
@@ -196,8 +196,8 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
     thinking_chars=getattr(ctx.draft, "thinking_chars", 0) if ctx.draft else 0,
     ```
     (`abstain_reason` is already present through `**payload`; do not add it twice).
-- [ ] 3.3 `src/bcra_rag/api/handle.py`: `run_prepared_turn(..., on_thinking=None, turn_evaluator=None, thinking: bool | None = None)` passes `thinking=thinking` to `use_case.run`; `handle_turn` gains `thinking: bool | None = None` and forwards it.
-- [ ] 3.4 `src/bcra_rag/ui/config.py`: add
+- [x] 3.3 `src/bcra_rag/api/handle.py`: `run_prepared_turn(..., on_thinking=None, turn_evaluator=None, thinking: bool | None = None)` passes `thinking=thinking` to `use_case.run`; `handle_turn` gains `thinking: bool | None = None` and forwards it.
+- [x] 3.4 `src/bcra_rag/ui/config.py`: add
   ```python
   def thinking_for_layout(staff: bool, settings: Settings) -> bool | None:
       """None keeps LLM_ENABLE_THINKING; False turns thinking off for a Usuario turn."""
@@ -206,7 +206,7 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
       return False
   ```
   (`from bcra_rag.settings import Settings`; check the module does not already import it under TYPE_CHECKING). `src/bcra_rag/ui/gradio_app.py::build_blocks._turn.run_turn` (~line 394-421): pass `thinking=thinking_for_layout(staff, settings)` to `handle_turn`.
-- [ ] 3.5 Tests:
+- [x] 3.5 Tests:
   - `tests/test_answer_query.py`: keep `test_llm_failure_is_silencio_not_exception_text` (`UnavailableLlm` → `llm_unavailable`, answer still names `last_refresh`). Add:
     ```python
     @pytest.mark.asyncio
@@ -264,11 +264,11 @@ Requires change 01. Line anchors are as of this change's writing; grep the quote
 
 ## 4. Docs
 
-- [ ] 4.1 README `### Debug` paragraph (~line 129): after the `LLM_ENABLE_THINKING` sentences add: "`LLM_TEMPERATURE` (0.1), `LLM_MAX_TOKENS` (1500; with thinking on, llama.cpp counts reasoning tokens inside this bound — raise it or set `LLM_REASONING_BUDGET`), `LLM_SEED` (unset), `LLM_REASONING_BUDGET` (0 = provider default; llama.cpp only), `LLM_THINKING_USER_LAYOUT` (false: Usuario turns run without thinking). A timed-out call is `abstain_reason=llm_timeout`; an unreadable body retries once without thinking, then `llm_bad_json`. `chat_turn` logs `retrieve_ms`, `llm_ms`, `ttft_ms`, `thinking_chars`."
-- [ ] 4.2 `.env.example` and `deploy/env.remote.example`: after `LLM_ENABLE_THINKING=true` add commented lines `# LLM_TEMPERATURE=0.1`, `# LLM_MAX_TOKENS=1500`, `# LLM_SEED=`, `# LLM_REASONING_BUDGET=0`, `# LLM_THINKING_USER_LAYOUT=false`. Verify: `uv run pytest tests/test_settings.py tests/test_deploy.py -q` → passes.
-- [ ] 4.3 Sync spec deltas into `openspec/specs/{platform,query-answering,query-logging}/spec.md`.
+- [x] 4.1 README `### Debug` paragraph (~line 129): after the `LLM_ENABLE_THINKING` sentences add: "`LLM_TEMPERATURE` (0.1), `LLM_MAX_TOKENS` (1500; with thinking on, llama.cpp counts reasoning tokens inside this bound — raise it or set `LLM_REASONING_BUDGET`), `LLM_SEED` (unset), `LLM_REASONING_BUDGET` (0 = provider default; llama.cpp only), `LLM_THINKING_USER_LAYOUT` (false: Usuario turns run without thinking). A timed-out call is `abstain_reason=llm_timeout`; an unreadable body retries once without thinking, then `llm_bad_json`. `chat_turn` logs `retrieve_ms`, `llm_ms`, `ttft_ms`, `thinking_chars`."
+- [x] 4.2 `.env.example` and `deploy/env.remote.example`: after `LLM_ENABLE_THINKING=true` add commented lines `# LLM_TEMPERATURE=0.1`, `# LLM_MAX_TOKENS=1500`, `# LLM_SEED=`, `# LLM_REASONING_BUDGET=0`, `# LLM_THINKING_USER_LAYOUT=false`. Verify: `uv run pytest tests/test_settings.py tests/test_deploy.py -q` → passes.
+- [x] 4.3 Sync spec deltas into `openspec/specs/{platform,query-answering,query-logging}/spec.md`.
 
 ## 5. Gates
 
-- [ ] 5.1 `uv run ruff check .`; `uv run mypy src`; `uv run pytest -q --cov=src --cov-report=term-missing` → green, ≥ 80%.
-- [ ] 5.2 Operator check against local llama.cpp: a Usuario turn shows no "Pensó" row and returns markedly faster than a Staff turn; `data/logs/chat.log` last line has `llm_ms`, `ttft_ms`, `thinking_chars`.
+- [x] 5.1 `uv run ruff check .`; `uv run mypy src`; `uv run pytest -q --cov=src --cov-report=term-missing` → green, ≥ 80%.
+- [x] 5.2 Operator check against local llama.cpp: a Usuario turn shows no "Pensó" row and returns markedly faster than a Staff turn; `data/logs/chat.log` last line has `llm_ms`, `ttft_ms`, `thinking_chars`.

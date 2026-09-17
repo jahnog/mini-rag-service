@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     llm_model: str = "grok-4-1-fast"
     llm_timeout_s: float = Field(default=60.0, ge=1.0)
     llm_enable_thinking: bool = True
+    llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    llm_max_tokens: int = Field(default=1500, ge=64)
+    llm_seed: int | None = None
+    llm_reasoning_budget: int = Field(default=0, ge=0)
+    llm_thinking_user_layout: bool = False
     demo_api_key: str = ""
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)

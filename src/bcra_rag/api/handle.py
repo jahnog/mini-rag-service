@@ -82,6 +82,7 @@ async def run_prepared_turn(
     request_id: str,
     on_thinking: OnThinking | None = None,
     turn_evaluator: TurnEvaluator | None = None,
+    thinking: bool | None = None,
 ) -> ChatResponse:
     use_case = AnswerQuery(
         settings,
@@ -97,6 +98,7 @@ async def run_prepared_turn(
         ),
         request_id=request_id,
         on_thinking=on_thinking,
+        thinking=thinking,
     )
     return response.model_copy(update={"session_id": prepared.public_id})
 
@@ -121,6 +123,7 @@ async def handle_turn(
     demo_key: str | None,
     on_thinking: OnThinking | None = None,
     turn_evaluator: TurnEvaluator | None = None,
+    thinking: bool | None = None,
 ) -> ChatResponse:
     prepared = prepare_turn(
         settings=settings,
@@ -147,6 +150,7 @@ async def handle_turn(
         request_id=request_id,
         on_thinking=on_thinking,
         turn_evaluator=turn_evaluator,
+        thinking=thinking,
     )
 
 

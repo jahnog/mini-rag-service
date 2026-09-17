@@ -56,6 +56,7 @@ from bcra_rag.ui.config import (
     l1_markdown,
     layout_updates,
     load_l1,
+    thinking_for_layout,
     thinking_for_staff,
     thought_markdown,
     thought_publish_ready,
@@ -1305,3 +1306,14 @@ def test_auth_status_smtp_ok_names_window() -> None:
     assert "1 minutos" in auth_status_smtp_ok(20)
     assert "Código enviado" not in auth_request_js(auth_status_smtp_ok(300))
     assert "hace menos de 7 minutos" in auth_request_js(auth_status_smtp_ok(420))
+
+
+def test_thinking_for_layout(tmp_path: Path) -> None:
+    from bcra_rag.settings import Settings
+
+    assert thinking_for_layout(False, Settings(data_dir=tmp_path)) is False
+    assert thinking_for_layout(True, Settings(data_dir=tmp_path)) is None
+    assert (
+        thinking_for_layout(False, Settings(data_dir=tmp_path, llm_thinking_user_layout=True))
+        is None
+    )

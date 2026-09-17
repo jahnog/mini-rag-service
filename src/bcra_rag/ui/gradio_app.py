@@ -71,6 +71,7 @@ from bcra_rag.ui.config import (
     inspector_payload,
     l1_markdown,
     load_l1,
+    thinking_for_layout,
     thinking_for_staff,
     thought_publish_ready,
     trust_markdown,
@@ -488,6 +489,7 @@ def build_blocks(
                 demo_key=key or None,
                 on_thinking=on_thinking,
                 turn_evaluator=resolved_evaluator,
+                thinking=thinking_for_layout(staff, settings),
             )
 
         async for item in iter_observatory_turn(

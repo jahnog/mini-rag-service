@@ -14,7 +14,7 @@ from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.turn_eval import TurnScores
 from bcra_rag.logconfig import configure_logging
-from bcra_rag.ports.llm import OnThinking
+from bcra_rag.ports.llm import LlmBadJson, OnThinking
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery, generate_from_context
@@ -493,8 +493,13 @@ class _SlowThinkingLlm:
         self.n = n
 
     async def complete(
-        self, prompt: str, *, on_thinking: OnThinking | None = None
+        self,
+        prompt: str,
+        *,
+        on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> LlmDraft:
+        del thinking
         self.calls.append(prompt)
         acc = ""
         for _ in range(self.n):
@@ -539,6 +544,7 @@ async def test_thinking_past_timeout_is_silencio_not_partial_draft(
     assert "TimeoutError" not in ctx.answer
     assert "pienso" not in ctx.answer
     assert llm.calls
+    assert ctx.generate_reason == "llm_timeout"
 
 
 @pytest.mark.asyncio
@@ -739,6 +745,9 @@ async def test_in_corpus_turn_is_logged(
     question = "qué se exige hoy para liquidar el cobro de exportaciones"
     response = await use_case.run(ChatRequest(message=question), request_id="req-log")
     event = _assert_stdout_matches_file(capsys, log_file)
+    for key in ("retrieve_ms", "llm_ms", "ttft_ms", "thinking_chars"):
+        assert key in event
+    assert event["abstain_reason"] is None
     assert event["message"] == question
     assert event["answer"] == response.answer
     assert event["finding"] == response.finding.value
@@ -1149,3 +1158,74 @@ async def test_turn_eval_failure_still_answers(tmp_path: Path) -> None:
     )
     assert response.answer
     assert evaluator.calls
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_reason(tmp_path: Path) -> None:
+    class SlowLlm(FakeLlm):
+        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(0.3)
+            return await super().complete(prompt, on_thinking=on_thinking, thinking=thinking)
+
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(update={"llm_timeout_s": 0.05})
+    use_case = AnswerQuery(
+        settings,
+        index,
+        SlowLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="t"
+    )
+    assert response.abstain_reason == "llm_timeout"
+    assert "tardó demasiado" in response.answer
+    assert LAST_REFRESH in response.answer
+
+
+@pytest.mark.asyncio
+async def test_llm_bad_json_retries_without_thinking(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    llm = FakeLlm(IN_CORPUS_DRAFT, fail_first=LlmBadJson)
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="r"
+    )
+    assert llm.thinking_args == [None, False]
+    assert response.abstain_reason != "llm_bad_json"
+    assert any(
+        g.rule == "generate" and "retry_no_thinking" in (g.detail or "")
+        for g in response.guardrails
+    )
+
+
+@pytest.mark.asyncio
+async def test_llm_bad_json_twice(tmp_path: Path) -> None:
+    class BadLlm(FakeLlm):
+        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+            self.thinking_args.append(thinking)
+            raise LlmBadJson("bad")
+
+    settings, index, _ = seed_ready(tmp_path)
+    llm = BadLlm()
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="b"
+    )
+    assert response.abstain_reason == "llm_bad_json"
+    assert "no se pudo leer" in response.answer
+    assert llm.thinking_args == [None, False]
+
+
+@pytest.mark.asyncio
+async def test_thinking_flag_reaches_llm(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="u",
+        thinking=False,
+    )
+    assert llm.thinking_args == [False]

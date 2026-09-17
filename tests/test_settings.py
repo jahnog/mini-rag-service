@@ -42,6 +42,14 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("LLM_BASE_URL", "https://api.x.ai/v1")
     monkeypatch.delenv("EMBEDDING_MAX_CHARS", raising=False)
     monkeypatch.delenv("LLM_TIMEOUT_S", raising=False)
+    for name in (
+        "LLM_TEMPERATURE",
+        "LLM_MAX_TOKENS",
+        "LLM_SEED",
+        "LLM_REASONING_BUDGET",
+        "LLM_THINKING_USER_LAYOUT",
+    ):
+        monkeypatch.delenv(name, raising=False)
     settings = Settings(data_dir=tmp_path, _env_file=None)
     assert settings.max_message_chars == 4000
     assert settings.default_k == 5
@@ -62,6 +70,25 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.llm_timeout_s == 60.0
     assert settings.matomo_url == ""
     assert settings.matomo_site_id == ""
+    assert settings.llm_temperature == 0.1
+    assert settings.llm_max_tokens == 1500
+    assert settings.llm_seed is None
+    assert settings.llm_reasoning_budget == 0
+    assert settings.llm_thinking_user_layout is False
+
+
+def test_llm_generation_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.7")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "800")
+    monkeypatch.setenv("LLM_SEED", "7")
+    monkeypatch.setenv("LLM_REASONING_BUDGET", "512")
+    monkeypatch.setenv("LLM_THINKING_USER_LAYOUT", "true")
+    settings = Settings(data_dir=tmp_path, _env_file=None)
+    assert settings.llm_temperature == 0.7
+    assert settings.llm_max_tokens == 800
+    assert settings.llm_seed == 7
+    assert settings.llm_reasoning_budget == 512
+    assert settings.llm_thinking_user_layout is True
 
 
 def test_readme_how_to_run_names_auth_vars() -> None:

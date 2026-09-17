@@ -87,6 +87,8 @@ class LlmDraft(BaseModel):
     thinking: str = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    ttft_ms: float = 0.0
+    thinking_chars: int = 0
 
 
 class ChatResponse(BaseModel):

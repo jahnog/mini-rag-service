@@ -91,6 +91,8 @@ class RailContext:
     draft_citation_ids: list[str] = field(default_factory=list)
     cite_failures: list[dict[str, str]] | None = None
     salvage: str | None = None
+    timings: dict[str, float] = field(default_factory=dict)
+    generate_reason: str | None = None
 
 
 class Rail(Protocol):

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
-from bcra_rag.ports.llm import OnThinking
+from bcra_rag.ports.llm import LlmBadJson, OnThinking
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 
@@ -43,10 +46,26 @@ SYSTEM_PROMPT = (
 )
 
 
-def parse_llm_draft(raw: str) -> LlmDraft:
-    payload = json.loads(raw)
+def _extract_json_object(raw: str) -> dict[str, Any]:
+    text = _unfence(raw)
+    payload: Any = None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.rfind("{")
+        while start != -1:
+            try:
+                payload = json.loads(text[start:])
+                break
+            except json.JSONDecodeError:
+                start = text.rfind("{", 0, start)
     if not isinstance(payload, dict):
-        raise ValueError("LLM draft is not a JSON object")
+        raise LlmBadJson("LLM draft is not a JSON object")
+    return payload
+
+
+def parse_llm_draft(raw: str) -> LlmDraft:
+    payload = _extract_json_object(raw)
     finding_raw = payload.get("finding")
     if finding_raw is None:
         finding = Finding.SILENCIO
@@ -55,13 +74,16 @@ def parse_llm_draft(raw: str) -> LlmDraft:
             finding = Finding(str(finding_raw))
         except ValueError:
             finding = Finding.SILENCIO
-    return LlmDraft.model_validate(
-        {
-            "answer": payload.get("answer"),
-            "finding": finding,
-            "citations": _coerce_citations(payload.get("citations")),
-        }
-    )
+    try:
+        return LlmDraft.model_validate(
+            {
+                "answer": payload.get("answer"),
+                "finding": finding,
+                "citations": _coerce_citations(payload.get("citations")),
+            }
+        )
+    except ValidationError as exc:
+        raise LlmBadJson(str(exc)) from exc
 
 
 def _coerce_citations(raw: object) -> list[Citation]:
@@ -153,11 +175,15 @@ class LlmAdapter:
         prompt: str,
         *,
         on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> LlmDraft:
         self.calls.append(prompt)
         client = self._client_or_create()
+        enabled = self._settings.llm_enable_thinking if thinking is None else thinking
         kwargs: dict[str, Any] = {
             "model": self._settings.llm_model,
+            "temperature": self._settings.llm_temperature,
+            "max_tokens": self._settings.llm_max_tokens,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
@@ -166,35 +192,56 @@ class LlmAdapter:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if self._settings.llm_seed is not None:
+            kwargs["seed"] = self._settings.llm_seed
         extra = _thinking_extra_body(
-            self._settings.llm_base_url, self._settings.llm_enable_thinking
+            self._settings.llm_base_url, enabled, self._settings.llm_reasoning_budget
         )
         if extra is not None:
             kwargs["extra_body"] = extra
+        started = time.perf_counter()
         response = await client.chat.completions.create(**kwargs)
         assembler = ThinkAssembler()
         prompt_tokens = 0
         completion_tokens = 0
+        ttft_ms = 0.0
+        truncated = False
         async for chunk in _as_chunk_iter(response):
             usage = _usage_from_chunk(chunk)
             if usage is not None:
                 prompt_tokens, completion_tokens = usage
+            if _finish_reason(chunk) == "length":
+                truncated = True
             grew = assembler.feed_chunk(chunk)
+            if grew and ttft_ms == 0.0:
+                ttft_ms = (time.perf_counter() - started) * 1000
             if grew and on_thinking is not None:
                 visible = _strip_json_payload(
                     assembler.thinking_text(), assembler.body_text()
                 ).strip()
                 if visible:
                     await on_thinking(visible)
-        thinking, raw = assembler.finish()
+        trace, raw = assembler.finish()
+        if truncated:
+            raise LlmBadJson("truncated")
         draft = parse_llm_draft(raw or "{}")
         return draft.model_copy(
             update={
-                "thinking": thinking,
+                "thinking": trace,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "ttft_ms": round(ttft_ms, 1),
+                "thinking_chars": len(trace),
             }
         )
+
+
+def _finish_reason(chunk: Any) -> str | None:
+    choices = getattr(chunk, "choices", None) or []
+    if not choices:
+        return None
+    reason = getattr(choices[0], "finish_reason", None)
+    return reason if isinstance(reason, str) else None
 
 
 def _usage_from_chunk(chunk: Any) -> tuple[int, int] | None:
@@ -213,13 +260,18 @@ def _is_xai_base(url: str) -> bool:
     return host == "x.ai" or host.endswith(".x.ai")
 
 
-def _thinking_extra_body(base_url: str, enabled: bool) -> dict[str, Any] | None:
+def _thinking_extra_body(
+    base_url: str, enabled: bool, budget: int = 0
+) -> dict[str, Any] | None:
     if _is_xai_base(base_url):
         return None
-    return {
+    body: dict[str, Any] = {
         "enable_thinking": enabled,
         "chat_template_kwargs": {"enable_thinking": enabled},
     }
+    if budget > 0:
+        body["reasoning_budget"] = budget
+    return body
 
 
 def _thinking_and_content(message: Any) -> tuple[str, str]:

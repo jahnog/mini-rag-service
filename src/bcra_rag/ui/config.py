@@ -12,6 +12,7 @@ from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
 from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
 from bcra_rag.domain.l1_results import load_l1 as load_l1
 from bcra_rag.schemas import ChatResponse, HealthResponse
+from bcra_rag.settings import Settings
 
 CANNED_PROMPTS: tuple[str, ...] = (
     "Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
@@ -441,3 +442,10 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
 
 def abstain_visible(response: ChatResponse | None) -> bool:
     return bool(response and response.finding.value == "silencio")
+
+
+def thinking_for_layout(staff: bool, settings: Settings) -> bool | None:
+    """None keeps LLM_ENABLE_THINKING; False turns thinking off for a Usuario turn."""
+    if staff or settings.llm_thinking_user_layout:
+        return None
+    return False

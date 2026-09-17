@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
@@ -22,7 +23,7 @@ from bcra_rag.domain.router import Router, named_ids
 from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator, TurnScores
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmBadJson, LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import (
     ChatFilters,
@@ -86,7 +87,9 @@ class AnswerQuery:
         *,
         request_id: str,
         on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> ChatResponse:
+        thinking_mode = thinking
         span_cm: Any = None
         span: Any = None
         try:
@@ -103,7 +106,7 @@ class AnswerQuery:
                 except Exception:
                     pass
             response = await self._respond(
-                request, request_id=request_id, on_thinking=on_thinking
+                request, request_id=request_id, on_thinking=on_thinking, thinking=thinking_mode
             )
             scores = await self._score_turn(request, response)
             if scores.as_dict():
@@ -133,7 +136,9 @@ class AnswerQuery:
         *,
         request_id: str,
         on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> ChatResponse:
+        thinking_mode = thinking
         session_id = request.session_id or self._sessions.mint()
         health = dump_health(self._settings, self._index)
         last_refresh = health.last_refresh
@@ -255,14 +260,17 @@ class AnswerQuery:
         query = ctx.text
         manifest = Manifest.load(self._settings.manifest_path)
         retrieve_cm, retrieve_span = _span_enter(pipe.tracer, "retrieve", "retriever")
+        retrieve_started = time.perf_counter()
         try:
             routed = Router(self._index, manifest).route(
                 query, k=k, to_as_of=manifest.to_as_of or to_as_of
             )
         except Exception:
+            ctx.timings["retrieve_ms"] = (time.perf_counter() - retrieve_started) * 1000
             if retrieve_cm is not None:
                 _span_exit(retrieve_cm)
             raise
+        ctx.timings["retrieve_ms"] = (time.perf_counter() - retrieve_started) * 1000
         dump_ids = set(manifest.documents)
         ctx.dump_ids = dump_ids
         ctx.retrieval_route = routed.kind
@@ -339,6 +347,7 @@ class AnswerQuery:
             on_thinking=on_thinking,
             filters=request.filters,
             timeout_s=self._settings.llm_timeout_s,
+            thinking=thinking_mode,
         )
         if generated.draft is None:
             return self._finalize(
@@ -348,14 +357,14 @@ class AnswerQuery:
                 request_id=request_id,
                 session_id=session_id,
                 disclaimer=disclaimer,
-                abstain_reason="llm_unavailable",
+                abstain_reason=ctx.generate_reason or "llm_unavailable",
                 remember=False,
                 request=request,
                 user_message=request.message,
             )
 
         sidecar = _sidecar(ctx.hits, ctx.citations)
-        thinking = (generated.draft.thinking or "").strip() or None
+        trace = (generated.draft.thinking or "").strip() or None
         blocked = generated.blocked
         return self._finalize(
             ctx,
@@ -370,7 +379,7 @@ class AnswerQuery:
             user_message=request.message,
             sidecar=sidecar,
             extra_log=generated.output_log,
-            thinking=thinking,
+            thinking=trace,
         )
 
     def _finalize(
@@ -430,6 +439,50 @@ class GeneratedFromContext:
     blocked: RailResult | None
 
 
+LLM_FAILURE_COPY: dict[str, str] = {
+    "llm_timeout": "El modelo tardó demasiado en responder. Probá de nuevo.",
+    "llm_bad_json": "El modelo devolvió una respuesta que no se pudo leer. Probá de nuevo.",
+    "llm_unavailable": "No hay modelo disponible para completar la respuesta.",
+}
+
+
+class LlmFailure(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def _complete_with_retry(
+    llm: LlmPort,
+    prompt: str,
+    *,
+    on_thinking: OnThinking | None,
+    thinking: bool | None,
+    timeout_s: float,
+) -> tuple[LlmDraft, str | None]:
+    deadline = time.monotonic() + timeout_s
+    try:
+        async with asyncio.timeout(timeout_s):
+            draft = await llm.complete(prompt, on_thinking=on_thinking, thinking=thinking)
+        return draft, None
+    except TimeoutError as exc:
+        raise LlmFailure("llm_timeout") from exc
+    except LlmBadJson:
+        remaining = deadline - time.monotonic()
+        if remaining <= 1.0:
+            raise LlmFailure("llm_bad_json") from None
+        try:
+            async with asyncio.timeout(remaining):
+                draft = await llm.complete(prompt, on_thinking=None, thinking=False)
+            return draft, "retry_no_thinking"
+        except TimeoutError as exc:
+            raise LlmFailure("llm_timeout") from exc
+        except LlmBadJson as exc:
+            raise LlmFailure("llm_bad_json") from exc
+    except Exception as exc:
+        raise LlmFailure("llm_unavailable") from exc
+
+
 async def generate_from_context(
     llm: LlmPort,
     pipeline: GuardrailPipeline,
@@ -439,6 +492,7 @@ async def generate_from_context(
     on_thinking: OnThinking | None = None,
     filters: ChatFilters | None = None,
     timeout_s: float,
+    thinking: bool | None = None,
 ) -> GeneratedFromContext:
     ctx.turn_ids = {
         str(chunk.metadata.get("doc_id") or "")
@@ -447,20 +501,26 @@ async def generate_from_context(
     }
     ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
     prompt = _prompt(query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter)
+    started = time.perf_counter()
     try:
-        async with asyncio.timeout(timeout_s):
-            draft = await llm.complete(prompt, on_thinking=on_thinking)
-        try:
-            pipeline.tracer.record_tokens(draft.prompt_tokens, draft.completion_tokens)
-        except Exception:
-            pass
-    except Exception:
+        draft, retry_note = await _complete_with_retry(
+            llm, prompt, on_thinking=on_thinking, thinking=thinking, timeout_s=timeout_s
+        )
+    except LlmFailure as failure:
+        ctx.timings["llm_ms"] = (time.perf_counter() - started) * 1000
+        ctx.generate_reason = failure.reason
         ctx.finding = Finding.SILENCIO
-        ctx.answer = "No hay modelo disponible para completar la respuesta."
-        rest = [step("generate", "generate", "skipped", "llm_unavailable")]
+        ctx.answer = LLM_FAILURE_COPY[failure.reason]
+        rest = [step("generate", "generate", "skipped", failure.reason)]
         return GeneratedFromContext(log=rest, output_log=[], draft=None, blocked=None)
+    ctx.timings["llm_ms"] = (time.perf_counter() - started) * 1000
+    try:
+        pipeline.tracer.record_tokens(draft.prompt_tokens, draft.completion_tokens)
+    except Exception:
+        pass
 
-    generate_log = [step("generate", "generate", "pass", "llm called")]
+    detail = "llm called" if retry_note is None else f"llm called ({retry_note})"
+    generate_log = [step("generate", "generate", "pass", detail)]
     raw_citations = list(draft.citations)
     citations = _citations_from_model(draft, ctx.hits, ctx.turn_ids)
     ctx.draft = draft
@@ -644,6 +704,10 @@ def _log_turn(
         dropped_ids=list(ctx.dropped_ids),
         prompt_tokens=getattr(ctx.draft, "prompt_tokens", 0) if ctx.draft else 0,
         completion_tokens=getattr(ctx.draft, "completion_tokens", 0) if ctx.draft else 0,
+        retrieve_ms=round(ctx.timings.get("retrieve_ms", 0.0), 1),
+        llm_ms=round(ctx.timings.get("llm_ms", 0.0), 1),
+        ttft_ms=round(getattr(ctx.draft, "ttft_ms", 0.0), 1) if ctx.draft else 0.0,
+        thinking_chars=getattr(ctx.draft, "thinking_chars", 0) if ctx.draft else 0,
         **_log_route_fields(ctx),
         **payload,
     )

@@ -56,10 +56,14 @@ class _DelayedLlm:
         return self.inner.calls
 
     async def complete(
-        self, prompt: str, *, on_thinking: OnThinking | None = None
+        self,
+        prompt: str,
+        *,
+        on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> LlmDraft:
         await asyncio.sleep(self.delay_s)
-        return await self.inner.complete(prompt, on_thinking=on_thinking)
+        return await self.inner.complete(prompt, on_thinking=on_thinking, thinking=thinking)
 
 
 def test_chat_keeps_json_contract_across_proxy_keepalives(
