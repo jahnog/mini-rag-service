@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import structlog
 
 from bcra_rag.adapters.embeddings import resolve_embedding_function
+from bcra_rag.domain.bm25 import Bm25Index, rrf
 from bcra_rag.domain.meta_filters import chroma_where, metadata_matches
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.sections import section_text
@@ -38,6 +40,11 @@ class ChromaIndex:
         self._settings = settings
         self._embedding_function = embedding_function
         self._collection: Any | None = None
+        self._lexicon_key: tuple[int, int] | None = None
+        self._lexicon_index: Bm25Index | None = None
+        self._lexicon_rows: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+        self._floor_warned = False
 
     def _get_collection(self) -> Any:
         if self._collection is None:
@@ -59,6 +66,7 @@ class ChromaIndex:
             self._collection = client.get_or_create_collection(
                 name=COLLECTION,
                 embedding_function=ef,
+                metadata={"hnsw:space": self._settings.index_space},
             )
         return self._collection
 
@@ -93,6 +101,42 @@ class ChromaIndex:
         if self.has_document(doc_id):
             collection.delete(where={"doc_id": doc_id})
 
+    def _manifest_mtime_ns(self) -> int:
+        try:
+            return int(self._settings.manifest_path.stat().st_mtime_ns)
+        except OSError:
+            return 0
+
+    def _lexicon(self, collection: Any, count: int) -> Bm25Index | None:
+        key = (count, self._manifest_mtime_ns())
+        with self._lock:
+            if self._lexicon_index is not None and self._lexicon_key == key:
+                return self._lexicon_index
+            try:
+                got = collection.get(include=["documents", "metadatas"])
+            except Exception as exc:
+                log.warning("index_lexicon_unavailable", error=str(exc))
+                return None
+            rows: dict[str, tuple[str, dict[str, Any]]] = {}
+            docs: list[tuple[str, str]] = []
+            for chunk_id, text, meta in zip(
+                got.get("ids") or [],
+                got.get("documents") or [],
+                got.get("metadatas") or [],
+                strict=False,
+            ):
+                rows[str(chunk_id)] = (str(text), dict(meta or {}))
+                docs.append((str(chunk_id), str(text)))
+            self._lexicon_index = Bm25Index.build(docs)
+            self._lexicon_rows = rows
+            self._lexicon_key = key
+            log.info("index_lexicon_built", chunks=len(docs))
+            return self._lexicon_index
+
+    def _space(self, collection: Any) -> str:
+        meta = getattr(collection, "metadata", None) or {}
+        return str(meta.get("hnsw:space") or "l2")
+
     def search(
         self,
         query: str,
@@ -104,8 +148,11 @@ class ChromaIndex:
         count = int(collection.count() or 0)
         if count <= 0:
             return []
+        hybrid = self._settings.retrieval_hybrid
         n_results = max(k, 1)
         over_fetch = n_results * 3 if filters else n_results
+        if hybrid:
+            over_fetch = max(over_fetch, self._settings.retrieval_candidates)
         n_results = min(over_fetch, count)
         where = chroma_where(filters)
         kwargs: dict[str, Any] = {
@@ -133,19 +180,68 @@ class ChromaIndex:
         documents = (raw.get("documents") or [[]])[0]
         metadatas = (raw.get("metadatas") or [[]])[0]
         distances = (raw.get("distances") or [[]])[0]
-        hits: list[Chunk] = []
+        dense: list[tuple[str, str, dict[str, Any], float]] = []
         for chunk_id, text, meta, distance in zip(
             ids, documents, metadatas, distances, strict=False
         ):
             metadata = dict(meta or {})
             if not metadata_matches(metadata, filters):
                 continue
-            score = 1.0 / (1.0 + float(distance or 0.0))
-            metadata["score"] = score
-            hits.append(Chunk(str(chunk_id), str(text), metadata))
-            if len(hits) >= k:
-                break
+            dense.append((str(chunk_id), str(text), metadata, float(distance or 0.0)))
+        if not hybrid:
+            hits: list[Chunk] = []
+            for chunk_id, text, metadata, distance in dense:
+                metadata["score"] = 1.0 / (1.0 + distance)
+                hits.append(Chunk(chunk_id, text, metadata))
+                if len(hits) >= k:
+                    break
+            return hits
+        if self._below_floor(collection, dense):
+            return []
+        lexicon = self._lexicon(collection, count)
+        lexical_ids: list[str] = []
+        for chunk_id, _score in lexicon.search(query, n_results) if lexicon else []:
+            row = self._lexicon_rows.get(chunk_id)
+            if row is None or not metadata_matches(row[1], filters):
+                continue
+            lexical_ids.append(chunk_id)
+        dense_by_id = {chunk_id: (text, meta, dist) for chunk_id, text, meta, dist in dense}
+        fused = rrf([[item[0] for item in dense], lexical_ids])
+        if not fused:
+            return []
+        top_score = fused[0][1]
+        lexical_rank = {chunk_id: rank for rank, chunk_id in enumerate(lexical_ids, start=1)}
+        hits = []
+        for chunk_id, score in fused[:k]:
+            if chunk_id in dense_by_id:
+                text, metadata, distance = dense_by_id[chunk_id]
+                metadata = dict(metadata)
+                metadata["dense_score"] = 1.0 / (1.0 + distance)
+            else:
+                text, metadata = self._lexicon_rows[chunk_id]
+                metadata = dict(metadata)
+                metadata["dense_score"] = 0.0
+            metadata["score"] = score / top_score if top_score else 0.0
+            metadata["lexical_rank"] = lexical_rank.get(chunk_id, -1)
+            hits.append(Chunk(chunk_id, text, metadata))
         return hits
+
+    def _below_floor(
+        self, collection: Any, dense: list[tuple[str, str, dict[str, Any], float]]
+    ) -> bool:
+        floor = self._settings.retrieval_min_score
+        if floor <= 0 or not dense:
+            return False
+        if self._space(collection) != "cosine":
+            if not self._floor_warned:
+                log.warning("retrieval_floor_ignored_space", space=self._space(collection))
+                self._floor_warned = True
+            return False
+        best = 1.0 - min(item[3] for item in dense)
+        if best < floor:
+            log.info("retrieval_below_floor", best_similarity=round(best, 4), floor=floor)
+            return True
+        return False
 
     def get_section(self, doc_id: str, punto: str | None = None) -> str:
         collection = self._get_collection()

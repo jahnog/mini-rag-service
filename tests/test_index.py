@@ -277,3 +277,54 @@ def test_chroma_get_section_orders_by_punto(tmp_path) -> None:
         ],
     )
     assert index.get_section("A1").split("\n") == ["uno", "dos", "tres"]
+
+
+def test_chroma_hybrid_finds_lexical_only_term(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
+    index.upsert(
+        "A1",
+        [
+            Chunk(
+                "A1:0",
+                "el sistema SECOEXPO recibe la documentación",
+                {"doc_kind": "comunicacion"},
+            )
+        ],
+    )
+    index.upsert(
+        "A2",
+        [
+            Chunk(
+                "A2:0",
+                "tipo de cambio de referencia promedio ponderado",
+                {"doc_kind": "comunicacion"},
+            )
+        ],
+    )
+    hits = index.search("SECOEXPO", k=1)
+    assert hits and hits[0].metadata["doc_id"] == "A1"
+    assert 0.0 < float(hits[0].metadata["score"]) <= 1.0
+    assert "lexical_rank" in hits[0].metadata
+
+
+def test_chroma_hybrid_off_is_dense_only(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path, retrieval_hybrid=False)
+    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
+    index.upsert("A1", [Chunk("A1:0", "texto uno", {"doc_kind": "comunicacion"})])
+    hits = index.search("texto uno", k=1)
+    assert hits and "lexical_rank" not in hits[0].metadata
+
+
+def test_chroma_floor_returns_empty_on_cosine(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path, retrieval_min_score=1.0)
+    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
+    index.upsert("A1", [Chunk("A1:0", "texto uno", {"doc_kind": "comunicacion"})])
+    assert index.search("algo totalmente distinto y largo", k=1) == []
+
+
+def test_chroma_new_collection_is_cosine(tmp_path) -> None:
+    index = ChromaIndex(
+        Settings(data_dir=tmp_path), embedding_function=DeterministicEmbeddingFunction()
+    )
+    assert (index._get_collection().metadata or {}).get("hnsw:space") == "cosine"

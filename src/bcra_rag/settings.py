@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +45,10 @@ class Settings(BaseSettings):
     # Retrieval
     default_k: int = Field(default=5, ge=1)
     max_k: int = Field(default=8, ge=1)
+    retrieval_hybrid: bool = True
+    retrieval_candidates: int = Field(default=20, ge=5, le=100)
+    retrieval_min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    index_space: Literal["cosine", "l2", "ip"] = "cosine"
 
     # Chat rate limit
     rate_limit_requests: int = Field(default=20, ge=1)

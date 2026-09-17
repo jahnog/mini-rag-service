@@ -1370,3 +1370,32 @@ async def test_phase_callback_error_does_not_fail_turn(tmp_path: Path) -> None:
         on_phase=boom,
     )
     assert response.citations
+
+
+@pytest.mark.asyncio
+async def test_retrieval_runs_in_worker_thread(tmp_path: Path) -> None:
+    import threading
+
+    seen: list[int] = []
+
+    class ThreadIndex(FakeIndex):
+        def search(self, query, *, k=5, filters=None):  # type: ignore[no-untyped-def]
+            seen.append(threading.get_ident())
+            return super().search(query, k=k, filters=filters)
+
+    settings, seeded, _ = seed_ready(tmp_path)
+    index = ThreadIndex()
+    for doc_id, chunks in seeded.docs.items():
+        index.upsert(doc_id, chunks)
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="thr",
+    )
+    assert seen and all(ident != threading.get_ident() for ident in seen)

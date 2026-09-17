@@ -155,7 +155,7 @@ class AnswerQuery:
     ) -> ChatResponse:
         thinking_mode = thinking
         session_id = request.session_id or self._sessions.mint()
-        health = dump_health(self._settings, self._index)
+        health = await asyncio.to_thread(dump_health, self._settings, self._index)
         last_refresh = health.last_refresh
         to_as_of = health.to_as_of
         disclaimer = disclaimer_for(last_refresh)
@@ -275,13 +275,16 @@ class AnswerQuery:
 
         self._last_context = ""
         query = ctx.text
-        manifest = Manifest.load(self._settings.manifest_path)
+        manifest = Manifest.load_cached(self._settings.manifest_path)
         retrieve_cm, retrieve_span = _span_enter(pipe.tracer, "retrieve", "retriever")
         retrieve_started = time.perf_counter()
         await _emit(on_phase, PHASE_RETRIEVE)
         try:
-            routed = Router(self._index, manifest).route(
-                query, k=k, to_as_of=manifest.to_as_of or to_as_of
+            routed = await asyncio.to_thread(
+                Router(self._index, manifest).route,
+                query,
+                k=k,
+                to_as_of=manifest.to_as_of or to_as_of,
             )
         except Exception:
             ctx.timings["retrieve_ms"] = (time.perf_counter() - retrieve_started) * 1000

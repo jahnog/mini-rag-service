@@ -1,14 +1,30 @@
 from __future__ import annotations
 
-from bcra_rag.domain.manifest import Manifest
+from bcra_rag.domain.manifest import Manifest, manifest_key
 from bcra_rag.domain.urls import TO_DOC_ID
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.schemas import HealthResponse
 from bcra_rag.settings import Settings
 
+_HEALTH_CACHE: dict[tuple[str, tuple[int, int], int], HealthResponse] = {}
+
+
+def clear_health_cache() -> None:
+    _HEALTH_CACHE.clear()
+
 
 def dump_health(settings: Settings, index: IndexPort) -> HealthResponse:
-    manifest = Manifest.load(settings.manifest_path)
+    cache_key = (str(settings.manifest_path), manifest_key(settings.manifest_path), id(index))
+    cached = _HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    response = _compute_health(settings, index)
+    _HEALTH_CACHE[cache_key] = response
+    return response
+
+
+def _compute_health(settings: Settings, index: IndexPort) -> HealthResponse:
+    manifest = Manifest.load_cached(settings.manifest_path)
     n_docs = len(manifest.documents)
     index_ready = False
     if n_docs > 0:

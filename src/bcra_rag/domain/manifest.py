@@ -13,6 +13,17 @@ def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+def manifest_key(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+_CACHE: dict[Path, tuple[tuple[int, int], Manifest]] = {}
+
+
 @dataclass
 class Manifest:
     path: Path
@@ -38,6 +49,17 @@ class Manifest:
             last_comm_id=raw.get("last_comm_id"),
             documents=documents,
         )
+
+    @classmethod
+    def load_cached(cls, path: Path) -> Manifest:
+        """Parse once per file version (mtime, size); callers must not mutate the result."""
+        key = manifest_key(path)
+        cached = _CACHE.get(path)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        loaded = cls.load(path)
+        _CACHE[path] = (key, loaded)
+        return loaded
 
     @property
     def has_checkpoint(self) -> bool:

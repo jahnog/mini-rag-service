@@ -48,6 +48,10 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         "LLM_SEED",
         "LLM_REASONING_BUDGET",
         "LLM_THINKING_USER_LAYOUT",
+        "RETRIEVAL_HYBRID",
+        "RETRIEVAL_CANDIDATES",
+        "RETRIEVAL_MIN_SCORE",
+        "INDEX_SPACE",
     ):
         monkeypatch.delenv(name, raising=False)
     settings = Settings(data_dir=tmp_path, _env_file=None)
@@ -75,6 +79,22 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.llm_seed is None
     assert settings.llm_reasoning_budget == 0
     assert settings.llm_thinking_user_layout is False
+    assert settings.retrieval_hybrid is True
+    assert settings.retrieval_candidates == 20
+    assert settings.retrieval_min_score == 0.0
+    assert settings.index_space == "cosine"
+
+
+def test_retrieval_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RETRIEVAL_HYBRID", "false")
+    monkeypatch.setenv("RETRIEVAL_CANDIDATES", "40")
+    monkeypatch.setenv("RETRIEVAL_MIN_SCORE", "0.3")
+    monkeypatch.setenv("INDEX_SPACE", "l2")
+    settings = Settings(data_dir=tmp_path, _env_file=None)
+    assert settings.retrieval_hybrid is False
+    assert settings.retrieval_candidates == 40
+    assert settings.retrieval_min_score == 0.3
+    assert settings.index_space == "l2"
 
 
 def test_llm_generation_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

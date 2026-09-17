@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from bcra_rag.domain.meta_filters import metadata_matches
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.sections import section_text
+from bcra_rag.domain.text import SPANISH_STOPWORDS
 
 
 class FakeIndex:
@@ -36,32 +37,7 @@ class FakeIndex:
         filters: Mapping[str, object] | None = None,
     ) -> list[Chunk]:
         self.search_calls.append((query, k, filters))
-        stop = {
-            "el",
-            "la",
-            "los",
-            "las",
-            "de",
-            "del",
-            "y",
-            "o",
-            "un",
-            "una",
-            "en",
-            "a",
-            "que",
-            "se",
-            "es",
-            "por",
-            "para",
-            "con",
-            "the",
-            "of",
-            "and",
-            "qué",
-            "como",
-            "cómo",
-        }
+        stop = SPANISH_STOPWORDS
         terms = [
             part.lower()
             for part in query.split()
