@@ -93,6 +93,7 @@ class RailContext:
     salvage: str | None = None
     timings: dict[str, float] = field(default_factory=dict)
     generate_reason: str | None = None
+    followup: bool = False
 
 
 class Rail(Protocol):

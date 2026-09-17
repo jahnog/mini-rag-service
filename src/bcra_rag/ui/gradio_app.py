@@ -54,6 +54,8 @@ from bcra_rag.ui.config import (
     LAYOUT_USER,
     PENDING_CITATION_CARD,
     PENDING_TRUST,
+    PHASE_COPY,
+    THOUGHT_PENDING_TITLE,
     THOUGHT_PUBLISH_S,
     TURN_FAILED_NOTICE,
     abstain_visible,
@@ -92,7 +94,7 @@ from bcra_rag.ui.theme import (
     topbar_html,
     weblab_css_path,
 )
-from bcra_rag.use_cases.answer_query import new_request_id
+from bcra_rag.use_cases.answer_query import OnPhase, new_request_id
 
 
 def _choice_update(choices: list[str], *, value: str | None = None) -> Any:
@@ -109,6 +111,10 @@ def _copy_update(copy_id: str) -> Any:
 
 def _abstain_update(text: str, *, visible: bool) -> Any:
     return gr.update(value=text, visible=visible)
+
+
+def _phase_update(text: str) -> Any:
+    return gr.update(value=text, visible=bool(text))
 
 
 _LOG = structlog.get_logger("bcra_rag.observatory")
@@ -272,10 +278,16 @@ async def iter_observatory_turn(
 ) -> AsyncIterator[tuple[Any, ...]]:
     snapshot = list(history or [])
     started = time.perf_counter()
-    yield (append_pending(snapshot, message), session_id, *_pending_inspector())
+    yield (
+        append_pending(snapshot, message),
+        session_id,
+        *_pending_inspector(),
+        _phase_update(""),
+    )
     latest = [""]
     held = [""]
     last_pub = [0.0]
+    phase = [""]
     event = asyncio.Event()
     box: list[ChatResponse | BaseException] = []
 
@@ -284,10 +296,19 @@ async def iter_observatory_turn(
         now = time.monotonic()
         if last_pub[0] == 0.0:
             last_pub[0] = now
-        if thought_publish_ready(text) or now - last_pub[0] >= THOUGHT_PUBLISH_S:
+        elapsed = now - last_pub[0]
+        ready = thought_publish_ready(text) and elapsed >= THOUGHT_PUBLISH_S
+        if ready or elapsed >= 2 * THOUGHT_PUBLISH_S:
             latest[0] = text
             last_pub[0] = now
             event.set()
+
+    async def on_phase(code: str) -> None:
+        phase[0] = PHASE_COPY.get(code, "")
+        event.set()
+        # Let the consumer publish this phase before the next one replaces it.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     async def produce() -> None:
         try:
@@ -296,6 +317,7 @@ async def iter_observatory_turn(
                     message=message,
                     session_id=session_id,
                     on_thinking=on_thinking if staff else None,
+                    on_phase=on_phase,
                 )
             )
         except asyncio.CancelledError:
@@ -308,23 +330,41 @@ async def iter_observatory_turn(
             event.set()
 
     task = asyncio.create_task(produce())
+    last_trace = [""]
+    last_phase = [""]
     try:
         while True:
             await event.wait()
             event.clear()
-            trace = latest[0]
-            if staff and trace:
+            trace = latest[0] if staff else ""
+            phase_changed = phase[0] != last_phase[0]
+            if (trace and trace != last_trace[0]) or phase_changed:
+                last_trace[0] = trace
+                last_phase[0] = phase[0]
                 yield (
-                    append_pending(snapshot, message, thinking=trace),
+                    append_pending(
+                        snapshot,
+                        message,
+                        thinking=trace,
+                        title=phase[0] or THOUGHT_PENDING_TITLE,
+                    ),
                     session_id,
                     *_skipped_inspector(),
+                    _phase_update(phase[0]),
                 )
             if task.done():
-                if staff and latest[0] and latest[0] != trace:
+                final_trace = latest[0] if staff else ""
+                if final_trace and final_trace != last_trace[0]:
                     yield (
-                        append_pending(snapshot, message, thinking=latest[0]),
+                        append_pending(
+                            snapshot,
+                            message,
+                            thinking=final_trace,
+                            title=phase[0] or THOUGHT_PENDING_TITLE,
+                        ),
                         session_id,
                         *_skipped_inspector(),
+                        _phase_update(phase[0]),
                     )
                 break
     finally:
@@ -339,12 +379,12 @@ async def iter_observatory_turn(
     if isinstance(outcome, HTTPException):
         notice = http_turn_notice(outcome.status_code, str(outcome.detail))
         rows = append_messages(snapshot, message, notice)
-        yield (rows, session_id, *_prior_inspector(prior))
+        yield (rows, session_id, *_prior_inspector(prior), _phase_update(""))
         return
     if isinstance(outcome, BaseException):
         _LOG.warning("observatory_turn_failed", error=type(outcome).__name__)
         rows = append_messages(snapshot, message, TURN_FAILED_NOTICE)
-        yield (rows, session_id, *_empty_inspector())
+        yield (rows, session_id, *_empty_inspector(), _phase_update(""))
         return
     duration = time.perf_counter() - started
     thinking = thinking_for_staff(outcome.thinking, staff=staff)
@@ -372,6 +412,7 @@ async def iter_observatory_turn(
         cards,
         citation_card_markdown(inspector),
         trust_markdown(trust),
+        _phase_update(""),
     )
 
 
@@ -467,6 +508,7 @@ def build_blocks(
             message: str,
             session_id: str | None,
             on_thinking: OnThinking | None = None,
+            on_phase: OnPhase | None = None,
         ) -> ChatResponse:
             return await handle_turn(
                 settings=settings,
@@ -490,6 +532,7 @@ def build_blocks(
                 on_thinking=on_thinking,
                 turn_evaluator=resolved_evaluator,
                 thinking=thinking_for_layout(staff, settings),
+                on_phase=on_phase,
             )
 
         async for item in iter_observatory_turn(
@@ -528,7 +571,7 @@ def build_blocks(
         except HTTPException as exc:
             error = exc
         rows, sid = apply_clear_result(history, session_id, error)
-        return rows, sid, *_empty_inspector()
+        return rows, sid, *_empty_inspector(), _phase_update("")
 
     def _select_card(
         selected: str | None, cards: list[dict[str, Any]]
@@ -616,6 +659,7 @@ def build_blocks(
                         placeholder="La conversación aparece acá.",
                         group_consecutive_messages=False,
                     )
+                    phase_box = gr.Markdown("", elem_id="turn-phase", visible=False)
                     # Examples sit above the composer; the composer is one
                     # line (question, Enviar, Limpiar) and sticks to the
                     # viewport bottom on desktop.
@@ -708,6 +752,7 @@ def build_blocks(
             cards_state,
             card_md,
             trust_box,
+            phase_box,
         ]
         send.click(  # type: ignore[attr-defined]
             _turn,

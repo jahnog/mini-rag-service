@@ -4,9 +4,9 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
 
 ## 1. query-answering — memory in the prompt
 
-- [ ] 1.1 `src/bcra_rag/use_cases/answer_query.py`: add `HISTORY_TURNS = 2`, `HISTORY_MAX_CHARS = 300` and `history_block(...)` (design.md). `_prompt` gains `history: str = ""` and, when non-empty, inserts `f"Conversación previa (contexto, no fuente; no citar de acá):\n{history}\n\n"` after the `Pregunta:` block. `generate_from_context` gains `history: str = ""` and passes it to `_prompt`. In `_respond`, after `history = self._sessions.get(session_id)` (~line 206) keep the variable and pass `history=history_block(history)` to `generate_from_context`.
-- [ ] 1.2 Follow-up heuristic: add `_is_short_followup(message)` (design.md; import `named_ids` from `bcra_rag.domain.router`) and change `_compose_followup` to compose when `FOLLOW_RE.search(message) or _is_short_followup(message)`.
-- [ ] 1.3 Tests `tests/test_answer_query.py` (model on the existing "y ese punto?" tests, ~line 585-600; `_uc(tmp_path, llm=…)` returns `(use_case, sessions)`):
+- [x] 1.1 `src/bcra_rag/use_cases/answer_query.py`: add `HISTORY_TURNS = 2`, `HISTORY_MAX_CHARS = 300` and `history_block(...)` (design.md). `_prompt` gains `history: str = ""` and, when non-empty, inserts `f"Conversación previa (contexto, no fuente; no citar de acá):\n{history}\n\n"` after the `Pregunta:` block. `generate_from_context` gains `history: str = ""` and passes it to `_prompt`. In `_respond`, after `history = self._sessions.get(session_id)` (~line 206) keep the variable and pass `history=history_block(history)` to `generate_from_context`.
+- [x] 1.2 Follow-up heuristic: add `_is_short_followup(message)` (design.md; import `named_ids` from `bcra_rag.domain.router`) and change `_compose_followup` to compose when `FOLLOW_RE.search(message) or _is_short_followup(message)`.
+- [x] 1.3 Tests `tests/test_answer_query.py` (model on the existing "y ese punto?" tests, ~line 585-600; `_uc(tmp_path, llm=…)` returns `(use_case, sessions)`):
   ```python
   @pytest.mark.asyncio
   async def test_prior_exchange_reaches_prompt_as_context(tmp_path: Path) -> None:
@@ -44,7 +44,7 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
 
 ## 2. query-answering — phase callback
 
-- [ ] 2.1 `answer_query.py`: add `OnPhase = Callable[[str], Awaitable[None]]`, `PHASE_RETRIEVE = "retrieve"`, `PHASE_GENERATE = "generate"`, `PHASE_VERIFY = "verify"`, and
+- [x] 2.1 `answer_query.py`: add `OnPhase = Callable[[str], Awaitable[None]]`, `PHASE_RETRIEVE = "retrieve"`, `PHASE_GENERATE = "generate"`, `PHASE_VERIFY = "verify"`, and
   ```python
   async def _emit(on_phase: OnPhase | None, code: str) -> None:
       if on_phase is None:
@@ -55,8 +55,8 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
           return
   ```
   `AnswerQuery.run(..., on_phase: OnPhase | None = None)` → `_respond(..., on_phase=on_phase)`; in `_respond` call `await _emit(on_phase, PHASE_RETRIEVE)` immediately before the `Router(...).route(...)` call; pass `on_phase=on_phase` to `generate_from_context`, which gains `on_phase: OnPhase | None = None` and calls `await _emit(on_phase, PHASE_GENERATE)` before `_complete_with_retry` and `await _emit(on_phase, PHASE_VERIFY)` before `pipeline.run_named(output_ids, ctx, short_circuit=False)`.
-- [ ] 2.2 `src/bcra_rag/api/handle.py`: `run_prepared_turn` and `handle_turn` gain `on_phase: OnPhase | None = None` and forward it (import `OnPhase` from `bcra_rag.use_cases.answer_query`).
-- [ ] 2.3 Tests `tests/test_answer_query.py`:
+- [x] 2.2 `src/bcra_rag/api/handle.py`: `run_prepared_turn` and `handle_turn` gain `on_phase: OnPhase | None = None` and forward it (import `OnPhase` from `bcra_rag.use_cases.answer_query`).
+- [x] 2.3 Tests `tests/test_answer_query.py`:
   ```python
   @pytest.mark.asyncio
   async def test_phases_reported_in_order(tmp_path: Path) -> None:
@@ -87,8 +87,8 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
 
 ## 3. assistant-ui — phase line and throttle
 
-- [ ] 3.1 `src/bcra_rag/ui/config.py`: add `PHASE_COPY = {"retrieve": "Buscando en el dump…", "generate": "Redactando respuesta…", "verify": "Verificando citas…"}`; change `THOUGHT_PUBLISH_S = 0.12` to `0.5`; `append_pending(history, user, thinking="", *, title: str = THOUGHT_PENDING_TITLE)` uses `title` for the pending row.
-- [ ] 3.2 `src/bcra_rag/ui/gradio_app.py`:
+- [x] 3.1 `src/bcra_rag/ui/config.py`: add `PHASE_COPY = {"retrieve": "Buscando en el dump…", "generate": "Redactando respuesta…", "verify": "Verificando citas…"}`; change `THOUGHT_PUBLISH_S = 0.12` to `0.5`; `append_pending(history, user, thinking="", *, title: str = THOUGHT_PENDING_TITLE)` uses `title` for the pending row.
+- [x] 3.2 `src/bcra_rag/ui/gradio_app.py`:
   - add `def _phase_update(text: str) -> Any: return gr.update(value=text, visible=bool(text))`.
   - `iter_observatory_turn`: add `phase = [""]`, `last_trace = [""]`; closure
     ```python
@@ -99,7 +99,7 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
     pass `on_phase=on_phase` in the `run_turn(...)` call (both layouts); in `on_thinking` publish when `thought_publish_ready(text) and now - last_pub[0] >= THOUGHT_PUBLISH_S` or `now - last_pub[0] >= 2 * THOUGHT_PUBLISH_S`; every `yield` appends `_phase_update(phase[0])` as the 11th element (first yield: `_phase_update("")`; pending yields use `append_pending(snapshot, message, thinking=trace, title=phase[0] or THOUGHT_PENDING_TITLE)`; in the loop also yield a pending row when the phase changed even if `staff` is false or the trace is empty — track `last_phase[0]`; skip a thinking yield when `trace == last_trace[0]` and the phase did not change); final, HTTP-error and generic-error yields append `_phase_update("")`.
   - `build_blocks`: after `chatbot = gr.Chatbot(...)` add `phase_box = gr.Markdown("", elem_id="turn-phase", visible=False)`; append `phase_box` as the last entry of `outputs`; `_clear` returns `rows, sid, *_empty_inspector(), _phase_update("")`; add `"turn-phase"` to the elem-id list in `tests/test_ui.py::test_build_blocks_does_not_call_run_l1`.
   - `run_turn` inner function accepts `on_phase: OnPhase | None = None` and forwards it to `handle_turn`.
-- [ ] 3.3 `src/bcra_rag/ui/observatory.css`: add `#turn-phase` to the transparent-block selector list (the one containing `#chat-kicker`, `#auth-status`) and a rule
+- [x] 3.3 `src/bcra_rag/ui/observatory.css`: add `#turn-phase` to the transparent-block selector list (the one containing `#chat-kicker`, `#auth-status`) and a rule
   ```css
   #turn-phase p {
     margin: 0;
@@ -112,7 +112,7 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
   }
   ```
   and add `#turn-phase p { animation: none; }` inside the existing `@media (prefers-reduced-motion: reduce)` block. `tests/test_ui.py::test_observatory_css_tokens`: assert `"#turn-phase" in css`.
-- [ ] 3.4 Tests `tests/test_ui.py`: update every fake `run_turn` in the iterator tests (~line 497-690) to `async def run_turn(*, message, session_id, on_thinking=None, on_phase=None)`; add
+- [x] 3.4 Tests `tests/test_ui.py`: update every fake `run_turn` in the iterator tests (~line 497-690) to `async def run_turn(*, message, session_id, on_thinking=None, on_phase=None)`; add
   ```python
   @pytest.mark.asyncio
   async def test_iter_turn_phase_line_in_usuario_layout() -> None:
@@ -132,6 +132,6 @@ Requires changes 02 (10-tuple yields, `_pending_inspector`), 04 (`thinking=` key
 
 ## 4. Spec sync and gates
 
-- [ ] 4.1 Sync deltas into `openspec/specs/{query-answering,assistant-ui}/spec.md`.
-- [ ] 4.2 `uv run ruff check .`; `uv run mypy src`; `uv run pytest -q --cov=src --cov-report=term-missing` → green, ≥ 80%.
-- [ ] 4.3 Operator check: Usuario turn shows "Buscando en el dump…" then "Redactando respuesta…" under the chat and hides on answer; Staff pending title changes with the phase; ask "¿cuánto plazo?" after an exports question and confirm the prompt in `data/logs/chat.log` is not needed — instead confirm the answer stays on topic and cites the dump.
+- [x] 4.1 Sync deltas into `openspec/specs/{query-answering,assistant-ui}/spec.md`.
+- [x] 4.2 `uv run ruff check .`; `uv run mypy src`; `uv run pytest -q --cov=src --cov-report=term-missing` → green, ≥ 80%.
+- [x] 4.3 Operator check: Usuario turn shows "Buscando en el dump…" then "Redactando respuesta…" under the chat and hides on answer; Staff pending title changes with the phase; ask "¿cuánto plazo?" after an exports question and confirm the prompt in `data/logs/chat.log` is not needed — instead confirm the answer stays on topic and cites the dump.

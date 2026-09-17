@@ -242,7 +242,12 @@ THOUGHT_PENDING_TITLE = "Pensando…"
 ChatRow = dict[str, Any]
 _ATX_HEADING = re.compile(r"(?m)^(#{1,6})(?=\s|$)")
 _THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
-THOUGHT_PUBLISH_S = 0.12
+THOUGHT_PUBLISH_S = 0.5
+PHASE_COPY = {
+    "retrieve": "Buscando en el dump…",
+    "generate": "Redactando respuesta…",
+    "verify": "Verificando citas…",
+}
 
 
 def thought_markdown(text: str) -> str:
@@ -307,14 +312,12 @@ def append_pending(
     history: list[ChatRow] | None,
     user: str,
     thinking: str = "",
+    *,
+    title: str = THOUGHT_PENDING_TITLE,
 ) -> list[ChatRow]:
     rows = collapse_prior_thoughts(history)
     rows.append({"role": "user", "content": user})
-    rows.append(
-        thought_message(
-            thinking, title=THOUGHT_PENDING_TITLE, status="pending"
-        )
-    )
+    rows.append(thought_message(thinking, title=title, status="pending"))
     return rows
 
 

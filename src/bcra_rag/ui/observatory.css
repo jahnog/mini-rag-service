@@ -78,6 +78,7 @@ gradio-app {
 #examples-kicker,
 #citations-kicker,
 #guardrails-kicker,
+#turn-phase,
 #auth-status,
 #auth-who,
 #layout-toggle-help,
@@ -496,6 +497,17 @@ gradio-app {
   }
 }
 
+/* Phase line: one muted sentence under the conversation while a turn runs. */
+#turn-phase p {
+  margin: 0;
+  color: var(--wl-muted);
+  font-size: var(--wl-text-sm);
+  font-style: italic;
+  border-left: 2px solid var(--wl-gold);
+  padding-left: var(--wl-space-3);
+  animation: thought-pulse 1.4s ease-in-out infinite;
+}
+
 /* Abstain banner: the block form of a message, like .wl-note. */
 #abstain-banner {
   color: var(--wl-text);
@@ -722,7 +734,8 @@ gradio-app {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #observatory-chat .thought-group {
+  #observatory-chat .thought-group,
+  #turn-phase p {
     animation: none;
   }
 }

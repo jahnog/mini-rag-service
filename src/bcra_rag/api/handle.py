@@ -20,7 +20,7 @@ from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatFilters, ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import AnswerQuery
+from bcra_rag.use_cases.answer_query import AnswerQuery, OnPhase
 
 _log = structlog.get_logger("bcra_rag.chat")
 
@@ -83,6 +83,7 @@ async def run_prepared_turn(
     on_thinking: OnThinking | None = None,
     turn_evaluator: TurnEvaluator | None = None,
     thinking: bool | None = None,
+    on_phase: OnPhase | None = None,
 ) -> ChatResponse:
     use_case = AnswerQuery(
         settings,
@@ -99,6 +100,7 @@ async def run_prepared_turn(
         request_id=request_id,
         on_thinking=on_thinking,
         thinking=thinking,
+        on_phase=on_phase,
     )
     return response.model_copy(update={"session_id": prepared.public_id})
 
@@ -124,6 +126,7 @@ async def handle_turn(
     on_thinking: OnThinking | None = None,
     turn_evaluator: TurnEvaluator | None = None,
     thinking: bool | None = None,
+    on_phase: OnPhase | None = None,
 ) -> ChatResponse:
     prepared = prepare_turn(
         settings=settings,
@@ -151,6 +154,7 @@ async def handle_turn(
         on_thinking=on_thinking,
         turn_evaluator=turn_evaluator,
         thinking=thinking,
+        on_phase=on_phase,
     )
 
 

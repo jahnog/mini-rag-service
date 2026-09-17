@@ -1283,3 +1283,90 @@ async def test_named_citation_gets_fecha_and_url(tmp_path: Path) -> None:
     cite = next(item for item in response.citations if item.id == "A3500")
     assert cite.fecha == "2002-03-08"
     assert cite.url == "https://www.bcra.gob.ar/archivos/Pdfs/comytexord/A3500.pdf"
+
+
+@pytest.mark.asyncio
+async def test_prior_exchange_reaches_prompt_as_context(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="h1"
+    )
+    await use_case.run(
+        ChatRequest(message="¿cuánto plazo?", session_id=first.session_id), request_id="h2"
+    )
+    prompt = llm.calls[-1]
+    assert "Conversación previa (contexto, no fuente" in prompt
+    assert "Usuario: qué se exige para liquidar exportaciones" in prompt
+    assert "Asistente: Los residentes deberán liquidar" in prompt
+    assert "Pregunta:\nqué se exige para liquidar exportaciones\n¿cuánto plazo?" in prompt
+
+
+@pytest.mark.asyncio
+async def test_short_named_question_is_not_composed(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="n1"
+    )
+    second = await use_case.run(
+        ChatRequest(message="Comunicación A 3500?", session_id=first.session_id),
+        request_id="n2",
+    )
+    assert "Pregunta:\nComunicación A 3500?" in llm.calls[-1]
+    assert any(g.rule == "retrieve" for g in second.guardrails)
+
+
+@pytest.mark.asyncio
+async def test_cleared_session_has_no_history_block(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="c1"
+    )
+    await use_case.run(
+        ChatRequest(message="/clear", session_id=first.session_id), request_id="c2"
+    )
+    await use_case.run(
+        ChatRequest(
+            message="qué se exige para liquidar exportaciones", session_id=first.session_id
+        ),
+        request_id="c3",
+    )
+    assert "Conversación previa" not in llm.calls[-1]
+
+
+@pytest.mark.asyncio
+async def test_phases_reported_in_order(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+    seen: list[str] = []
+
+    async def on_phase(code: str) -> None:
+        seen.append(code)
+
+    await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="p",
+        on_phase=on_phase,
+    )
+    assert seen == ["retrieve", "generate", "verify"]
+    seen.clear()
+    await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"), request_id="p2", on_phase=on_phase
+    )
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_phase_callback_error_does_not_fail_turn(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+
+    async def boom(code: str) -> None:
+        raise RuntimeError(code)
+
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="p3",
+        on_phase=boom,
+    )
+    assert response.citations

@@ -77,7 +77,7 @@ The system SHALL NOT claim “normativa vigente hoy” without qualifying the du
 - **AND** the answer is unchanged
 
 ### Requirement: Scope
-The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, including weather questions in English, Spanish, or German (`Wetter`). Scope SHALL be evaluated on the latest user utterance, not on prior-turn text composed for retrieval. An off-topic denylist hit on that utterance SHALL block even if the same utterance also contains a CAMEX keyword. Follow-ups that match the session prefix (`y`, `and`, `ese`, …) and are not on the off-topic denylist SHALL pass scope so retrieval can use the composed query. The token `punto` alone SHALL NOT make a standalone utterance in scope. Blocked turns SHALL name the scope rule in the guardrail log, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
+The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, including weather questions in English, Spanish, or German (`Wetter`). Scope SHALL be evaluated on the latest user utterance, not on prior-turn text composed for retrieval. An off-topic denylist hit on that utterance SHALL block even if the same utterance also contains a CAMEX keyword. Follow-ups that match the session prefix (`y`, `and`, `ese`, …), or that are three words or fewer, name no Comunicación and were composed with the previous question of the same session, and are not on the off-topic denylist SHALL pass scope so retrieval can use the composed query. The token `punto` alone SHALL NOT make a standalone utterance in scope. Blocked turns SHALL name the scope rule in the guardrail log, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
 
 #### Scenario: Weather is out of scope
 - **GIVEN** the user asks about the weather in Madrid
@@ -103,6 +103,17 @@ The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, i
 - **WHEN** the user asks “y el clima en Madrid?”
 - **THEN** the scope rule is `block`
 - **AND** the language model is not called
+
+#### Scenario: Short follow-up in a session passes scope
+- **GIVEN** a session with a prior in-corpus CAMEX question
+- **WHEN** the user asks "¿cuánto plazo?"
+- **THEN** the scope rule is `pass` with detail "in-session follow-up"
+- **AND** retrieval uses the composed query
+
+#### Scenario: Short question without a session is blocked
+- **GIVEN** no prior question in the session
+- **WHEN** the user asks "¿cuánto plazo?"
+- **THEN** the scope rule is `block`
 
 ### Requirement: Injection
 The system SHALL block prompt-injection attempts to reveal or override hidden instructions. That includes English, Spanish, and German paraphrases (ignore / ignora / ignoriere previous instructions; disregard; forget everything above / vergiss alles oben; print, show, or dump the system prompt / mostrá el prompt / zeige den Systemprompt; you are now / ahora eres / du bist jetzt; do anything now; developer mode / modo desarrollador / Entwicklermodus; new instructions / nuevas instrucciones / neue Anweisungen) and hidden-character obfuscation. Hidden instructions SHALL stay hidden. Encoded payloads that do not contain those paraphrases in plaintext after Unicode normalize SHALL NOT be required to block. Unicode normalize SHALL run before this check. Injection SHALL run on the composed follow-up text used for retrieval. Blocked turns SHALL name the injection rule, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.

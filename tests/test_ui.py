@@ -214,6 +214,7 @@ def test_observatory_css_tokens() -> None:
     assert '"stage side"' in css
     assert "position: sticky" in css
     assert "#observatory-composer" in css
+    assert "#turn-phase" in css
     assert "#examples-kicker" in css
     assert "#observatory-actions" not in css
     assert "#observatory-side .gr-accordion" in css
@@ -529,6 +530,7 @@ async def test_iter_turn_yields_thinking_before_answer() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id
         if on_thinking is not None:
@@ -564,6 +566,7 @@ async def test_iter_turn_publishes_thinking_on_word_breaks() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id
         acc = ""
@@ -594,6 +597,7 @@ async def test_iter_turn_http_error_drops_thought() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id, on_thinking
         raise HTTPException(status_code=401, detail="invalid demo key")
@@ -617,6 +621,7 @@ async def test_iter_turn_auth_required_spanish_notice() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id, on_thinking
         raise HTTPException(status_code=401, detail="authentication required")
@@ -664,6 +669,7 @@ async def test_iter_turn_usuario_hides_thinking_but_keeps_inspector() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id
         assert on_thinking is None
@@ -694,6 +700,7 @@ async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
         message: str,
         session_id: str | None,
         on_thinking=None,
+        on_phase=None,
     ) -> ChatResponse:
         del message, session_id, on_thinking
         return _turn_response(
@@ -969,6 +976,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "observatory-freeze",
         "observatory-pills",
         "examples-kicker",
+        "turn-phase",
         "observatory-composer",
         "observatory-chat",
         "observatory-input",
@@ -1203,7 +1211,7 @@ def _collect_elem_ids(blocks: object) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id
         if on_thinking is not None:
             await on_thinking("pensando algo. ")
@@ -1222,7 +1230,7 @@ async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id, on_thinking
         raise HTTPException(status_code=429, detail="rate limited")
 
@@ -1256,7 +1264,7 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id, on_thinking
         raise HTTPException(status_code=401, detail="authentication required")
 
@@ -1268,7 +1276,7 @@ async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_generic_error_replaces_pending_row() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id, on_thinking
         raise RuntimeError("boom")
 
@@ -1330,3 +1338,54 @@ def test_citation_card_shows_fecha_and_url() -> None:
     text = citation_card_markdown(card)
     assert "fecha 2026-08-06" in text
     assert "https://www.bcra.gob.ar/x.pdf" in text
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_phase_line_in_usuario_layout() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_thinking
+        await on_phase("retrieve")
+        await on_phase("generate")
+        return _turn_response()
+
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "hola", None, None, run_turn=run_turn, staff=False
+        )
+    ]
+    phases = [y[10]["value"] for y in yields]
+    assert "Buscando en el dump…" in phases
+    assert "Redactando respuesta…" in phases
+    assert yields[-1][10]["visible"] is False
+    assert all("Buscando" not in str(row.get("content", "")) for row in yields[-1][0])
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_staff_pending_title_follows_phase() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
+        await on_phase("generate")
+        await on_thinking("pienso. ")
+        return _turn_response(thinking="pienso. ")
+
+    yields = [
+        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+    ]
+    titles = [y[0][-1].get("metadata", {}).get("title") for y in yields[:-1]]
+    assert "Redactando respuesta…" in titles
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_skips_unchanged_trace() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_phase
+        await on_thinking("a ")
+        await on_thinking("a ")
+        return _turn_response(thinking="a ")
+
+    yields = [
+        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+    ]
+    pending = [y for y in yields[1:-1] if y[0][-1].get("content") == "a "]
+    assert len(pending) == 1
