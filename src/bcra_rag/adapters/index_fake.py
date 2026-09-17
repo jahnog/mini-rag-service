@@ -4,10 +4,12 @@ from collections.abc import Mapping, Sequence
 
 from bcra_rag.domain.meta_filters import metadata_matches
 from bcra_rag.domain.models import Chunk
+from bcra_rag.domain.sections import section_text
 
 
 class FakeIndex:
-    def __init__(self) -> None:
+    def __init__(self, *, context_chunk_chars: int = 3000) -> None:
+        self.context_chunk_chars = context_chunk_chars
         self.docs: dict[str, list[Chunk]] = {}
         self.upsert_calls: list[str] = []
         self.search_calls: list[tuple[str, int, Mapping[str, object] | None]] = []
@@ -85,10 +87,4 @@ class FakeIndex:
         return [chunk for _, chunk in scored[:k]]
 
     def get_section(self, doc_id: str, punto: str | None = None) -> str:
-        chunks = self.docs.get(doc_id, [])
-        if punto:
-            for chunk in chunks:
-                if str(chunk.metadata.get("punto") or "") == punto:
-                    return chunk.text[:2000]
-        joined = "\n".join(chunk.text for chunk in chunks)
-        return joined[:2000]
+        return section_text(self.docs.get(doc_id, []), punto, self.context_chunk_chars)

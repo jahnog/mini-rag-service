@@ -1254,3 +1254,32 @@ async def test_answers_end_with_spanish_freeze_footer(tmp_path: Path) -> None:
     assert weather.answer.startswith("No puedo responder: la pregunta no es sobre")
     assert "(scope)" not in weather.answer
     assert any(g.rule == "scope" and g.verdict == "block" for g in weather.guardrails)
+
+
+@pytest.mark.asyncio
+async def test_citations_are_enriched_from_manifest(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="e",
+    )
+    cite = response.citations[0]
+    assert cite.id == "texto_ordenado"
+    assert cite.url == "https://www.bcra.gob.ar/Pdfs/Texord/t-excbio.pdf"
+    assert cite.punto == "3.8.5"
+
+
+@pytest.mark.asyncio
+async def test_named_citation_gets_fecha_and_url(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer="Tipo de cambio de referencia. Fuente: A3500",
+        finding=Finding.DEFINICION,
+        citations=[Citation(id="A3500", tipo="A", snippet="Tipo de cambio de referencia")],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="n"
+    )
+    cite = next(item for item in response.citations if item.id == "A3500")
+    assert cite.fecha == "2002-03-08"
+    assert cite.url == "https://www.bcra.gob.ar/archivos/Pdfs/comytexord/A3500.pdf"

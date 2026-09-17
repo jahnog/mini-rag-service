@@ -8,6 +8,7 @@ import structlog
 from bcra_rag.adapters.embeddings import resolve_embedding_function
 from bcra_rag.domain.meta_filters import chroma_where, metadata_matches
 from bcra_rag.domain.models import Chunk
+from bcra_rag.domain.sections import section_text
 from bcra_rag.settings import Settings
 
 log = structlog.get_logger(__name__)
@@ -148,13 +149,14 @@ class ChromaIndex:
 
     def get_section(self, doc_id: str, punto: str | None = None) -> str:
         collection = self._get_collection()
-        docs: list[Any] = []
-        if punto:
-            where = {"$and": [{"doc_id": doc_id}, {"punto": punto}]}
-            got = collection.get(where=where, include=["documents", "metadatas"])
-            docs = got.get("documents") or []
-        if not docs:
-            got = collection.get(where={"doc_id": doc_id}, include=["documents", "metadatas"])
-            docs = got.get("documents") or []
-        joined = "\n".join(str(item) for item in docs)
-        return joined[:2000]
+        got = collection.get(where={"doc_id": doc_id}, include=["documents", "metadatas"])
+        chunks = [
+            Chunk(str(chunk_id), str(text), dict(meta or {}))
+            for chunk_id, text, meta in zip(
+                got.get("ids") or [],
+                got.get("documents") or [],
+                got.get("metadatas") or [],
+                strict=False,
+            )
+        ]
+        return section_text(chunks, punto, self._settings.context_chunk_chars)

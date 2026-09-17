@@ -316,7 +316,10 @@ class IngestCorpus:
     ) -> list[Chunk]:
         which = choose_chunker(kind, text)
         chunker = self._structured if which == "B" else self._fixed
-        return chunker.chunk(doc_id, text, metadata)
+        chunks = chunker.chunk(doc_id, text, metadata)
+        for i, chunk in enumerate(chunks):
+            chunk.metadata["ordinal"] = i
+        return chunks
 
     def _body_for_kind(self, kind: str, title: str, extract: str) -> str:
         if kind == DocKind.EVENT.value:

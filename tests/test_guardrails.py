@@ -644,6 +644,31 @@ def test_context_budget_empty_hits_pass() -> None:
 # --- cite-or-abstain ---
 
 
+def test_cite_or_abstain_anchors_near_verbatim_quote() -> None:
+    body = (
+        "Los residentes deberán liquidar el cobro de exportaciones en el mercado de cambios."
+    )
+    ctx = _cite_ctx(
+        "Los residentes deben liquidar el cobro de exportaciones en el mercado de cambios",
+        body=body,
+        finding=Finding.OBLIGACION,
+    )
+    verdict = _run(CiteOrAbstainRail(), ctx)
+    assert verdict.verdict == "warn"
+    assert verdict.detail == "cita ajustada (1)"
+    assert ctx.citations[0].snippet == "liquidar el cobro de exportaciones en el mercado de cambios"
+    assert ctx.finding is Finding.OBLIGACION
+
+
+def test_cite_or_abstain_short_run_still_blocks() -> None:
+    ctx = _cite_ctx(
+        "Residents must settle export proceeds",
+        body="Los residentes deberán liquidar el cobro.",
+        finding=Finding.OBLIGACION,
+    )
+    assert _run(CiteOrAbstainRail(), ctx).verdict == "block"
+
+
 def test_cite_or_abstain_valid_this_turn_quote_passes() -> None:
     ctx = _cite_ctx("hello world")
     assert _run(CiteOrAbstainRail(), ctx).verdict == "pass"

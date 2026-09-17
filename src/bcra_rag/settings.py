@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     demo_api_key: str = ""
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)
+    context_chunk_chars: int = Field(default=3000, ge=500)
     guardrails_policy_path: Path | None = None
 
     # Retrieval

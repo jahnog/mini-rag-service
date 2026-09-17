@@ -263,3 +263,17 @@ def test_chroma_smoke_with_deterministic_embeddings(tmp_path) -> None:
     assert index.has_document("texto_ordenado")
     assert chunks[0].metadata["chunker"] == "B"
     assert "cláusula" in index.get_section("texto_ordenado")
+
+
+def test_chroma_get_section_orders_by_punto(tmp_path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
+    index.upsert(
+        "A1",
+        [
+            Chunk("A1:3", "tres", {"doc_kind": "comunicacion", "punto": "3"}),
+            Chunk("A1:1", "uno", {"doc_kind": "comunicacion", "punto": "1"}),
+            Chunk("A1:2", "dos", {"doc_kind": "comunicacion", "punto": "2"}),
+        ],
+    )
+    assert index.get_section("A1").split("\n") == ["uno", "dos", "tres"]

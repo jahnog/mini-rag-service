@@ -93,7 +93,7 @@ class Router:
             )
         punto = _punto_in(question)
         text = self._index.get_section(comm_id, punto)
-        chunk = _chunk_from_section(comm_id, text, self._manifest)
+        chunk = _chunk_from_section(comm_id, text, self._manifest, punto)
         return RouteResult(
             query=question,
             hits=[chunk] if text.strip() else [],
@@ -210,7 +210,9 @@ def _post_to_filters(manifest: Manifest, to_as_of: str | None) -> dict[str, obje
     return filters
 
 
-def _chunk_from_section(doc_id: str, text: str, manifest: Manifest) -> Chunk:
+def _chunk_from_section(
+    doc_id: str, text: str, manifest: Manifest, punto: str | None = None
+) -> Chunk:
     entry = manifest.documents.get(doc_id) or {}
     kind = str(entry.get("kind") or ("texto_ordenado" if doc_id == TO_DOC_ID else "comunicacion"))
     return Chunk(
@@ -221,6 +223,9 @@ def _chunk_from_section(doc_id: str, text: str, manifest: Manifest) -> Chunk:
             "doc_kind": kind,
             "numero": doc_id,
             "fecha": entry.get("fecha") or "",
+            "url": entry.get("url") or "",
+            "title": entry.get("title") or "",
+            "punto": punto or "",
             "score": 1.0,
         },
     )

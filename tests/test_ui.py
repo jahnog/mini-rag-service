@@ -1317,3 +1317,16 @@ def test_thinking_for_layout(tmp_path: Path) -> None:
         thinking_for_layout(False, Settings(data_dir=tmp_path, llm_thinking_user_layout=True))
         is None
     )
+
+
+def test_citation_card_shows_fecha_and_url() -> None:
+    card = {
+        "id": "A8464",
+        "fecha": "2026-08-06",
+        "punto": "2",
+        "snippet": "x",
+        "url": "https://www.bcra.gob.ar/x.pdf",
+    }
+    text = citation_card_markdown(card)
+    assert "fecha 2026-08-06" in text
+    assert "https://www.bcra.gob.ar/x.pdf" in text

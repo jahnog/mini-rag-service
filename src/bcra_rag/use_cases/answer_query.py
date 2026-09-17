@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
@@ -17,13 +18,13 @@ from bcra_rag.domain.freeze import freeze_footer, names_freeze
 from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext, RailResult, step
 from bcra_rag.domain.guardrails.copy import blocked_copy
 from bcra_rag.domain.guardrails.input import redact_secrets
-from bcra_rag.domain.guardrails.output import _quote_ok
+from bcra_rag.domain.guardrails.output import _quote_ok, anchor_span
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router, named_ids
 from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator, TurnScores
-from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
+from bcra_rag.domain.urls import TO_DOC_ID, TO_PDF_URL, normalize_comm_id
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmBadJson, LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
@@ -350,6 +351,8 @@ class AnswerQuery:
             filters=request.filters,
             timeout_s=self._settings.llm_timeout_s,
             thinking=thinking_mode,
+            chunk_chars=self._settings.context_chunk_chars,
+            doc_meta=manifest.documents,
         )
         if generated.draft is None:
             return self._finalize(
@@ -492,6 +495,8 @@ async def generate_from_context(
     filters: ChatFilters | None = None,
     timeout_s: float,
     thinking: bool | None = None,
+    chunk_chars: int = 1500,
+    doc_meta: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> GeneratedFromContext:
     ctx.turn_ids = {
         str(chunk.metadata.get("doc_id") or "")
@@ -499,7 +504,9 @@ async def generate_from_context(
         if chunk.metadata.get("doc_id")
     }
     ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
-    prompt = _prompt(query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter)
+    prompt = _prompt(
+        query, ctx.hits, ctx.last_refresh, ctx.to_as_of, ctx.delimiter, chunk_chars
+    )
     started = time.perf_counter()
     try:
         draft, retry_note = await _complete_with_retry(
@@ -522,6 +529,7 @@ async def generate_from_context(
     generate_log = [step("generate", "generate", "pass", detail)]
     raw_citations = list(draft.citations)
     citations = _citations_from_model(draft, ctx.hits, ctx.turn_ids)
+    citations = enrich_citations(citations, ctx.hits, doc_meta or {})
     ctx.draft = draft
     ctx.finding = draft.finding
     ctx.answer = draft.answer
@@ -729,10 +737,11 @@ def _prompt(
     last_refresh: str | None,
     to_as_of: str | None,
     delim: str,
+    chunk_chars: int = 1500,
 ) -> str:
     clauses = f"\n{delim}\n".join(
         f"[chunk_id={chunk.metadata.get('doc_id')} punto={chunk.metadata.get('punto')}] "
-        f"{chunk.text[:1500]}"
+        f"{chunk.text[:chunk_chars]}"
         for chunk in hits
     )
     return (
@@ -775,8 +784,10 @@ def _cite_failures(
             reason = "unknown_id"
         elif not (item.snippet or "").strip():
             reason = "empty_snippet"
-        elif not _quote_ok(item, hits):
+        elif (span := anchor_span(item, hits)) is None:
             reason = "quote_not_in_hit"
+        elif span[1]:
+            reason = "quote_adjusted"
         else:
             continue
         rows.append({"id": item.id, "reason": reason, "snippet": prefix})
@@ -820,6 +831,33 @@ def _salvage_named(ctx: RailContext) -> str:
         ctx.citations = [Citation(id=named, tipo=tipo, snippet=slice_)]
         return "attached_named"
     return "none"
+
+
+def enrich_citations(
+    citations: list[Citation],
+    hits: list[Chunk],
+    doc_meta: Mapping[str, Mapping[str, Any]],
+) -> list[Citation]:
+    by_doc: dict[str, Chunk] = {}
+    for chunk in hits:
+        doc_id = str(chunk.metadata.get("doc_id") or "")
+        if doc_id and doc_id not in by_doc:
+            by_doc[doc_id] = chunk
+    out: list[Citation] = []
+    for item in citations:
+        entry = doc_meta.get(item.id) or {}
+        hit = by_doc.get(item.id)
+        update: dict[str, Any] = {}
+        fecha = entry.get("fecha") or (hit.metadata.get("fecha") if hit is not None else None)
+        url = entry.get("url") or (TO_PDF_URL if item.id == TO_DOC_ID else None)
+        if fecha and not item.fecha:
+            update["fecha"] = str(fecha)
+        if url and not item.url:
+            update["url"] = str(url)
+        if not item.punto and hit is not None and hit.metadata.get("punto"):
+            update["punto"] = str(hit.metadata["punto"])
+        out.append(item.model_copy(update=update) if update else item)
+    return out
 
 
 def _citations_from_model(
