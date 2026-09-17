@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import re
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
@@ -34,7 +35,6 @@ from bcra_rag.ui.config import (
     append_pending,
     apply_clear_result,
     apply_layout,
-    banner_markdown,
     citation_card_markdown,
     citation_cards,
     done_thought_title,
@@ -49,8 +49,6 @@ from bcra_rag.ui.config import (
     thinking_for_staff,
     thought_markdown,
     thought_publish_ready,
-    title_markdown,
-    topbar_markdown,
     trust_markdown,
     trust_payload,
 )
@@ -148,45 +146,48 @@ def test_observatory_css_tokens() -> None:
     assert "#04111d" not in weblab
     css_root = css.split("html,")[0]
     assert "--accent: var(--wl-gold)" in css_root
-    assert "8px" in css
     assert "color-scheme: dark" in css
     assert "backdrop-filter" not in css
     assert "body::after" not in css
     assert "#04111d" not in css
     assert "#72d6cb" not in css
+    # No hardcoded colours: everything binds to a token.
+    body = re.sub(r"/\*[\s\S]*?\*/", "", css)
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b", body)
+    assert "rgba(" not in body
+    # The page scrolls; nothing is a fixed frame or a nested scroller.
+    assert "max-height: 100dvh" not in css
+    assert "overflow: hidden" not in css
+    assert "overflow-y: auto" not in css
+    assert "min-height: 100dvh" in css
+    # Sizes come from the scales, never one-off rems.
+    assert not re.search(r"\b0\.(?!5rem|75rem|25rem)\d+rem", body)
+    assert "var(--wl-space-" in css
+    assert "var(--wl-text-" in css
+    assert "var(--wl-max)" in css
+    # Section labels are real markup now, not CSS-generated text.
+    assert "::before" not in css
+    assert "#citations-kicker" in css
+    assert "#guardrails-kicker" in css
     assert ".obs-chip" in css
     assert "#observatory-pills" in css
     assert "#observatory-chat" in css
-    assert "overflow: visible" in css
     assert "status-tracker" in css
-    assert "flex: 0 0 auto" in css
-    assert "flex-wrap: nowrap" in css
-    assert 'content: "Citas"' in css
-    assert 'content: "Guardrails"' in css
-    assert "min-height: 44px" in css
     assert ".thought-group" in css
     assert "thought-pulse" in css
     assert "#observatory-chat .thought-group" in css
     assert ":has(.thought-group)" in css
-    assert ".thought-group .content" in css
     assert "layout-user" in css
     assert "#observatory-shell.layout-user .thought-group" in css
-    assert "12rem" in css
-    assert "max-height: 100dvh" in css
-    assert "overflow: hidden" in css
-    assert "display: block" in css
-    assert "#observatory-title" in css
+    assert "prefers-reduced-motion" in css
     assert "#auth-status.auth-status-ok" in css
     assert "#auth-status.auth-status-err" in css
-    assert "white-space: nowrap" in css
-    assert ".fillable" in css
     assert "icon-button" in css
     assert ".bot-row" in css
-    assert "480px" not in css.split("#observatory-chat")[1].split("}")[0]
-    assert "min-height: calc(100dvh" not in css
-    thought_css = "".join(css.split(".thought-group")[1:])
-    assert "h1" in thought_css
-    assert "0.82rem" in thought_css
+    assert "focus-visible" in css
+    assert "@media (min-width: 40rem)" in css
+    assert "@media (min-width: 70rem)" in css
+    assert "1120px" not in css
     assert "svelte-" not in css.split(".thought-group")[1][:400]
 
 
@@ -202,17 +203,21 @@ def test_observatory_theme_helpers() -> None:
     assert "_paq" not in head
     assert "matomo.js" not in head
     assert f"<title>{PAGE_TITLE}</title>" in head
-    assert PAGE_TITLE == "BCRA CAMEX"
+    assert PAGE_TITLE == "BCRA Mini-RAG"
+    assert 'name="description"' in head
     assert 'name="theme-color"' in head
     assert "#050821" in head
     assert 'rel="icon"' in head
     assert 'href="/favicon.ico"' in head
+    assert 'href="/favicon.svg"' in head
+    assert 'rel="apple-touch-icon"' in head
+    assert 'name="twitter:card"' in head
     assert f'property="og:image" content="{OG_IMAGE_HREF}"' in head
     assert f'property="og:description" content="{PAGE_DESCRIPTION}"' in head
     assert f'name="twitter:description" content="{PAGE_DESCRIPTION}"' in head
     favicon = observatory_favicon_path()
     assert favicon.is_file()
-    assert favicon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert favicon.read_bytes()[:4] == b"\x00\x00\x01\x00"
     og = observatory_og_image_path()
     assert og.is_file()
     assert og.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
@@ -222,6 +227,8 @@ def test_observatory_theme_helpers() -> None:
     assert "neutral_100" not in str(theme.input_background_fill)
     assert str(theme.button_secondary_text_color).lower() != "black"
     assert "#050821" in str(theme.body_background_fill)
+    assert str(theme.link_text_color) == "#b5c5e8"
+    assert "#425cc7" not in str(theme.link_text_color_dark)
     js = observatory_js()
     assert f"document.title = {PAGE_TITLE!r}" in js
     assert "lang = \"es\"" in js or "lang='es'" in js
@@ -355,7 +362,16 @@ def test_page_images_are_served(tmp_path: Path) -> None:
     client, _, _, _ = make_client(tmp_path)
     icon = client.get("/favicon.ico")
     assert icon.status_code == 200
-    assert icon.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert icon.content[:4] == b"\x00\x00\x01\x00"
+    svg = client.get("/favicon.svg")
+    assert svg.status_code == 200
+    assert b"<svg" in svg.content
+    apple = client.get("/apple-touch-icon.png")
+    assert apple.status_code == 200
+    assert apple.content[:8] == b"\x89PNG\r\n\x1a\n"
+    css = client.get("/weblab.css")
+    assert css.status_code == 200
+    assert "weblab" in css.text
     og = client.get("/og.png")
     assert og.status_code == 200
     assert og.content[:8] == b"\x89PNG\r\n\x1a\n"
@@ -670,27 +686,6 @@ def test_banner_and_canned_prompts() -> None:
         n_docs=10,
         index_ready=True,
     )
-    banner = banner_markdown(health)
-    topbar = topbar_markdown(health)
-    title = title_markdown(health)
-    assert TO_AS_OF in banner
-    assert LAST_REFRESH in banner
-    assert "A8464" in banner
-    assert "10" in banner
-    assert "no oficial" in banner.lower()
-    assert TO_AS_OF in topbar
-    assert LAST_REFRESH in topbar
-    assert "A8464" in topbar
-    assert "10" in topbar
-    assert "no oficial" in topbar.lower()
-    assert "no oficial" in title.lower()
-    assert "BCRA CAMEX" in title
-    assert "Mini-RAG" not in title
-    assert "#" not in title
-    assert not title.lstrip().startswith("*")
-    assert TO_AS_OF not in title
-    assert LAST_REFRESH not in title
-    assert "A8464" not in title
     chips = freeze_chips_html(health)
     assert "obs-chip" in chips
     assert TO_AS_OF in chips
@@ -713,13 +708,13 @@ def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     assert not is_sample_l1(data)
     text = l1_markdown(data)
     lowered = text.lower()
-    assert "números unpublished/sample" not in lowered
-    assert "citation_id_exact" in text or "citation-id" in lowered or "headline" in lowered
+    assert "números de muestra" not in lowered
+    assert "citation_id_exact" in text or "citation-id" in lowered or "métrica principal" in lowered
     assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
-    assert "## Retrieval" in text
-    assert "## Generation" in text
+    assert "## Recuperación" in text
+    assert "## Generación" in text
     assert "faithfulness: 0" not in lowered
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
@@ -740,9 +735,9 @@ def test_l1_markdown_skipped_generation_not_zero() -> None:
         }
     )
     lowered = text.lower()
-    assert "skipped" in lowered
-    assert "headline **citation_id_exact**: 0" not in lowered
-    assert "headline **citation_id_exact**: none" not in lowered
+    assert "omitido" in lowered
+    assert "métrica principal **citation_id_exact**: 0" not in lowered
+    assert "métrica principal **citation_id_exact**: none" not in lowered
     assert "faithfulness: 0" not in lowered
 
 
@@ -761,8 +756,8 @@ def test_l1_markdown_skipped_retrieval_not_zero() -> None:
         }
     )
     lowered = text.lower()
-    assert "hit@5: skipped" in lowered
-    assert "mrr: skipped" in lowered
+    assert "hit@5: omitido" in lowered
+    assert "mrr: omitido" in lowered
     assert "hit@5: 0.0" not in lowered
     assert "hit@5: none" not in lowered
 
@@ -825,7 +820,7 @@ def test_inspector_copy_id_and_trust() -> None:
     assert 'class="obs-chip warn"' in trust_markdown(
         [{"rule": "x", "verdict": "warn", "detail": ""}]
     )
-    assert "not enforced" in trust_markdown(
+    assert "no aplicado" in trust_markdown(
         [
             {
                 "rule": "injection",
@@ -836,7 +831,7 @@ def test_inspector_copy_id_and_trust() -> None:
             }
         ]
     )
-    assert "would-block" in trust_markdown(
+    assert "bloquearía" in trust_markdown(
         [
             {
                 "rule": "injection",
@@ -904,14 +899,14 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     for elem_id in (
         "observatory-shell",
         "observatory-topbar",
-        "observatory-title",
+        "observatory-topbar",
         "observatory-layout",
         "observatory-stage",
         "observatory-side",
         "abstain-banner",
         "citation-card",
         "trust-panel",
-        "observatory-footer",
+        "observatory-footer-host",
         "layout-toggle",
         "layout-toggle-help",
         "auth-login",
@@ -937,12 +932,18 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     chatbots = [widget for widget in widgets if type(widget).__name__ == "Chatbot"]
     assert chatbots
     assert list(getattr(chatbots[0], "buttons", None) or []) == []
-    assert getattr(chatbots[0], "height", None) == "100%"
+    assert getattr(chatbots[0], "height", None) == "auto"
     assert getattr(chatbots[0], "min_height", None) == 192
     assert getattr(chatbots[0], "group_consecutive_messages", True) is False
     topbar = _widget_by_elem_id(blocks, "observatory-topbar")
     assert topbar is not None
-    assert getattr(topbar, "scale", None) == 0
+    assert type(topbar).__name__ == "HTML"
+    topbar_html_value = str(getattr(topbar, "value", ""))
+    assert '<h1 class="wl-title">BCRA Mini-RAG</h1>' in topbar_html_value
+    assert "jahnog.github.io" in topbar_html_value
+    footer = _widget_by_elem_id(blocks, "observatory-footer-host")
+    assert footer is not None
+    assert "jahnog.github.io" in str(getattr(footer, "value", ""))
     pregunta = [
         widget
         for widget in widgets
@@ -950,7 +951,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     ]
     assert pregunta
     assert getattr(pregunta[0], "max_lines", None) == 4
-    assert getattr(pregunta[0], "show_label", True) is False
+    assert getattr(pregunta[0], "show_label", True) is True
     abstain = _widget_by_elem_id(blocks, "abstain-banner")
     assert abstain is not None
     assert getattr(abstain, "visible", True) is False

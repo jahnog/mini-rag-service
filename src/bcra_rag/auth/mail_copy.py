@@ -6,13 +6,14 @@ import re
 OTP_SUBJECT = "Tu código de BCRA Mini-RAG"
 OTP_CODE_RE = re.compile(r"Tu código de acceso es (\d{6})")
 
-_PAGE = "#04111d"
-_CARD = "#081a2b"
-_TEXT = "#f4fbff"
-_MUTED = "#b6c9d4"
-_ACCENT = "#72d6cb"
-_BTN_FG = "#03101c"
-_BORDER = "#2a4a55"
+# Family palette (weblab tokens as solid colours: mail clients ignore rgba).
+_PAGE = "#050821"
+_CARD = "#121548"
+_TEXT = "#ffffff"
+_MUTED = "#b5c5e8"
+_ACCENT = "#f4b223"
+_BTN_FG = "#121548"
+_BORDER = "#3a4479"
 
 
 def otp_code_from_text(text: str) -> str | None:
@@ -44,7 +45,7 @@ def otp_html_body(code: str, *, ttl_s: int, login_url: str | None = None) -> str
         button = (
             f'<a href="{safe_url}" rel="noopener noreferrer" '
             f'style="display:inline-block;padding:12px 20px;background-color:{_ACCENT};'
-            f"color:{_BTN_FG};text-decoration:none;font-weight:700;border-radius:8px;\">"
+            f"color:{_BTN_FG};text-decoration:none;font-weight:600;border-radius:999px;\">"
             "Iniciar sesión</a>"
         )
         url_row = (
@@ -66,9 +67,15 @@ def otp_html_body(code: str, *, ttl_s: int, login_url: str | None = None) -> str
     </td>
   </tr>
   <tr>
-    <td bgcolor="{_CARD}" style="background-color:{_CARD};color:{_TEXT};padding:8px 24px 16px;
-      font-family:Consolas, 'Courier New', monospace;font-size:28px;letter-spacing:0.35em;">
+    <td bgcolor="{_CARD}" style="background-color:{_CARD};color:{_MUTED};padding:0 24px 4px;
+      font-family:Sora, 'Segoe UI', Arial, sans-serif;font-size:14px;">
       Tu código de acceso es {safe_code}
+    </td>
+  </tr>
+  <tr>
+    <td bgcolor="{_CARD}" style="background-color:{_CARD};padding:4px 24px 16px;">
+      <span style="display:inline-block;padding:10px 18px;border:1px solid {_ACCENT};border-radius:8px;
+        color:{_TEXT};font-family:Consolas, 'Courier New', monospace;font-size:28px;letter-spacing:0.35em;">{safe_code}</span>
     </td>
   </tr>
   <tr>
