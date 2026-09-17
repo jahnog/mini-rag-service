@@ -22,6 +22,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
+from bcra_rag.domain.l1_results import L1_FILENAME
 from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
@@ -434,7 +435,7 @@ def build_blocks(
 ) -> gr.Blocks:
     health = dump_health(settings, index)
     resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
-    l1_path = Path(settings.evals_dir) / "l1.json"
+    l1_path = Path(settings.evals_dir) / L1_FILENAME
     l1_data = load_l1(l1_path)
 
     async def _turn(

@@ -13,7 +13,7 @@ Facts as of this change's writing:
 
 ## Goals / Non-Goals
 
-**Goals:** correct metric; readable accordion; the published document reaches new hosts; an operator can `curl /evals/l1`.
+**Goals:** correct metric; readable accordion; the published document reaches new hosts; an operator can `curl /l1`.
 **Non-Goals:** live refresh of the accordion; touching gold or run flags.
 
 ## Decisions
@@ -54,10 +54,12 @@ def _fmt_metric(key: str, value: object) -> str:
 
 `tests/evals/test_isolation.py` requires chat sources never to import `bcra_rag.evals`, and `ui/config.py` imports Gradio, which the API must not depend on. Move `load_l1` and `is_sample_l1` to a new stdlib-only module `src/bcra_rag/domain/l1_results.py` and re-export both from `ui/config.py` (and keep the `bcra_rag.ui` package export) so existing imports keep working. `api/routes.py` imports from `bcra_rag.domain.l1_results`.
 
-### Decision: `GET /evals/l1`
+### Decision: `GET /l1` (not under `/evals`)
+
+The `evals` capability spec states "There SHALL NOT be an HTTP evaluation endpoint" and `tests/evals/test_isolation.py::test_no_http_eval_route` rejects any route under `/evals`. The results document is not an evaluation (nothing runs; it is a static read), so it is served at `/l1`, outside that prefix, and the isolation rule stays untouched.
 
 ```python
-@api.get("/evals/l1")
+@api.get("/l1")
 def evals_l1() -> dict[str, Any]:
     return load_l1(Path(settings.evals_dir) / "l1.json")
 ```
@@ -83,12 +85,12 @@ The words "unpublished" and "sample" stay in the comment (existing tests search 
 
 ### Decision: Spec and README wording
 
-`evals-l1` "Static results file": the committed document MAY be a published operator run on the published dump and MUST carry `unpublished:false, sample:false` only when it is one; the UI labels by the file's flags. "Host install preserves operator L1": first install SHALL seed the committed document when none exists; updates MUST NOT overwrite. README Evals: replace "Shipped `evals/l1.json` stays unpublished/sample until an operator run on a ready index." with "Committed `evals/l1.json` is the last operator run on the published dump (published with `scripts/publish-data.sh`); a fresh host is seeded with it and keeps its own later runs." Add: "`ndcg_at_5` in the committed file predates the NDCG bound fix and can exceed 1 until the next operator run." Add `GET /evals/l1` to the Debug paragraph.
+`evals-l1` "Static results file": the committed document MAY be a published operator run on the published dump and MUST carry `unpublished:false, sample:false` only when it is one; the UI labels by the file's flags. "Host install preserves operator L1": first install SHALL seed the committed document when none exists; updates MUST NOT overwrite. README Evals: replace "Shipped `evals/l1.json` stays unpublished/sample until an operator run on a ready index." with "Committed `evals/l1.json` is the last operator run on the published dump (published with `scripts/publish-data.sh`); a fresh host is seeded with it and keeps its own later runs." Add: "`ndcg_at_5` in the committed file predates the NDCG bound fix and can exceed 1 until the next operator run." Add `GET /l1` to the Debug paragraph.
 
 ## Risks / Trade-offs
 
 - [Seeding a laptop run onto a host with a different dump] → mitigated by the wording: the committed file is only updated by `publish-data.sh` together with the dump.
-- [`/evals/l1` leaks the judge model name] → it is already visible in the staff UI.
+- [`/l1` leaks the judge model name] → it is already visible in the staff UI.
 
 ## Migration Plan
 

@@ -48,7 +48,7 @@ An L1 run SHALL publish two independent blocks. The retrieval block SHALL includ
 - **THEN** that bucket has a score
 
 ### Requirement: Static results file
-L1 SHALL write a static results document that the assistant UI reads. The browser MUST NOT compute L1 scores. Refresh MUST NOT run L1 unless the operator opts in. The repository SHALL commit a results document at `evals/l1.json`. That document MAY be a published operator run made on the published dump (the dump that `scripts/publish-data.sh` ships), in which case it carries `unpublished: false` and `sample: false`; otherwise it MUST be labeled unpublished or sample. The UI SHALL label the numbers strictly by those flags. The document MUST mark judged metrics skipped, not zero, when the judge did not run. A collector error, including an authentication failure, MUST NOT fail that static write. The serving process SHALL expose the stored document read-only at `GET /evals/l1`; when no document exists it SHALL return the same unpublished stub the UI renders, with HTTP 200.
+L1 SHALL write a static results document that the assistant UI reads. The browser MUST NOT compute L1 scores. Refresh MUST NOT run L1 unless the operator opts in. The repository SHALL commit a results document at `evals/l1.json`. That document MAY be a published operator run made on the published dump (the dump that `scripts/publish-data.sh` ships), in which case it carries `unpublished: false` and `sample: false`; otherwise it MUST be labeled unpublished or sample. The UI SHALL label the numbers strictly by those flags. The document MUST mark judged metrics skipped, not zero, when the judge did not run. A collector error, including an authentication failure, MUST NOT fail that static write. The serving process SHALL expose the stored document read-only at `GET /l1`; when no document exists it SHALL return the same unpublished stub the UI renders, with HTTP 200.
 
 #### Scenario: UI reads last run
 - **GIVEN** a results file from the last L1 run
@@ -69,13 +69,13 @@ L1 SHALL write a static results document that the assistant UI reads. The browse
 
 #### Scenario: Results document over HTTP
 - **GIVEN** a running serving process with a results document
-- **WHEN** a client requests `GET /evals/l1`
+- **WHEN** a client requests `GET /l1`
 - **THEN** the response is HTTP 200 with the stored JSON object
 - **AND** it contains `retrieval`, `generation`, `judge`, and `n`
 
 #### Scenario: Missing document over HTTP
 - **GIVEN** a running serving process whose evals directory has no `l1.json`
-- **WHEN** a client requests `GET /evals/l1`
+- **WHEN** a client requests `GET /l1`
 - **THEN** the response is HTTP 200
 - **AND** `unpublished` and `sample` are true
 

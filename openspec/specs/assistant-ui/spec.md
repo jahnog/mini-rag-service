@@ -193,7 +193,7 @@ The staff layout SHALL show the per-query guardrail log as chips grouped by stag
 - **AND** that it would have blocked
 
 ### Requirement: L1 accordion
-In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, when those blocks exist. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.
+In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, each naming the sample size `n` of that suite when present. Rates SHALL be shown with three decimals and latencies as whole milliseconds with a `ms` suffix; raw floating-point noise MUST NOT be shown. The section SHALL show a "Juez" line naming the judge model and either the number of judge calls or that the judge was skipped with its reason. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.
 
 #### Scenario: Accordion starts collapsed
 - **GIVEN** the interface has just loaded
@@ -208,9 +208,18 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **AND** retrieval and generation headings are shown when those blocks exist
 - **AND** no eval request is sent to a model from the client
 
+#### Scenario: Numbers are rounded and sized
+- **GIVEN** a stored file whose generation block has `latency_ms_p95: 137652.6405`, `citation_id_exact: 0.2333` and `n: 30`
+- **AND** whose judge block is `{model: "grok-4.3", skipped: true, skip_reason: "missing_extra"}`
+- **WHEN** the user expands Calidad L1
+- **THEN** the generation heading reads "Generación (n=30)"
+- **AND** the latency line reads "latency_ms_p95: 137653 ms"
+- **AND** the text "137652.6405" does not appear
+- **AND** a line reads "Juez: grok-4.3 · omitido (missing_extra)"
+
 #### Scenario: Unpublished fixture is labeled
 - **GIVEN** the staff layout
-- **AND** only the shipped unpublished L1 results exist
+- **AND** a results document labeled unpublished or sample
 - **WHEN** the user expands Calidad L1
 - **THEN** the section states that the numbers are a sample or unpublished
 

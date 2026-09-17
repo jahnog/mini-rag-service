@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import html
-import json
 import re
-from pathlib import Path
 from typing import Any
 
 import gradio as gr
 from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
+from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
+from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
+from bcra_rag.domain.l1_results import load_l1 as load_l1
 from bcra_rag.schemas import ChatResponse, HealthResponse
 
 CANNED_PROMPTS: tuple[str, ...] = (
@@ -146,26 +147,6 @@ def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any
     )
 
 
-def load_l1(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {
-            "unpublished": True,
-            "sample": True,
-            "headline_metric": "citation_id_exact",
-            "citation_id_exact": None,
-            "hit_at_5": None,
-            "mrr": None,
-        }
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        return {"unpublished": True, "sample": True}
-    return raw
-
-
-def is_sample_l1(data: dict[str, Any]) -> bool:
-    return bool(data.get("unpublished") or data.get("sample"))
-
-
 def l1_markdown(data: dict[str, Any]) -> str:
     label = ""
     if is_sample_l1(data):
@@ -186,6 +167,7 @@ def l1_markdown(data: dict[str, Any]) -> str:
     generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
     retrieval_block = _suite_markdown("Recuperación", retrieval)
     generation_block = _suite_markdown("Generación", generation)
+    judge_line = _judge_markdown(data.get("judge"))
     citation_shown = _skipped_or_value(
         data.get("citation_id_exact"), bool(generation.get("skipped"))
     )
@@ -197,6 +179,7 @@ def l1_markdown(data: dict[str, Any]) -> str:
         f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
         f"{retrieval_block}\n\n"
         f"{generation_block}\n\n"
+        f"{judge_line + chr(10) + chr(10) if judge_line else ''}"
         f"Chunking A vs B: A {a_score} · B {b_score}\n\n"
         f"Documentos de la estrategia B: {', '.join(str(x) for x in b_docs) or '(ninguno)'}\n\n"
         f"Cortes:\n{slice_lines or '- (ninguno)'}"
@@ -206,7 +189,33 @@ def l1_markdown(data: dict[str, Any]) -> str:
 def _skipped_or_value(value: object, skipped: bool) -> str:
     if skipped or value is None:
         return "omitido"
+    if isinstance(value, float):
+        return f"{value:.3f}"
     return str(value)
+
+
+_LATENCY_KEYS = frozenset({"latency_ms_p50", "latency_ms_p95"})
+
+
+def _fmt_metric(key: str, value: object) -> str:
+    if value is None:
+        return "omitido"
+    if isinstance(value, bool):
+        return "sí" if value else "no"
+    if key in _LATENCY_KEYS and isinstance(value, int | float):
+        return f"{int(round(value))} ms"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _judge_markdown(raw: object) -> str:
+    if not isinstance(raw, dict):
+        return ""
+    model = str(raw.get("model") or "—")
+    if raw.get("skipped"):
+        return f"Juez: {model} · omitido ({raw.get('skip_reason') or 'omitido'})"
+    return f"Juez: {model} · {int(raw.get('calls') or 0)} llamadas"
 
 
 def _suite_markdown(title: str, block: dict[str, Any]) -> str:
@@ -215,12 +224,14 @@ def _suite_markdown(title: str, block: dict[str, Any]) -> str:
     if block.get("skipped"):
         reason = block.get("skip_reason") or "omitido"
         return f"## {title}\n\nomitido ({reason})"
-    lines = [f"## {title}", ""]
-    skip = {"skipped", "skip_reason"}
+    n = block.get("n")
+    heading = f"## {title} (n={n})" if n is not None else f"## {title}"
+    lines = [heading, ""]
+    skip = {"skipped", "skip_reason", "n"}
     for key, value in block.items():
         if key in skip:
             continue
-        lines.append(f"- {key}: {value}")
+        lines.append(f"- {key}: {_fmt_metric(key, value)}")
     return "\n".join(lines)
 
 

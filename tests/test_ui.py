@@ -761,8 +761,18 @@ def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     assert "## Recuperación" in text
     assert "## Generación" in text
     assert "faithfulness: 0" not in lowered
+    assert "## Generación (n=30)" in text
+    assert "latency_ms_p95: 137653 ms" in text
+    assert "137652.6405" not in text
+    assert "Juez: grok-4.3 · omitido (missing_extra)" in text
+    assert "citation_id_exact**: 0.233" in text
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
+
+
+def test_l1_markdown_judge_ran_line() -> None:
+    text = l1_markdown({"judge": {"model": "m", "skipped": False, "calls": 12}})
+    assert "Juez: m · 12 llamadas" in text
 
 
 def test_l1_markdown_skipped_generation_not_zero() -> None:

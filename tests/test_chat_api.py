@@ -13,6 +13,7 @@ from bcra_rag.auth import AuthSettings, FakeMailer, build_auth
 from bcra_rag.composition import build_app
 from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import Finding, LlmDraft
+from bcra_rag.settings import Settings
 from tests.chat_fixtures import (
     AUTH_EMAIL,
     AUTH_SECRET,
@@ -390,3 +391,19 @@ def test_turn_caps_reset_next_utc_day(tmp_path: Path) -> None:
     clock.advance(86400)
     assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
     assert len(llm.calls) == 3
+
+
+def test_l1_document_served(tmp_path: Path) -> None:
+    client, _, _, _ = make_client(tmp_path, authenticate=False)
+    body = client.get("/l1").json()
+    assert body["unpublished"] is False
+    for key in ("retrieval", "generation", "judge", "n"):
+        assert key in body
+
+
+def test_l1_document_missing_returns_stub(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, evals_dir=tmp_path / "no-evals")
+    client, _, _, _ = make_client(tmp_path, settings=settings, authenticate=False)
+    response = client.get("/l1")
+    assert response.status_code == 200
+    assert response.json()["unpublished"] is True
