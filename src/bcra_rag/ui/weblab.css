@@ -1,4 +1,4 @@
-/*! weblab 0.3.0 */
+/*! weblab 0.3.1 */
 
 /* Mobile first. Narrow is the default; breakpoints only add layout.
    Everything is class-scoped so host widgets are never restyled by accident. */
@@ -89,6 +89,11 @@
 .wl-page img {
   max-width: 100%;
   height: auto;
+}
+
+/* The hidden attribute wins over any display the classes below set. */
+.wl-page [hidden] {
+  display: none !important;
 }
 
 /* ---------- Shell ---------- */
