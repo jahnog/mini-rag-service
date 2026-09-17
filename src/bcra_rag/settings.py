@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,14 +31,24 @@ class Settings(BaseSettings):
     llm_model: str = "grok-4-1-fast"
     llm_timeout_s: float = Field(default=60.0, ge=1.0)
     llm_enable_thinking: bool = True
+    llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    llm_max_tokens: int = Field(default=1500, ge=64)
+    llm_seed: int | None = None
+    llm_reasoning_budget: int = Field(default=0, ge=0)
+    llm_thinking_user_layout: bool = False
     demo_api_key: str = ""
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)
+    context_chunk_chars: int = Field(default=3000, ge=500)
     guardrails_policy_path: Path | None = None
 
     # Retrieval
     default_k: int = Field(default=5, ge=1)
     max_k: int = Field(default=8, ge=1)
+    retrieval_hybrid: bool = True
+    retrieval_candidates: int = Field(default=20, ge=5, le=100)
+    retrieval_min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    index_space: Literal["cosine", "l2", "ip"] = "cosine"
 
     # Chat rate limit
     rate_limit_requests: int = Field(default=20, ge=1)

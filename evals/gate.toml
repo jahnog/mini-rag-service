@@ -1,0 +1,9 @@
+# Floors for `uv run python evals/run_l1.py --gate`. Set just under the published
+# numbers in evals/l1.json; update them together with each L1 publish.
+[thresholds]
+hit_at_5 = 0.8
+precision_at_5 = 0.7
+mrr = 0.7
+citation_id_exact = 0.2
+citation_snippet_grounded = 0.25
+finding_exact = 0.15

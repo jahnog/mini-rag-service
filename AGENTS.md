@@ -37,6 +37,7 @@ BCRA CAMEX only. Never Banxico. Five ports, no Redis, no Next.js in v1. Default 
 | L1 deterministic | `uv run python evals/run_l1.py --deterministic-only` |
 | L1 retrieval | `uv run python evals/run_l1.py --retrieval-only` |
 | L1 generation | `uv run python evals/run_l1.py --generation-only` |
+| L1 gate | `uv run python evals/run_l1.py --gate` |
 | Coverage (CI) | `uv run pytest -q --cov=src --cov-report=term-missing --cov-report=xml` |
 
 Live server tests attach to an already-running process (`LIVE_BASE_URL`, default `http://127.0.0.1:8000`). They need IMAP (`LIVE_IMAP_*`), HTTP-local `AUTH_PUBLIC_ORIGIN` matching that origin, and Chromium for UI. HTTP-only: `-m live_http`.

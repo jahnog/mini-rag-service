@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from bcra_rag.domain.freeze import freeze_footer, names_freeze
 from bcra_rag.domain.guardrails.types import RailContext, RailPatch, RailResult, Stage
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding
@@ -13,6 +14,8 @@ VIGENTE_CLAIM = re.compile(
 PROMPT_FINGERPRINTS = (
     "Respond only with JSON keys answer, finding, citations.",
     "id is a dump document id (A8359 or texto_ordenado), never a chunk id.",
+    "Respondé solo con un objeto JSON con las claves answer, finding y citations.",
+    "id es el id de documento del dump (A8359 o texto_ordenado), nunca un id de chunk.",
 )
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 TOOL_SHAPE = re.compile(
@@ -48,12 +51,29 @@ class CiteOrAbstainRail:
             str(chunk.metadata.get("doc_id") or "") for chunk in ctx.hits
         }
         valid: list[Citation] = []
+        adjusted = 0
         for citation in ctx.citations:
             if citation.id not in allowed:
                 continue
-            if _quote_ok(citation, ctx.hits):
+            anchored = anchor_span(citation, ctx.hits)
+            if anchored is None:
+                continue
+            span, was_adjusted = anchored
+            if was_adjusted:
+                adjusted += 1
+                valid.append(citation.model_copy(update={"snippet": span}))
+            else:
                 valid.append(citation)
         if valid:
+            if adjusted:
+                return RailResult(
+                    rule=self.id,
+                    stage=self.stage,
+                    verdict="warn",
+                    detail=f"cita ajustada ({adjusted})",
+                    enforced=self.enforce,
+                    patch=RailPatch(citations=valid),
+                )
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
@@ -84,11 +104,7 @@ class FreezeHonestyRail:
         self.enforce = enforce
 
     def run(self, ctx: RailContext) -> RailResult:
-        refresh = ctx.last_refresh or "desconocido"
-        as_of = ctx.to_as_of or "desconocido"
-        has_refresh = refresh in ctx.answer
-        has_as_of = as_of in ctx.answer
-        if has_refresh and has_as_of:
+        if names_freeze(ctx.answer, ctx.last_refresh, ctx.to_as_of):
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
@@ -97,7 +113,7 @@ class FreezeHonestyRail:
                 enforced=self.enforce,
             )
         if VIGENTE_CLAIM.search(ctx.answer):
-            rewritten = ctx.answer.rstrip() + f" (last_refresh={refresh}; to_as_of={as_of})"
+            rewritten = ctx.answer.rstrip() + " " + freeze_footer(ctx.last_refresh, ctx.to_as_of)
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
@@ -217,17 +233,47 @@ def _sanitize_markup(text: str) -> str:
     return MD_LINK.sub(_link, out)
 
 
-def _quote_ok(citation: Citation, hits: list[Chunk]) -> bool:
+MIN_ANCHOR_CHARS = 40
+MIN_ANCHOR_RATIO = 0.6
+
+
+def anchor_span(citation: Citation, hits: list[Chunk]) -> tuple[str, bool] | None:
+    """Return (verbatim_span, adjusted) or None when the snippet has no usable anchor."""
     quote = _norm_span(citation.snippet or "")
     if not quote:
-        return False
+        return None
     for chunk in hits:
         if str(chunk.metadata.get("doc_id") or "") != citation.id:
             continue
         body = _norm_span(chunk.text)
         if quote in body:
-            return True
-    return False
+            return citation.snippet, False
+        run = _longest_common_run(quote, body)
+        if run and (len(run) >= MIN_ANCHOR_CHARS or len(run) >= MIN_ANCHOR_RATIO * len(quote)):
+            original = _recover_original(run, chunk.text)
+            if original:
+                return original, True
+    return None
+
+
+def _longest_common_run(quote: str, body: str) -> str:
+    words = quote.split()
+    for size in range(len(words), 2, -1):
+        for start in range(0, len(words) - size + 1):
+            window = " ".join(words[start : start + size])
+            if window in body:
+                return window
+    return ""
+
+
+def _recover_original(run: str, text: str) -> str:
+    pattern = r"\W+".join(re.escape(word) for word in run.split())
+    match = re.search(pattern, text, re.IGNORECASE)
+    return match.group(0) if match else ""
+
+
+def _quote_ok(citation: Citation, hits: list[Chunk]) -> bool:
+    return anchor_span(citation, hits) is not None
 
 
 def _norm_span(text: str) -> str:

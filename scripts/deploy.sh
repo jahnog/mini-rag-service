@@ -81,12 +81,16 @@ rsync -a --delete \
   --exclude 'evals/l1.json' \
   "${REPO_ROOT}/" "${DEPLOY_HOST}:${DEPLOY_DIR}/"
 
-# Seed dest evals/l1.json only if missing and local is unpublished or sample.
-_seed_l1="$REPO_ROOT/evals/l1.json"
+# Seed dest evals/l1.json only when the host has none. The seed is the document
+# committed at evals/l1.json in HEAD (the last operator run on the published dump,
+# see README Evals) — never an uncommitted laptop run. An existing host document,
+# unpublished, sample or operator run, is never overwritten.
 if ! remote "test -f '$DEPLOY_DIR/evals/l1.json'"; then
-  if [ -f "$_seed_l1" ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); sys.exit(0 if isinstance(d,dict) and (d.get("unpublished") or d.get("sample")) else 1)' "$_seed_l1"; then
+  _seed_l1="$(mktemp)"
+  if git -C "$REPO_ROOT" show HEAD:evals/l1.json > "$_seed_l1" 2>/dev/null; then
     rsync -a "$_seed_l1" "${DEPLOY_HOST}:${DEPLOY_DIR}/evals/l1.json"
   fi
+  rm -f "$_seed_l1"
 fi
 
 remote "cd '$DEPLOY_DIR' && \$HOME/.local/bin/uv sync --frozen --no-dev"

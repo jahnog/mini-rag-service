@@ -5,10 +5,12 @@ import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
+import structlog
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,6 +22,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
+from bcra_rag.domain.l1_results import L1_FILENAME
 from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
@@ -31,9 +34,6 @@ from bcra_rag.ui.config import (
     AUTH_CODE_LABEL,
     AUTH_EMAIL_LABEL,
     AUTH_KICKER,
-    CHAT_KICKER,
-    CITATIONS_KICKER,
-    GUARDRAILS_KICKER,
     AUTH_LOGOUT,
     AUTH_SEND,
     AUTH_STATUS_FLASH_MS,
@@ -44,17 +44,27 @@ from bcra_rag.ui.config import (
     AUTH_STATUS_SMTP_PROBLEM,
     AUTH_VERIFY,
     CANNED_PROMPTS,
+    CHAT_KICKER,
+    CITATIONS_KICKER,
+    EXAMPLES_KICKER,
+    GUARDRAILS_KICKER,
     L1_ACCORDION_OPEN_DEFAULT,
     LAYOUT_HELP,
     LAYOUT_STAFF,
     LAYOUT_USER,
+    PENDING_CITATION_CARD,
+    PENDING_TRUST,
+    PHASE_COPY,
+    THOUGHT_PENDING_TITLE,
     THOUGHT_PUBLISH_S,
+    TURN_FAILED_NOTICE,
     abstain_visible,
     append_messages,
     append_pending,
     apply_clear_result,
     apply_layout,
     auth_chrome,
+    auth_status_smtp_ok,
     citation_card_markdown,
     citation_cards,
     footer_text,
@@ -63,6 +73,7 @@ from bcra_rag.ui.config import (
     inspector_payload,
     l1_markdown,
     load_l1,
+    thinking_for_layout,
     thinking_for_staff,
     thought_publish_ready,
     trust_markdown,
@@ -83,13 +94,13 @@ from bcra_rag.ui.theme import (
     topbar_html,
     weblab_css_path,
 )
-from bcra_rag.use_cases.answer_query import new_request_id
+from bcra_rag.use_cases.answer_query import OnPhase, new_request_id
 
 
-def _choice_update(choices: list[str]) -> Any:
+def _choice_update(choices: list[str], *, value: str | None = None) -> Any:
     return gr.update(
         choices=choices,
-        value=choices[0] if choices else None,
+        value=value if value in choices else (choices[0] if choices else None),
         visible=bool(choices),
     )
 
@@ -102,10 +113,40 @@ def _abstain_update(text: str, *, visible: bool) -> Any:
     return gr.update(value=text, visible=visible)
 
 
+def _phase_update(text: str) -> Any:
+    return gr.update(value=text, visible=bool(text))
+
+
+_LOG = structlog.get_logger("bcra_rag.observatory")
+
+
+@dataclass(frozen=True)
+class InspectorPrior:
+    inspector: dict[str, Any]
+    trust: list[dict[str, str]]
+    cards: list[dict[str, Any]]
+    choice: str | None
+
+
 TurnRunner = Callable[..., Awaitable[ChatResponse]]
 
-_AUTH_REQUEST_JS = (
-    """
+
+def auth_request_js(smtp_ok: str) -> str:
+    return (
+        _AUTH_REQUEST_TEMPLATE.replace(
+            "__AUTH_GENERIC__", json.dumps(AUTH_STATUS_GENERIC, ensure_ascii=False)
+        )
+        .replace("__AUTH_SENDING__", json.dumps(AUTH_STATUS_SENDING, ensure_ascii=False))
+        .replace("__AUTH_SMTP_OK__", json.dumps(smtp_ok, ensure_ascii=False))
+        .replace("__AUTH_SMTP_FAIL__", json.dumps(AUTH_STATUS_SMTP_FAIL, ensure_ascii=False))
+        .replace(
+            "__AUTH_SMTP_PROBLEM__", json.dumps(AUTH_STATUS_SMTP_PROBLEM, ensure_ascii=False)
+        )
+        .replace("__AUTH_FLASH_MS__", json.dumps(AUTH_STATUS_FLASH_MS))
+    )
+
+
+_AUTH_REQUEST_TEMPLATE = """
 async (email) => {
   const generic = __AUTH_GENERIC__;
   const sending = __AUTH_SENDING__;
@@ -194,15 +235,9 @@ async (email) => {
   }
   return msg;
 }
-""".replace("__AUTH_GENERIC__", json.dumps(AUTH_STATUS_GENERIC, ensure_ascii=False))
-    .replace("__AUTH_SENDING__", json.dumps(AUTH_STATUS_SENDING, ensure_ascii=False))
-    .replace("__AUTH_SMTP_OK__", json.dumps(AUTH_STATUS_SMTP_OK, ensure_ascii=False))
-    .replace("__AUTH_SMTP_FAIL__", json.dumps(AUTH_STATUS_SMTP_FAIL, ensure_ascii=False))
-    .replace(
-        "__AUTH_SMTP_PROBLEM__", json.dumps(AUTH_STATUS_SMTP_PROBLEM, ensure_ascii=False)
-    )
-    .replace("__AUTH_FLASH_MS__", json.dumps(AUTH_STATUS_FLASH_MS))
-)
+"""
+
+_AUTH_REQUEST_JS = auth_request_js(AUTH_STATUS_SMTP_OK)
 
 _AUTH_VERIFY_JS = """
 async (email, code) => {
@@ -239,13 +274,20 @@ async def iter_observatory_turn(
     *,
     run_turn: TurnRunner,
     staff: bool = True,
+    prior: InspectorPrior | None = None,
 ) -> AsyncIterator[tuple[Any, ...]]:
     snapshot = list(history or [])
     started = time.perf_counter()
-    yield (append_pending(snapshot, message), session_id, *_skipped_inspector())
+    yield (
+        append_pending(snapshot, message),
+        session_id,
+        *_pending_inspector(),
+        _phase_update(""),
+    )
     latest = [""]
     held = [""]
     last_pub = [0.0]
+    phase = [""]
     event = asyncio.Event()
     box: list[ChatResponse | BaseException] = []
 
@@ -254,10 +296,19 @@ async def iter_observatory_turn(
         now = time.monotonic()
         if last_pub[0] == 0.0:
             last_pub[0] = now
-        if thought_publish_ready(text) or now - last_pub[0] >= THOUGHT_PUBLISH_S:
+        elapsed = now - last_pub[0]
+        ready = thought_publish_ready(text) and elapsed >= THOUGHT_PUBLISH_S
+        if ready or elapsed >= 2 * THOUGHT_PUBLISH_S:
             latest[0] = text
             last_pub[0] = now
             event.set()
+
+    async def on_phase(code: str) -> None:
+        phase[0] = PHASE_COPY.get(code, "")
+        event.set()
+        # Let the consumer publish this phase before the next one replaces it.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     async def produce() -> None:
         try:
@@ -266,6 +317,7 @@ async def iter_observatory_turn(
                     message=message,
                     session_id=session_id,
                     on_thinking=on_thinking if staff else None,
+                    on_phase=on_phase,
                 )
             )
         except asyncio.CancelledError:
@@ -278,23 +330,41 @@ async def iter_observatory_turn(
             event.set()
 
     task = asyncio.create_task(produce())
+    last_trace = [""]
+    last_phase = [""]
     try:
         while True:
             await event.wait()
             event.clear()
-            trace = latest[0]
-            if staff and trace:
+            trace = latest[0] if staff else ""
+            phase_changed = phase[0] != last_phase[0]
+            if (trace and trace != last_trace[0]) or phase_changed:
+                last_trace[0] = trace
+                last_phase[0] = phase[0]
                 yield (
-                    append_pending(snapshot, message, thinking=trace),
+                    append_pending(
+                        snapshot,
+                        message,
+                        thinking=trace,
+                        title=phase[0] or THOUGHT_PENDING_TITLE,
+                    ),
                     session_id,
                     *_skipped_inspector(),
+                    _phase_update(phase[0]),
                 )
             if task.done():
-                if staff and latest[0] and latest[0] != trace:
+                final_trace = latest[0] if staff else ""
+                if final_trace and final_trace != last_trace[0]:
                     yield (
-                        append_pending(snapshot, message, thinking=latest[0]),
+                        append_pending(
+                            snapshot,
+                            message,
+                            thinking=final_trace,
+                            title=phase[0] or THOUGHT_PENDING_TITLE,
+                        ),
                         session_id,
                         *_skipped_inspector(),
+                        _phase_update(phase[0]),
                     )
                 break
     finally:
@@ -309,10 +379,13 @@ async def iter_observatory_turn(
     if isinstance(outcome, HTTPException):
         notice = http_turn_notice(outcome.status_code, str(outcome.detail))
         rows = append_messages(snapshot, message, notice)
-        yield (rows, session_id, *_empty_inspector())
+        yield (rows, session_id, *_prior_inspector(prior), _phase_update(""))
         return
     if isinstance(outcome, BaseException):
-        raise outcome
+        _LOG.warning("observatory_turn_failed", error=type(outcome).__name__)
+        rows = append_messages(snapshot, message, TURN_FAILED_NOTICE)
+        yield (rows, session_id, *_empty_inspector(), _phase_update(""))
+        return
     duration = time.perf_counter() - started
     thinking = thinking_for_staff(outcome.thinking, staff=staff)
     rows = append_messages(
@@ -322,9 +395,9 @@ async def iter_observatory_turn(
         thinking=thinking,
         duration=duration,
     )
-    cards = citation_cards(outcome) if staff else []
-    inspector = inspector_payload(outcome) if staff else {}
-    trust = trust_payload(outcome) if staff else []
+    cards = citation_cards(outcome)
+    inspector = inspector_payload(outcome)
+    trust = trust_payload(outcome)
     banner = "Silencio: no hay una cláusula que responda esto." if abstain_visible(outcome) else ""
     copy_id = str(inspector.get("copy_id") or "")
     choices = [str(card["id"]) for card in cards]
@@ -339,6 +412,7 @@ async def iter_observatory_turn(
         cards,
         citation_card_markdown(inspector),
         trust_markdown(trust),
+        _phase_update(""),
     )
 
 
@@ -352,6 +426,35 @@ def _empty_inspector() -> tuple[Any, ...]:
         [],
         citation_card_markdown(None),
         trust_markdown(None),
+    )
+
+
+def _pending_inspector() -> tuple[Any, ...]:
+    return (
+        {},
+        [],
+        _abstain_update("", visible=False),
+        _copy_update(""),
+        _choice_update([]),
+        [],
+        PENDING_CITATION_CARD,
+        PENDING_TRUST,
+    )
+
+
+def _prior_inspector(prior: InspectorPrior | None) -> tuple[Any, ...]:
+    if prior is None or (not prior.inspector and not prior.trust):
+        return _empty_inspector()
+    choices = [str(card["id"]) for card in prior.cards]
+    return (
+        prior.inspector,
+        prior.trust,
+        _abstain_update("", visible=False),
+        _copy_update(str(prior.inspector.get("copy_id") or "")),
+        _choice_update(choices, value=prior.choice),
+        prior.cards,
+        citation_card_markdown(prior.inspector or None),
+        trust_markdown(prior.trust or None),
     )
 
 
@@ -374,7 +477,7 @@ def build_blocks(
 ) -> gr.Blocks:
     health = dump_health(settings, index)
     resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
-    l1_path = Path(settings.evals_dir) / "l1.json"
+    l1_path = Path(settings.evals_dir) / L1_FILENAME
     l1_data = load_l1(l1_path)
 
     async def _turn(
@@ -383,9 +486,19 @@ def build_blocks(
         session_id: str | None,
         demo_key: str | None,
         layout: str | None,
+        inspector_prior: dict[str, Any] | None,
+        trust_prior: list[dict[str, str]] | None,
+        cards_prior: list[dict[str, Any]] | None,
+        choice_prior: str | None,
         request: gr.Request,
     ) -> AsyncIterator[tuple[Any, ...]]:
         key = (demo_key or "").strip() or demo_key_for(request)
+        prior = InspectorPrior(
+            inspector=dict(inspector_prior or {}),
+            trust=list(trust_prior or []),
+            cards=list(cards_prior or []),
+            choice=choice_prior,
+        )
         staff = (
             email_from_request(auth, request) is not None and layout == LAYOUT_STAFF
         )
@@ -395,6 +508,7 @@ def build_blocks(
             message: str,
             session_id: str | None,
             on_thinking: OnThinking | None = None,
+            on_phase: OnPhase | None = None,
         ) -> ChatResponse:
             return await handle_turn(
                 settings=settings,
@@ -417,10 +531,12 @@ def build_blocks(
                 demo_key=key or None,
                 on_thinking=on_thinking,
                 turn_evaluator=resolved_evaluator,
+                thinking=thinking_for_layout(staff, settings),
+                on_phase=on_phase,
             )
 
         async for item in iter_observatory_turn(
-            message, history, session_id, run_turn=run_turn, staff=staff
+            message, history, session_id, run_turn=run_turn, staff=staff, prior=prior
         ):
             yield item
 
@@ -455,7 +571,7 @@ def build_blocks(
         except HTTPException as exc:
             error = exc
         rows, sid = apply_clear_result(history, session_id, error)
-        return rows, sid, *_empty_inspector()
+        return rows, sid, *_empty_inspector(), _phase_update("")
 
     def _select_card(
         selected: str | None, cards: list[dict[str, Any]]
@@ -543,14 +659,30 @@ def build_blocks(
                         placeholder="La conversación aparece acá.",
                         group_consecutive_messages=False,
                     )
-                    msg = gr.Textbox(
-                        label="Pregunta",
-                        lines=1,
-                        max_lines=4,
-                        placeholder="Preguntá por una cláusula CAMEX…",
-                        elem_id="observatory-input",
-                    )
-                    with gr.Row(elem_id="observatory-actions"):
+                    phase_box = gr.Markdown("", elem_id="turn-phase", visible=False)
+                    # Examples sit above the composer; the composer is one
+                    # line (question, Enviar, Limpiar) and sticks to the
+                    # viewport bottom on desktop.
+                    gr.Markdown(EXAMPLES_KICKER, elem_id="examples-kicker")
+                    with gr.Row(elem_id="observatory-pills"):
+                        pills = [
+                            gr.Button(
+                                prompt,
+                                size="sm",
+                                scale=0,
+                                elem_classes=["observatory-pill"],
+                            )
+                            for prompt in CANNED_PROMPTS
+                        ]
+                    with gr.Row(elem_id="observatory-composer"):
+                        msg = gr.Textbox(
+                            label="Pregunta",
+                            lines=1,
+                            max_lines=4,
+                            placeholder="Preguntá por una cláusula CAMEX…",
+                            scale=1,
+                            elem_id="observatory-input",
+                        )
                         send = gr.Button(
                             "Enviar",
                             variant="primary",
@@ -560,23 +692,16 @@ def build_blocks(
                         clear = gr.Button(
                             AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
                         )
+                    for pill, prompt in zip(pills, CANNED_PROMPTS, strict=True):
+                        pill.click(  # type: ignore[attr-defined]
+                            lambda value=prompt: value,
+                            outputs=[msg],
+                        )
                     demo_box = gr.Textbox(
                         label="Clave demo",
                         type="password",
                         visible=bool(settings.demo_api_key),
                     )
-                    with gr.Row(elem_id="observatory-pills"):
-                        for prompt in CANNED_PROMPTS:
-                            pill = gr.Button(
-                                prompt,
-                                size="sm",
-                                scale=0,
-                                elem_classes=["observatory-pill"],
-                            )
-                            pill.click(  # type: ignore[attr-defined]
-                                lambda value=prompt: value,
-                                outputs=[msg],
-                            )
                 side = gr.Column(
                     scale=2, min_width=320, elem_id="observatory-side", visible=False
                 )
@@ -627,15 +752,36 @@ def build_blocks(
             cards_state,
             card_md,
             trust_box,
+            phase_box,
         ]
         send.click(  # type: ignore[attr-defined]
             _turn,
-            inputs=[msg, chatbot, session_state, demo_box, layout_choice],
+            inputs=[
+                msg,
+                chatbot,
+                session_state,
+                demo_box,
+                layout_choice,
+                inspector,
+                trust,
+                cards_state,
+                citation_choice,
+            ],
             outputs=outputs,
         ).then(lambda: "", outputs=[msg])
         msg.submit(  # type: ignore[attr-defined]
             _turn,
-            inputs=[msg, chatbot, session_state, demo_box, layout_choice],
+            inputs=[
+                msg,
+                chatbot,
+                session_state,
+                demo_box,
+                layout_choice,
+                inspector,
+                trust,
+                cards_state,
+                citation_choice,
+            ],
             outputs=outputs,
         ).then(lambda: "", outputs=[msg])
         clear.click(_clear, inputs=[chatbot, session_state], outputs=outputs)  # type: ignore[attr-defined]
@@ -684,7 +830,7 @@ def build_blocks(
             None,
             inputs=[auth_email],
             outputs=[auth_status],
-            js=_AUTH_REQUEST_JS,
+            js=auth_request_js(auth_status_smtp_ok(auth.settings.otp_ttl_s)),
         )
         verify_code.click(  # type: ignore[attr-defined]
             None,

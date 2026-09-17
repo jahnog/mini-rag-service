@@ -23,7 +23,7 @@ Every chat response SHALL include a guardrail log listing each enabled rule for 
 - **AND** no retrieve step is stamped `pass`
 
 ### Requirement: Cite or abstain
-A non-abstain answer MUST include at least one citation the language model produced for this turn whose id exists in this turn’s retrieved dump documents (Comunicación or texto ordenado id, not an internal chunk id) and whose quoted span is a non-empty whitespace-normalized substring of that retrieved text. Retrieved hits MUST NOT be copied in as citations to satisfy this rule. An empty quoted span SHALL fail. Otherwise the system SHALL force finding `silencio` and empty citations and MUST NOT show the draft.
+A non-abstain answer MUST include at least one citation the language model produced for this turn whose id exists in this turn’s retrieved dump documents (Comunicación or texto ordenado id, not an internal chunk id) and whose quoted span anchors in that retrieved text. A span anchors when it is a non-empty whitespace-normalized substring of the retrieved text, or when the longest verbatim run of that span found in the retrieved text is at least 40 characters or at least 60% of the span; in the second case the system SHALL replace the citation snippet with that verbatim run and the cite-or-abstain verdict SHALL be `warn` with detail "cita ajustada (<n>)". Retrieved hits MUST NOT be copied in as citations to satisfy this rule. An empty quoted span SHALL fail. Otherwise the system SHALL force finding `silencio` and empty citations and MUST NOT show the draft.
 
 #### Scenario: Missing citation becomes silencio
 - **GIVEN** generation would answer without a dump id retrieved this turn
@@ -32,10 +32,18 @@ A non-abstain answer MUST include at least one citation the language model produ
 - **AND** citations are empty
 
 #### Scenario: Quote not in the cited document becomes silencio
-- **GIVEN** generation cites a dump id retrieved this turn with a quote that is not in that document’s retrieved text
+- **GIVEN** generation cites a dump id retrieved this turn with a quote whose longest verbatim run in that document is under 40 characters and under 60% of the quote
 - **WHEN** the response is finalized
 - **THEN** finding is silencio
 - **AND** citations are empty
+
+#### Scenario: Near-verbatim quote is anchored
+- **GIVEN** the retrieved text contains "Los residentes deberán liquidar el cobro de exportaciones en el mercado de cambios."
+- **AND** generation cites that dump id with the snippet "Los residentes deben liquidar el cobro de exportaciones en el mercado de cambios"
+- **WHEN** the response is finalized
+- **THEN** the citation snippet is "liquidar el cobro de exportaciones en el mercado de cambios"
+- **AND** the cite-or-abstain verdict is `warn` with detail "cita ajustada (1)"
+- **AND** finding is not silencio
 
 #### Scenario: Empty quote becomes silencio
 - **GIVEN** generation cites a dump id retrieved this turn with an empty quote
@@ -52,16 +60,24 @@ A non-abstain answer MUST include at least one citation the language model produ
 - **AND** the draft is not shown
 
 ### Requirement: Freeze honesty
-The system SHALL NOT claim “normativa vigente hoy” without qualifying `last_refresh` and `to_as_of`. If the draft was unqualified, the system SHALL rewrite the visible answer so it names those dates, and the freeze-honesty verdict SHALL be `warn`. If the draft already named those dates, the verdict SHALL be `pass`. The same dates SHALL appear on the health document and the UI banner.
+The system SHALL NOT claim “normativa vigente hoy” without qualifying the dump freeze. A draft names the freeze when it contains `to_as_of` and either the full `last_refresh` value or its calendar date. If the draft was unqualified, the system SHALL append the Spanish freeze sentence "Según el dump del <fecha> (texto ordenado al <to_as_of>)." and the freeze-honesty verdict SHALL be `warn`. If the draft already named the freeze, the verdict SHALL be `pass`. The same dates SHALL appear on the health document and the UI banner.
 
 #### Scenario: Vigente wording is qualified
-- **GIVEN** last_refresh is 2026-09-01 and to_as_of is A 8307
-- **WHEN** the user asks what is vigente
-- **THEN** the answer names those dates
-- **AND** does not state unqualified “vigente hoy”
+- **GIVEN** last_refresh is 2026-09-01T00:00:00+00:00 and to_as_of is A8307
+- **AND** the draft says "Esta es la normativa vigente hoy."
+- **WHEN** the freeze-honesty rail runs
+- **THEN** the verdict is `warn`
+- **AND** the answer ends with "Según el dump del 2026-09-01 (texto ordenado al A8307)."
+
+#### Scenario: Date form already present passes
+- **GIVEN** last_refresh is 2026-09-01T00:00:00+00:00 and to_as_of is A8307
+- **AND** the draft says "Según el dump del 2026-09-01 (texto ordenado al A8307), los residentes deberán liquidar."
+- **WHEN** the freeze-honesty rail runs
+- **THEN** the verdict is `pass`
+- **AND** the answer is unchanged
 
 ### Requirement: Scope
-The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, including weather questions in English, Spanish, or German (`Wetter`). Scope SHALL be evaluated on the latest user utterance, not on prior-turn text composed for retrieval. An off-topic denylist hit on that utterance SHALL block even if the same utterance also contains a CAMEX keyword. Follow-ups that match the session prefix (`y`, `and`, `ese`, …) and are not on the off-topic denylist SHALL pass scope so retrieval can use the composed query. The token `punto` alone SHALL NOT make a standalone utterance in scope. Blocked turns SHALL name the scope rule in the guardrail log, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
+The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, including weather questions in English, Spanish, or German (`Wetter`). Scope SHALL be evaluated on the latest user utterance, not on prior-turn text composed for retrieval. An off-topic denylist hit on that utterance SHALL block even if the same utterance also contains a CAMEX keyword. Follow-ups that match the session prefix (`y`, `and`, `ese`, …), or that are three words or fewer, name no Comunicación and were composed with the previous question of the same session, and are not on the off-topic denylist SHALL pass scope so retrieval can use the composed query. The token `punto` alone SHALL NOT make a standalone utterance in scope. Blocked turns SHALL name the scope rule in the guardrail log, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
 
 #### Scenario: Weather is out of scope
 - **GIVEN** the user asks about the weather in Madrid
@@ -87,6 +103,17 @@ The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, i
 - **WHEN** the user asks “y el clima en Madrid?”
 - **THEN** the scope rule is `block`
 - **AND** the language model is not called
+
+#### Scenario: Short follow-up in a session passes scope
+- **GIVEN** a session with a prior in-corpus CAMEX question
+- **WHEN** the user asks "¿cuánto plazo?"
+- **THEN** the scope rule is `pass` with detail "in-session follow-up"
+- **AND** retrieval uses the composed query
+
+#### Scenario: Short question without a session is blocked
+- **GIVEN** no prior question in the session
+- **WHEN** the user asks "¿cuánto plazo?"
+- **THEN** the scope rule is `block`
 
 ### Requirement: Injection
 The system SHALL block prompt-injection attempts to reveal or override hidden instructions. That includes English, Spanish, and German paraphrases (ignore / ignora / ignoriere previous instructions; disregard; forget everything above / vergiss alles oben; print, show, or dump the system prompt / mostrá el prompt / zeige den Systemprompt; you are now / ahora eres / du bist jetzt; do anything now; developer mode / modo desarrollador / Entwicklermodus; new instructions / nuevas instrucciones / neue Anweisungen) and hidden-character obfuscation. Hidden instructions SHALL stay hidden. Encoded payloads that do not contain those paraphrases in plaintext after Unicode normalize SHALL NOT be required to block. Unicode normalize SHALL run before this check. Injection SHALL run on the composed follow-up text used for retrieval. Blocked turns SHALL name the injection rule, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
@@ -228,3 +255,16 @@ The system SHALL Unicode-normalize the latest user utterance (compatibility form
 - **WHEN** it is submitted
 - **THEN** the injection rule is `block`
 - **AND** the language model is not called
+
+### Requirement: Prompt leak fingerprints both prompt languages
+The prompt-leak rail SHALL block an answer containing the turn delimiter or any system-prompt fingerprint, and the fingerprint set SHALL include verbatim sentences from both the legacy English and the current Spanish system prompt.
+
+#### Scenario: Spanish fingerprint leaks
+- **GIVEN** the answer contains "Respondé solo con un objeto JSON con las claves answer, finding y citations."
+- **WHEN** the prompt-leak rail runs
+- **THEN** the verdict is `block` with detail "system prompt fingerprint"
+
+#### Scenario: English fingerprint still leaks
+- **GIVEN** the answer contains "Respond only with JSON keys answer, finding, citations."
+- **WHEN** the prompt-leak rail runs
+- **THEN** the verdict is `block`

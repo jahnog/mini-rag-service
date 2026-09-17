@@ -4,10 +4,13 @@ from collections.abc import Mapping, Sequence
 
 from bcra_rag.domain.meta_filters import metadata_matches
 from bcra_rag.domain.models import Chunk
+from bcra_rag.domain.sections import section_text
+from bcra_rag.domain.text import SPANISH_STOPWORDS
 
 
 class FakeIndex:
-    def __init__(self) -> None:
+    def __init__(self, *, context_chunk_chars: int = 3000) -> None:
+        self.context_chunk_chars = context_chunk_chars
         self.docs: dict[str, list[Chunk]] = {}
         self.upsert_calls: list[str] = []
         self.search_calls: list[tuple[str, int, Mapping[str, object] | None]] = []
@@ -34,32 +37,7 @@ class FakeIndex:
         filters: Mapping[str, object] | None = None,
     ) -> list[Chunk]:
         self.search_calls.append((query, k, filters))
-        stop = {
-            "el",
-            "la",
-            "los",
-            "las",
-            "de",
-            "del",
-            "y",
-            "o",
-            "un",
-            "una",
-            "en",
-            "a",
-            "que",
-            "se",
-            "es",
-            "por",
-            "para",
-            "con",
-            "the",
-            "of",
-            "and",
-            "qué",
-            "como",
-            "cómo",
-        }
+        stop = SPANISH_STOPWORDS
         terms = [
             part.lower()
             for part in query.split()
@@ -85,10 +63,4 @@ class FakeIndex:
         return [chunk for _, chunk in scored[:k]]
 
     def get_section(self, doc_id: str, punto: str | None = None) -> str:
-        chunks = self.docs.get(doc_id, [])
-        if punto:
-            for chunk in chunks:
-                if str(chunk.metadata.get("punto") or "") == punto:
-                    return chunk.text[:2000]
-        joined = "\n".join(chunk.text for chunk in chunks)
-        return joined[:2000]
+        return section_text(self.docs.get(doc_id, []), punto, self.context_chunk_chars)

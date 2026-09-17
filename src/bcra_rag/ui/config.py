@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import html
-import json
 import re
-from pathlib import Path
 from typing import Any
 
 import gradio as gr
 from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
+from bcra_rag.domain.freeze import dump_date as dump_date
+from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
+from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
+from bcra_rag.domain.l1_results import load_l1 as load_l1
 from bcra_rag.schemas import ChatResponse, HealthResponse
+from bcra_rag.settings import Settings
 
 CANNED_PROMPTS: tuple[str, ...] = (
     "Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
@@ -22,6 +25,9 @@ CANNED_PROMPTS: tuple[str, ...] = (
 L1_ACCORDION_OPEN_DEFAULT = False
 EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
 EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
+PENDING_CITATION_CARD = "Buscando citas…"
+PENDING_TRUST = '<p class="obs-empty">Guardrails en curso…</p>'
+TURN_FAILED_NOTICE = "Error interno al responder. Probá de nuevo."
 CITATIONS_KICKER = "Citas"
 GUARDRAILS_KICKER = "Guardrails"
 _TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
@@ -37,6 +43,7 @@ LAYOUT_HELP = (
 )
 AUTH_KICKER = "Ingreso"
 CHAT_KICKER = "Consulta"
+EXAMPLES_KICKER = "Ejemplos"
 AUTH_EMAIL_LABEL = "Correo"
 AUTH_SEND = "Enviar código"
 AUTH_CODE_LABEL = "Código"
@@ -45,19 +52,21 @@ AUTH_LOGOUT = "Cerrar sesión"
 AUTH_CLEAR = "Limpiar"
 AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
 AUTH_STATUS_SENDING = "Enviando…"
-AUTH_STATUS_SMTP_OK = "Código enviado"
+
+
+def auth_status_smtp_ok(ttl_s: int) -> str:
+    minutes = max(1, round(ttl_s / 60))
+    return (
+        "Listo. Si pediste un código hace menos de "
+        f"{minutes} minutos, usá ese; si no, revisá tu correo."
+    )
+
+
+AUTH_STATUS_SMTP_OK = auth_status_smtp_ok(300)
 AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
 AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
 AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu email."
-
-
-def dump_date(last_refresh: str | None) -> str:
-    if not last_refresh:
-        return "desconocido"
-    if len(last_refresh) >= 10 and last_refresh[4] == "-" and last_refresh[7] == "-":
-        return last_refresh[:10]
-    return last_refresh
 
 
 def freeze_chips_html(health: HealthResponse) -> str:
@@ -132,26 +141,6 @@ def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any
     )
 
 
-def load_l1(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {
-            "unpublished": True,
-            "sample": True,
-            "headline_metric": "citation_id_exact",
-            "citation_id_exact": None,
-            "hit_at_5": None,
-            "mrr": None,
-        }
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        return {"unpublished": True, "sample": True}
-    return raw
-
-
-def is_sample_l1(data: dict[str, Any]) -> bool:
-    return bool(data.get("unpublished") or data.get("sample"))
-
-
 def l1_markdown(data: dict[str, Any]) -> str:
     label = ""
     if is_sample_l1(data):
@@ -172,6 +161,7 @@ def l1_markdown(data: dict[str, Any]) -> str:
     generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
     retrieval_block = _suite_markdown("Recuperación", retrieval)
     generation_block = _suite_markdown("Generación", generation)
+    judge_line = _judge_markdown(data.get("judge"))
     citation_shown = _skipped_or_value(
         data.get("citation_id_exact"), bool(generation.get("skipped"))
     )
@@ -183,6 +173,7 @@ def l1_markdown(data: dict[str, Any]) -> str:
         f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
         f"{retrieval_block}\n\n"
         f"{generation_block}\n\n"
+        f"{judge_line + chr(10) + chr(10) if judge_line else ''}"
         f"Chunking A vs B: A {a_score} · B {b_score}\n\n"
         f"Documentos de la estrategia B: {', '.join(str(x) for x in b_docs) or '(ninguno)'}\n\n"
         f"Cortes:\n{slice_lines or '- (ninguno)'}"
@@ -192,7 +183,33 @@ def l1_markdown(data: dict[str, Any]) -> str:
 def _skipped_or_value(value: object, skipped: bool) -> str:
     if skipped or value is None:
         return "omitido"
+    if isinstance(value, float):
+        return f"{value:.3f}"
     return str(value)
+
+
+_LATENCY_KEYS = frozenset({"latency_ms_p50", "latency_ms_p95"})
+
+
+def _fmt_metric(key: str, value: object) -> str:
+    if value is None:
+        return "omitido"
+    if isinstance(value, bool):
+        return "sí" if value else "no"
+    if key in _LATENCY_KEYS and isinstance(value, int | float):
+        return f"{int(round(value))} ms"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _judge_markdown(raw: object) -> str:
+    if not isinstance(raw, dict):
+        return ""
+    model = str(raw.get("model") or "—")
+    if raw.get("skipped"):
+        return f"Juez: {model} · omitido ({raw.get('skip_reason') or 'omitido'})"
+    return f"Juez: {model} · {int(raw.get('calls') or 0)} llamadas"
 
 
 def _suite_markdown(title: str, block: dict[str, Any]) -> str:
@@ -201,12 +218,14 @@ def _suite_markdown(title: str, block: dict[str, Any]) -> str:
     if block.get("skipped"):
         reason = block.get("skip_reason") or "omitido"
         return f"## {title}\n\nomitido ({reason})"
-    lines = [f"## {title}", ""]
-    skip = {"skipped", "skip_reason"}
+    n = block.get("n")
+    heading = f"## {title} (n={n})" if n is not None else f"## {title}"
+    lines = [heading, ""]
+    skip = {"skipped", "skip_reason", "n"}
     for key, value in block.items():
         if key in skip:
             continue
-        lines.append(f"- {key}: {value}")
+        lines.append(f"- {key}: {_fmt_metric(key, value)}")
     return "\n".join(lines)
 
 
@@ -223,7 +242,12 @@ THOUGHT_PENDING_TITLE = "Pensando…"
 ChatRow = dict[str, Any]
 _ATX_HEADING = re.compile(r"(?m)^(#{1,6})(?=\s|$)")
 _THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
-THOUGHT_PUBLISH_S = 0.12
+THOUGHT_PUBLISH_S = 0.5
+PHASE_COPY = {
+    "retrieve": "Buscando en el dump…",
+    "generate": "Redactando respuesta…",
+    "verify": "Verificando citas…",
+}
 
 
 def thought_markdown(text: str) -> str:
@@ -288,14 +312,12 @@ def append_pending(
     history: list[ChatRow] | None,
     user: str,
     thinking: str = "",
+    *,
+    title: str = THOUGHT_PENDING_TITLE,
 ) -> list[ChatRow]:
     rows = collapse_prior_thoughts(history)
     rows.append({"role": "user", "content": user})
-    rows.append(
-        thought_message(
-            thinking, title=THOUGHT_PENDING_TITLE, status="pending"
-        )
-    )
+    rows.append(thought_message(thinking, title=title, status="pending"))
     return rows
 
 
@@ -397,7 +419,7 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         rule = html.escape(str(item.get("rule") or ""))
         verdict = html.escape(str(item.get("verdict") or ""))
         detail = html.escape(str(item.get("detail") or "").strip())
-        cls = verdict if verdict in _TRUST_VERDICTS else "pass"
+        cls = verdict if verdict in _TRUST_VERDICTS else "skipped"
         row = (
             '<div class="obs-trust-row">'
             f'<span class="obs-chip {cls}">{verdict} {rule}</span>'
@@ -416,3 +438,10 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
 
 def abstain_visible(response: ChatResponse | None) -> bool:
     return bool(response and response.finding.value == "silencio")
+
+
+def thinking_for_layout(staff: bool, settings: Settings) -> bool | None:
+    """None keeps LLM_ENABLE_THINKING; False turns thinking off for a Usuario turn."""
+    if staff or settings.llm_thinking_user_layout:
+        return None
+    return False

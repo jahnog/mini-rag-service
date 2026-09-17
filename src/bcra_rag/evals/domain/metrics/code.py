@@ -82,7 +82,13 @@ class NdcgAtK:
         if not gold:
             value = 1.0 if not top else 0.0
             return Score(name=self.name, value=value)
-        rel = [1.0 if item in gold else 0.0 for item in top]
+        seen: set[str] = set()
+        rel: list[float] = []
+        for item in top:
+            hit = item in gold and item not in seen
+            if hit:
+                seen.add(item)
+            rel.append(1.0 if hit else 0.0)
         dcg = sum(r / math.log2(i + 2) for i, r in enumerate(rel))
         ideal = [1.0] * min(self._k, len(set(gold)))
         idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))

@@ -40,6 +40,9 @@ def live_base_url() -> str:
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     if session.config.getoption("--run-live-server"):
+        from tests.features.live.http_client import enable_live_dotenv
+
+        enable_live_dotenv()
         from tests.features.live.http_client import live_base_url as resolved_base
         from tests.features.live.http_client import require_imap_env
         from tests.features.live.mailbox import MailboxError
@@ -58,6 +61,9 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         except MailboxError as exc:
             raise pytest.UsageError(str(exc)) from exc
     if session.config.getoption("--run-prod-smoke"):
+        from tests.features.live.http_client import enable_live_dotenv
+
+        enable_live_dotenv()
         from tests.features.live.http_client import require_imap_env
         from tests.features.live.mailbox import MailboxError
         from tests.prod.http_client import ProdHttpError, require_prod_ready

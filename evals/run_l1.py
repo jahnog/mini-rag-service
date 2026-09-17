@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import sys
 from pathlib import Path
 
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.evals.composition import build_evals
+from bcra_rag.evals.domain.gate import evaluate_gate, load_thresholds
 from bcra_rag.evals.use_cases.run_l1 import SuiteChoice, run_l1
 from bcra_rag.logconfig import configure_logging
 from bcra_rag.settings import Settings
@@ -40,6 +43,16 @@ def main() -> None:
             deterministic_only=args.deterministic_only,
         )
     )
+    if args.gate:
+        payload = json.loads((root / "l1.json").read_text(encoding="utf-8"))
+        failures = evaluate_gate(
+            payload, load_thresholds(Path(args.gate)), allow_skipped=args.gate_allow_skipped
+        )
+        for line in failures:
+            print(f"GATE FAIL {line}")
+        if failures:
+            sys.exit(1)
+        print("GATE OK")
 
 
 def _parse() -> argparse.Namespace:
@@ -63,6 +76,19 @@ def _parse() -> argparse.Namespace:
         "--deterministic-only",
         action="store_true",
         help="Skip the judge language model",
+    )
+    parser.add_argument(
+        "--gate",
+        nargs="?",
+        const=str(Path(__file__).resolve().parent / "gate.toml"),
+        default=None,
+        help="Fail when a published metric is under its floor in the given TOML "
+        "(default evals/gate.toml)",
+    )
+    parser.add_argument(
+        "--gate-allow-skipped",
+        action="store_true",
+        help="Do not fail the gate for metrics of a skipped suite",
     )
     args = parser.parse_args()
     suites: SuiteChoice = "both"

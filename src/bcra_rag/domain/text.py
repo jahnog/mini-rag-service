@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 HEADER_RE = re.compile(
     r"^\s*B\.C\.R\.A\.\s+EXTERIOR Y CAMBIOS.*$",
@@ -32,3 +33,46 @@ def normalize_extract(text: str) -> str:
     cleaned = join_hyphenated_lines(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+SPANISH_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "el",
+        "la",
+        "los",
+        "las",
+        "de",
+        "del",
+        "y",
+        "o",
+        "un",
+        "una",
+        "en",
+        "a",
+        "que",
+        "se",
+        "es",
+        "por",
+        "para",
+        "con",
+        "the",
+        "of",
+        "and",
+        "qué",
+        "como",
+        "cómo",
+    }
+)
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_COMM_RE = re.compile(r"\ba\s?(\d{2,5})\b")
+
+
+def tokenize(text: str) -> list[str]:
+    lowered = unicodedata.normalize("NFKD", text or "").lower()
+    lowered = "".join(ch for ch in lowered if not unicodedata.combining(ch))
+    tokens = [
+        t for t in _TOKEN_RE.findall(lowered) if len(t) >= 2 and t not in SPANISH_STOPWORDS
+    ]
+    tokens += [f"a{num}" for num in _COMM_RE.findall(lowered)]
+    return tokens

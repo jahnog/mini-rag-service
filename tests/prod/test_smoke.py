@@ -166,6 +166,26 @@ def test_health_is_ready(prod_health: dict[str, Any]) -> None:
     assert prod_health["index_ready"] is True
 
 
+L1_KEYS = ("retrieval", "generation", "judge", "n")
+
+
+def test_l1_document_is_served(prod_health: dict[str, Any]) -> None:
+    del prod_health
+    client = make_client()
+    try:
+        response = client.get("/l1")
+        raise_for_limiter(response, what="GET /l1")
+        assert response.status_code == 200, f"GET /l1 returned {response.status_code}"
+        body = response.json()
+        missing = [key for key in L1_KEYS if key not in body]
+        assert not missing, f"GET /l1 missing {missing}"
+        assert not body.get("unpublished") and not body.get("sample"), (
+            "host serves the unpublished stub; run L1 on the dump host"
+        )
+    finally:
+        client.close()
+
+
 def test_otp_authenticates(prod_otp_session: dict[str, Any]) -> None:
     client = prod_otp_session["client"]
     email = prod_otp_session["email"]

@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from bcra_rag.evals.adapters.sink_phoenix import _collector_host
+from tests.features.live import http_client as live_http
 from tests.prod.phoenix import (
     DEFAULT_POLL_TIMEOUT_S,
     PhoenixError,
@@ -20,6 +21,11 @@ HOST = "http://127.0.0.1:6006"
 PROJECT = "bcra-rag-prod"
 QUESTION = "Qué dice la Comunicación A 3500?"
 T0 = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
 
 
 def test_host_strip_matches_collector_host() -> None:

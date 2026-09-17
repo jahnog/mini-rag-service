@@ -228,6 +228,15 @@ argv = ["uv", "run", "python", "evals/run_l1.py", "--generation-only"]
 confirm = true
 
 [[command]]
+id = "l1-gate"
+group = "Evals"
+block = "evals"
+title = "L1 gate"
+summary = "Run L1 and fail if any published metric is under its floor in evals/gate.toml (not CI)."
+argv = ["uv", "run", "python", "evals/run_l1.py", "--gate"]
+confirm = true
+
+[[command]]
 id = "l1-host"
 group = "Evals"
 block = "evals"
