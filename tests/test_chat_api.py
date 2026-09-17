@@ -411,3 +411,36 @@ def test_l1_document_missing_returns_stub(tmp_path: Path) -> None:
     response = client.get("/l1")
     assert response.status_code == 200
     assert response.json()["unpublished"] is True
+
+
+def test_scope_blocked_turn_is_refunded(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    for _ in range(2):
+        blocked = client.post("/chat", json={"message": "What's the weather in Madrid?"})
+        assert blocked.status_code == 200
+        assert blocked.json()["abstain_reason"] == "scope"
+    answered = client.post("/chat", json={"message": "Qué es el MULC?"})
+    assert answered.status_code == 200
+    assert len(llm.calls) == 1
+
+
+def test_burst_limited_request_does_not_consume_cap(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={
+            "rate_limit_requests": 1,
+            "rate_limit_window_s": 60,
+            "chat_turns_per_email_day": 1,
+            "chat_turns_per_process_day": 10,
+        }
+    )
+    client, _, _, _ = make_client(tmp_path, settings=settings, index=index)
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429
+    caps = client.app.state.turn_caps
+    day_counts = list(caps._process_day.values())
+    assert day_counts == [1]

@@ -286,7 +286,7 @@ The system SHALL bound a language-model call with a configured timeout (default 
 - **AND** the serving process still returns a structured chat response
 
 ### Requirement: Daily language-model turn caps
-The system SHALL count an authenticated chat question that passes the session check (and the demo-secret check when that secret is configured) toward daily caps. Chat-clear MUST NOT count. Unauthenticated requests MUST NOT count. After 30 counted turns in the current UTC day for that normalized email, or 100 counted turns in the current UTC day for the serving process, whichever happens first, a further counted question SHALL be HTTP 429, MUST NOT call the language model, and MUST NOT produce CAMEX clauses. A refused cap turn MUST NOT itself increment either cap. The process SHALL log that the email cap or the process cap was reached without persisting the full email, the session credential, or message text. Unauthenticated requests MUST NOT consume either cap. Chat-clear MUST NOT consume either cap. The existing per-client burst rate limit SHALL still apply after these caps. Plus-tags SHALL share the email cap of the collapsed mailbox.
+The system SHALL count an authenticated chat question that passes the session check, the demo-secret check when that secret is configured, and the per-client burst rate limit toward daily caps; the burst limit SHALL be checked before the daily caps so a burst-refused request does not count. Chat-clear MUST NOT count. Unauthenticated requests MUST NOT count. After 30 counted turns in the current UTC day for that normalized email, or 100 counted turns in the current UTC day for the serving process, whichever happens first, a further counted question SHALL be HTTP 429, MUST NOT call the language model, and MUST NOT produce CAMEX clauses. A refused cap turn MUST NOT itself increment either cap. A counted question that an enforced input guardrail blocks (length, secrets, no-advice, injection, scope) SHALL be refunded to both caps once the turn completes, and the process SHALL log the refund with the same hashed email prefix. The process SHALL log that the email cap or the process cap was reached without persisting the full email, the session credential, or message text. Plus-tags SHALL share the email cap of the collapsed mailbox.
 
 #### Scenario: Thirty-first turn for one mailbox is refused
 - **GIVEN** an authenticated session for `ops@example.com`
@@ -304,6 +304,19 @@ The system SHALL count an authenticated chat question that passes the session ch
 - **THEN** the response is HTTP 429
 - **AND** the language model is not called
 - **AND** the process log records that the process cap was reached
+
+#### Scenario: Blocked question is refunded
+- **GIVEN** an authenticated session whose email cap is 2 turns per day
+- **WHEN** the client asks about the weather in Madrid twice and then asks a CAMEX question
+- **THEN** the two weather turns are scope-blocked
+- **AND** the CAMEX question is answered, not HTTP 429
+
+#### Scenario: Burst-limited request does not count
+- **GIVEN** an authenticated session whose email cap is 1 turn per day
+- **AND** the per-client burst limit is already exhausted
+- **WHEN** the client posts a CAMEX question
+- **THEN** the response is HTTP 429
+- **AND** a later request after the burst window is not refused because of the email cap
 
 #### Scenario: Clear does not consume the email cap
 - **GIVEN** an authenticated session that has already completed 30 language-model turns today
@@ -400,3 +413,12 @@ The serving process SHALL execute the dump-health check and the routing/retrieva
 - **GIVEN** a cached health document for the current manifest
 - **WHEN** the manifest file is rewritten with a new `last_refresh`
 - **THEN** the next health document reports the new `last_refresh`
+
+### Requirement: Per-turn judge runs after the response
+When per-turn evaluation is enabled, the serving process SHALL return the chat response as soon as the answer is final and SHALL score faithfulness and answer relevancy in a background task. The `chat.turn` trace span SHALL stay open until scoring ends so the scores attach to that span, and the `chat_turn_eval` log line SHALL still be written. A scoring failure MUST NOT affect the already-returned response. Turns that did not call the language model SHALL NOT be scored.
+
+#### Scenario: Response does not wait for the judge
+- **GIVEN** per-turn evaluation is enabled with a judge that takes 2 seconds
+- **WHEN** an in-corpus question is answered
+- **THEN** the response returns before the judge finishes
+- **AND** after the judge finishes the `chat.turn` span carries `eval.faithfulness` and `eval.answer_relevancy`

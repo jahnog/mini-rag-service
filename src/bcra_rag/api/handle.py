@@ -50,14 +50,14 @@ def prepare_turn(
         raise HTTPException(status_code=401, detail="authentication required")
     if settings.demo_api_key and demo_key != settings.demo_api_key:
         raise HTTPException(status_code=401, detail="invalid demo key")
+    if not limiter.allow(client_id):
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
     if (message or "").strip().lower() != "/clear":
         blocked = turn_caps.allow(email)
         if blocked is not None:
             prefix = hashlib.sha256(email.encode()).hexdigest()[:8]
             _log.info("chat_cap", email_hash=prefix, outcome=blocked)
             raise HTTPException(status_code=429, detail="rate limit exceeded")
-    if not limiter.allow(client_id):
-        raise HTTPException(status_code=429, detail="rate limit exceeded")
     if k is not None and k > settings.max_k:
         raise HTTPException(status_code=422, detail="k exceeds maximum")
     public_id = _public_session_id(session_id)
@@ -84,6 +84,7 @@ async def run_prepared_turn(
     turn_evaluator: TurnEvaluator | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
+    turn_caps: TurnCaps | None = None,
 ) -> ChatResponse:
     use_case = AnswerQuery(
         settings,
@@ -102,6 +103,15 @@ async def run_prepared_turn(
         thinking=thinking,
         on_phase=on_phase,
     )
+    if turn_caps is not None and (message or "").strip().lower() != "/clear":
+        blocked_input = any(
+            item.stage == "input" and item.verdict == "block" and item.enforced
+            for item in response.guardrails
+        )
+        if blocked_input:
+            turn_caps.release(prepared.email)
+            prefix = hashlib.sha256(prepared.email.encode()).hexdigest()[:8]
+            _log.info("chat_cap_refund", email_hash=prefix)
     return response.model_copy(update={"session_id": prepared.public_id})
 
 
@@ -155,6 +165,7 @@ async def handle_turn(
         turn_evaluator=turn_evaluator,
         thinking=thinking,
         on_phase=on_phase,
+        turn_caps=turn_caps,
     )
 
 

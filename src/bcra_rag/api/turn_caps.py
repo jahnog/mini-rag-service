@@ -32,3 +32,12 @@ class TurnCaps:
         self._email_day[email_key] = used_email + 1
         self._process_day[day] = used_process + 1
         return None
+
+    def release(self, email: str) -> None:
+        """Refund one counted turn for today (a turn an input guardrail blocked)."""
+        day = datetime.fromtimestamp(self.time_fn(), tz=UTC).strftime("%Y-%m-%d")
+        email_key = (email, day)
+        if self._email_day.get(email_key, 0) > 0:
+            self._email_day[email_key] -= 1
+        if self._process_day.get(day, 0) > 0:
+            self._process_day[day] -= 1

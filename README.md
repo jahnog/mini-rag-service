@@ -161,7 +161,7 @@ Retrieval does not call the chat model. Generation needs `LLM_API_KEY` (same Ope
 
 Judged metrics (faithfulness, answer relevancy, context precision, context recall) need `JUDGE_API_KEY` (falls back to `LLM_API_KEY`), `JUDGE_MODEL` (default `grok-4.3`), `JUDGE_BASE_URL` (default `https://api.x.ai/v1`), `JUDGE_REASONING_EFFORT=none`, and `uv sync --extra phoenix-evals`. Without the extra (`skip_reason` `missing_extra`) or key those values are skipped with a reason, not shown as 0; hit@5, precision@5, MRR, citation-id exact, and finding exact still publish. `--deterministic-only` skips the judge even when a key is set. The dump-host helper does not install the judged extra.
 
-Optional eval traces/annotations use the same collector as chat: `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` (or that collector’s URL from another host) plus `uv sync --extra otel --extra phoenix-evals`. Set `PHOENIX_API_KEY` when that collector requires auth; local `uvx` serve needs none. Unset or down collector still writes `evals/l1.json`. Unit tests for the vertical live under `tests/evals` and use fakes; they never pay.
+Optional eval traces/annotations use the same collector as chat: `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` (or that collector’s URL from another host) plus `uv sync --extra otel --extra phoenix-evals`. Set `PHOENIX_API_KEY` when that collector requires auth; local `uvx` serve needs none. Unset or down collector still writes `evals/l1.json`. Unit tests for the vertical live under `tests/evals` and use fakes; they never pay. `--gate` compares the published metrics with the floors in `evals/gate.toml` and exits non-zero on a regression (a skipped suite fails unless `--gate-allow-skipped`); update the floors when you publish a new `evals/l1.json`.
 
 <!-- commands:evals -->
 ```bash
@@ -169,6 +169,7 @@ uv run python evals/run_l1.py
 uv run python evals/run_l1.py --deterministic-only
 uv run python evals/run_l1.py --retrieval-only
 uv run python evals/run_l1.py --generation-only
+uv run python evals/run_l1.py --gate
 DEPLOY_HOST=user@dump-host ./scripts/run-l1.sh
 ```
 <!-- /commands:evals -->

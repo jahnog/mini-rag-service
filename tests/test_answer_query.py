@@ -18,7 +18,11 @@ from bcra_rag.logconfig import configure_logging
 from bcra_rag.ports.llm import LlmBadJson, OnThinking
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import AnswerQuery, generate_from_context
+from bcra_rag.use_cases.answer_query import (
+    AnswerQuery,
+    drain_turn_evals,
+    generate_from_context,
+)
 from tests.chat_fixtures import IN_CORPUS_DRAFT, LAST_REFRESH, TO_AS_OF, seed_ready
 
 
@@ -1141,6 +1145,7 @@ async def test_turn_eval_records_scores_on_generated_turn(tmp_path: Path) -> Non
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-eval-ok",
     )
+    await drain_turn_evals()
     assert response.finding is not Finding.SILENCIO or response.citations is not None
     assert evaluator.calls
     assert tracer.spans["chat.turn"].attrs.get("eval.faithfulness") == 1.0
@@ -1157,7 +1162,29 @@ async def test_turn_eval_failure_still_answers(tmp_path: Path) -> None:
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-eval-fail",
     )
+    await drain_turn_evals()
     assert response.answer
+    assert evaluator.calls
+
+
+@pytest.mark.asyncio
+async def test_turn_eval_does_not_delay_response(tmp_path: Path) -> None:
+    import time
+
+    class SlowEvaluator(_FakeTurnEvaluator):
+        async def score(self, *, question: str, answer: str, context: str) -> TurnScores:
+            await asyncio.sleep(0.3)
+            return await super().score(question=question, answer=answer, context=context)
+
+    evaluator = SlowEvaluator()
+    use_case, _ = _uc(tmp_path, evaluator=evaluator)
+    started = time.perf_counter()
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="bg"
+    )
+    assert time.perf_counter() - started < 0.25
+    assert response.answer
+    await drain_turn_evals()
     assert evaluator.calls
 
 

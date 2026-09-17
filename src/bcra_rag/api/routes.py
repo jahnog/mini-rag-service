@@ -109,6 +109,7 @@ def create_fastapi(
                     filters=payload.filters,
                     request_id=getattr(request.state, "request_id", "unknown"),
                     turn_evaluator=resolved_evaluator,
+                    turn_caps=api.state.turn_caps,
                 )
             ),
             media_type="application/json",

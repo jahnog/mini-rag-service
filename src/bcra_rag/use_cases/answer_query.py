@@ -49,6 +49,13 @@ PHASE_VERIFY = "verify"
 HISTORY_TURNS = 2
 HISTORY_MAX_CHARS = 300
 log = structlog.get_logger(__name__)
+_BACKGROUND: set[asyncio.Task[None]] = set()
+
+
+async def drain_turn_evals() -> None:
+    """Await background judge tasks (tests and orderly shutdown)."""
+    if _BACKGROUND:
+        await asyncio.gather(*list(_BACKGROUND), return_exceptions=True)
 
 _INPUT_PREFIX = ("length", "normalize")
 
@@ -108,6 +115,7 @@ class AnswerQuery:
         except Exception:
             span_cm = None
             span = None
+        handed_off = False
         try:
             setter = getattr(span, "set_attribute", None) if span is not None else None
             if callable(setter):
@@ -122,21 +130,52 @@ class AnswerQuery:
                 thinking=thinking_mode,
                 on_phase=on_phase,
             )
+            if callable(setter):
+                _bind_turn_span(setter, response, TurnScores())
+            if self._should_score(response):
+                task = asyncio.create_task(
+                    self._score_and_close(request, response, span, span_cm, setter)
+                )
+                _BACKGROUND.add(task)
+                task.add_done_callback(_BACKGROUND.discard)
+                handed_off = True
+            return response
+        finally:
+            if span_cm is not None and not handed_off:
+                try:
+                    span_cm.__exit__(None, None, None)
+                except Exception:
+                    pass
+
+    def _should_score(self, response: ChatResponse) -> bool:
+        if isinstance(self._evaluator, NoOpTurnEvaluator):
+            return False
+        return any(
+            item.rule == "generate" and item.verdict == "pass" for item in response.guardrails
+        )
+
+    async def _score_and_close(
+        self,
+        request: ChatRequest,
+        response: ChatResponse,
+        span: Any,
+        span_cm: Any,
+        setter: Any,
+    ) -> None:
+        try:
             scores = await self._score_turn(request, response)
             if scores.as_dict():
                 try:
                     self._pipeline.tracer.record_scores(span, scores.as_dict())
                 except Exception:
                     pass
-            if callable(setter):
-                _bind_turn_span(setter, response, scores)
-            if scores.as_dict():
                 log.info(
                     "chat_turn_eval",
                     request_id=response.request_id,
                     **scores.as_dict(),
                 )
-            return response
+            if callable(setter):
+                _bind_turn_span(setter, response, scores)
         finally:
             if span_cm is not None:
                 try:
