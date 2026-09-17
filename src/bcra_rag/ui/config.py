@@ -22,6 +22,9 @@ CANNED_PROMPTS: tuple[str, ...] = (
 L1_ACCORDION_OPEN_DEFAULT = False
 EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
 EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
+PENDING_CITATION_CARD = "Buscando citas…"
+PENDING_TRUST = '<p class="obs-empty">Guardrails en curso…</p>'
+TURN_FAILED_NOTICE = "Error interno al responder. Probá de nuevo."
 CITATIONS_KICKER = "Citas"
 GUARDRAILS_KICKER = "Guardrails"
 _TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
@@ -46,7 +49,17 @@ AUTH_LOGOUT = "Cerrar sesión"
 AUTH_CLEAR = "Limpiar"
 AUTH_STATUS_GENERIC = "Si el correo está habilitado, vas a recibir un código."
 AUTH_STATUS_SENDING = "Enviando…"
-AUTH_STATUS_SMTP_OK = "Código enviado"
+
+
+def auth_status_smtp_ok(ttl_s: int) -> str:
+    minutes = max(1, round(ttl_s / 60))
+    return (
+        "Listo. Si pediste un código hace menos de "
+        f"{minutes} minutos, usá ese; si no, revisá tu correo."
+    )
+
+
+AUTH_STATUS_SMTP_OK = auth_status_smtp_ok(300)
 AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
 AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
 AUTH_STATUS_FLASH_MS = 2000
@@ -398,7 +411,7 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         rule = html.escape(str(item.get("rule") or ""))
         verdict = html.escape(str(item.get("verdict") or ""))
         detail = html.escape(str(item.get("detail") or "").strip())
-        cls = verdict if verdict in _TRUST_VERDICTS else "pass"
+        cls = verdict if verdict in _TRUST_VERDICTS else "skipped"
         row = (
             '<div class="obs-trust-row">'
             f'<span class="obs-chip {cls}">{verdict} {rule}</span>'

@@ -8,7 +8,13 @@ from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
-from bcra_rag.schemas import ChatResponse, Finding, GuardrailVerdict, HealthResponse
+from bcra_rag.schemas import (
+    ChatResponse,
+    Citation,
+    Finding,
+    GuardrailVerdict,
+    HealthResponse,
+)
 from bcra_rag.ui.config import (
     AUTH_CLEAR,
     AUTH_EMAIL_LABEL,
@@ -30,11 +36,15 @@ from bcra_rag.ui.config import (
     LAYOUT_STAFF_CLASS,
     LAYOUT_USER,
     LAYOUT_USER_CLASS,
+    PENDING_CITATION_CARD,
+    PENDING_TRUST,
+    TURN_FAILED_NOTICE,
     abstain_visible,
     append_messages,
     append_pending,
     apply_clear_result,
     apply_layout,
+    auth_status_smtp_ok,
     citation_card_markdown,
     citation_cards,
     done_thought_title,
@@ -55,7 +65,9 @@ from bcra_rag.ui.config import (
 from bcra_rag.ui.gradio_app import (
     _AUTH_REQUEST_JS,
     _AUTH_VERIFY_JS,
+    InspectorPrior,
     _RewriteGradioHtml,
+    auth_request_js,
     build_blocks,
     iter_observatory_turn,
     mount_ui,
@@ -158,7 +170,10 @@ def test_observatory_css_tokens() -> None:
     # The page scrolls; nothing is a fixed frame or a nested scroller.
     assert "max-height: 100dvh" not in css
     assert "overflow: hidden" not in css
-    assert "overflow-y: auto" not in css
+    before_desktop, _, desktop = css.partition("@media (min-width: 64rem)")
+    assert "overflow-y: auto" not in before_desktop
+    assert desktop.count("overflow-y: auto") == 1
+    assert "overscroll-behavior: contain" in desktop
     assert "min-height: 100dvh" in css
     # Sizes come from the scales, never one-off rems.
     assert not re.search(r"\b0\.(?!5rem|75rem|25rem)\d+rem", body)
@@ -642,7 +657,7 @@ def test_authenticated_clear_empties_conversation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_iter_turn_usuario_hides_thinking_and_inspector() -> None:
+async def test_iter_turn_usuario_hides_thinking_but_keeps_inspector() -> None:
     async def run_turn(
         *,
         message: str,
@@ -651,7 +666,11 @@ async def test_iter_turn_usuario_hides_thinking_and_inspector() -> None:
     ) -> ChatResponse:
         del message, session_id
         assert on_thinking is None
-        return _turn_response(thinking="trace secreto")
+        return _turn_response(
+            thinking="trace secreto",
+            citations=[Citation(id="A8359", tipo="A", snippet="texto citado")],
+            guardrails=[GuardrailVerdict(rule="scope", verdict="pass")],
+        )
 
     yields = [
         item
@@ -661,7 +680,8 @@ async def test_iter_turn_usuario_hides_thinking_and_inspector() -> None:
     ]
     final_rows = yields[-1][0]
     assert all("trace secreto" not in str(row.get("content", "")) for row in final_rows)
-    assert yields[-1][2] == {}
+    assert yields[-1][2].get("id") == "A8359"
+    assert yields[-1][3] and yields[-1][3][0]["rule"] == "scope"
     assert thinking_for_staff("trace secreto", staff=False) is None
     assert thinking_for_staff("trace secreto", staff=True) == "trace secreto"
 
@@ -1168,3 +1188,110 @@ def _collect_elem_ids(blocks: object) -> set[str]:
     if callable(getter):
         walk(getter())
     return found
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+        del message, session_id
+        if on_thinking is not None:
+            await on_thinking("pensando algo. ")
+        return _turn_response(thinking="pensando algo. ")
+
+    yields = [
+        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+    ]
+    first = yields[0]
+    assert first[8] == PENDING_CITATION_CARD
+    assert first[9] == PENDING_TRUST
+    assert first[2] == {} and first[3] == []
+    assert yields[-1][8] != PENDING_CITATION_CARD
+    assert yields[-1][9] != PENDING_TRUST
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_thinking
+        raise HTTPException(status_code=429, detail="rate limited")
+
+    prior = InspectorPrior(
+        inspector={"id": "A8359", "copy_id": "A8359", "snippet": "texto"},
+        trust=[
+            {
+                "rule": "scope",
+                "verdict": "pass",
+                "stage": "input",
+                "detail": "",
+                "enforced": "true",
+                "would_block": "false",
+            }
+        ],
+        cards=[{"id": "A8359", "copy_id": "A8359", "snippet": "texto"}],
+        choice="A8359",
+    )
+    yields = [
+        item
+        async for item in iter_observatory_turn(
+            "hola", None, None, run_turn=run_turn, prior=prior
+        )
+    ]
+    last = yields[-1]
+    assert "Demasiados intentos" in last[0][-1]["content"]
+    assert last[2] == prior.inspector
+    assert "A8359" in last[8]
+    assert "scope" in last[9]
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_thinking
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    yields = [
+        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+    ]
+    assert yields[-1][8] == EMPTY_CITATION_CARD
+
+
+@pytest.mark.asyncio
+async def test_iter_turn_generic_error_replaces_pending_row() -> None:
+    async def run_turn(*, message, session_id, on_thinking=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_thinking
+        raise RuntimeError("boom")
+
+    yields = [
+        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+    ]
+    last = yields[-1]
+    assert last[0][-1]["content"] == TURN_FAILED_NOTICE
+    assert "metadata" not in last[0][-1]
+    assert last[8] == EMPTY_CITATION_CARD
+
+
+def test_trust_markdown_unknown_verdict_is_skipped_style() -> None:
+    html_out = trust_markdown(
+        [
+            {
+                "rule": "x",
+                "verdict": "weird",
+                "stage": "input",
+                "detail": "",
+                "enforced": "true",
+                "would_block": "false",
+            }
+        ]
+    )
+    assert "obs-chip skipped" in html_out
+    assert "obs-chip pass" not in html_out
+
+
+def test_auth_status_smtp_ok_names_window() -> None:
+    assert auth_status_smtp_ok(300) == (
+        "Listo. Si pediste un código hace menos de 5 minutos, usá ese; si no, revisá tu correo."
+    )
+    assert "10 minutos" in auth_status_smtp_ok(600)
+    assert "1 minutos" in auth_status_smtp_ok(20)
+    assert "Código enviado" not in auth_request_js(auth_status_smtp_ok(300))
+    assert "hace menos de 7 minutos" in auth_request_js(auth_status_smtp_ok(420))

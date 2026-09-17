@@ -677,6 +677,9 @@ gradio-app {
     grid-area: side;
     position: sticky;
     top: var(--wl-space-4);
+    max-height: calc(100dvh - 2 * var(--wl-space-4));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   #observatory-footer-host {
