@@ -22,6 +22,8 @@ CANNED_PROMPTS: tuple[str, ...] = (
 L1_ACCORDION_OPEN_DEFAULT = False
 EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
 EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
+CITATIONS_KICKER = "Citas"
+GUARDRAILS_KICKER = "Guardrails"
 _TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
 
 LAYOUT_STAFF = "Staff (IA)"
@@ -33,6 +35,8 @@ LAYOUT_HELP = (
     "Calidad L1 y las fechas del dump.\n\n"
     "Usuario deja solo la pregunta, la respuesta, Enviar, Limpiar y los ejemplos."
 )
+AUTH_KICKER = "Ingreso"
+CHAT_KICKER = "Consulta"
 AUTH_EMAIL_LABEL = "Correo"
 AUTH_SEND = "Enviar código"
 AUTH_CODE_LABEL = "Código"
@@ -46,19 +50,6 @@ AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
 AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
 AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu email."
-
-
-def banner_markdown(health: HealthResponse) -> str:
-    return (
-        "**Extracto no oficial BCRA CAMEX** — no es el BCRA ni asesoramiento legal.\n\n"
-        f"to_as_of=`{health.to_as_of}` · last_refresh=`{health.last_refresh}` · "
-        f"last A=`{health.last_comm_id}` · n_docs={health.n_docs}"
-    )
-
-
-def title_markdown(health: HealthResponse) -> str:
-    del health
-    return "BCRA CAMEX · extracto no oficial"
 
 
 def dump_date(last_refresh: str | None) -> str:
@@ -77,16 +68,12 @@ def freeze_chips_html(health: HealthResponse) -> str:
     n_docs = html.escape(str(health.n_docs))
     return (
         '<div class="obs-chips">'
-        f'<span class="obs-chip">TO {to_as_of}</span>'
-        f'<span class="obs-chip" title="{iso}">Dump {date}</span>'
-        f'<span class="obs-chip">Última A {last_a}</span>'
-        f'<span class="obs-chip">{n_docs} docs</span>'
+        f'<span class="obs-chip" title="Texto ordenado vigente al {to_as_of}">TO {to_as_of}</span>'
+        f'<span class="obs-chip" title="Última actualización del corpus: {iso}">Dump {date}</span>'
+        f'<span class="obs-chip" title="Última Comunicación A ingerida">Última A {last_a}</span>'
+        f'<span class="obs-chip" title="Documentos en el índice">{n_docs} docs</span>'
         "</div>"
     )
-
-
-def topbar_markdown(health: HealthResponse) -> str:
-    return title_markdown(health) + banner_markdown(health)
 
 
 def layout_updates(staff: bool) -> tuple[Any, Any]:
@@ -169,7 +156,7 @@ def l1_markdown(data: dict[str, Any]) -> str:
     label = ""
     if is_sample_l1(data):
         label = (
-            "**Números unpublished/sample** — no son una corrida de operador.\n\n"
+            "**Números de muestra, no publicados** — no son una corrida de operador.\n\n"
         )
     headline = data.get("headline_metric", "citation_id_exact")
     raw_chunking = data.get("chunking")
@@ -183,8 +170,8 @@ def l1_markdown(data: dict[str, Any]) -> str:
     raw_generation = data.get("generation")
     retrieval: dict[str, Any] = raw_retrieval if isinstance(raw_retrieval, dict) else {}
     generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
-    retrieval_block = _suite_markdown("Retrieval", retrieval)
-    generation_block = _suite_markdown("Generation", generation)
+    retrieval_block = _suite_markdown("Recuperación", retrieval)
+    generation_block = _suite_markdown("Generación", generation)
     citation_shown = _skipped_or_value(
         data.get("citation_id_exact"), bool(generation.get("skipped"))
     )
@@ -192,28 +179,28 @@ def l1_markdown(data: dict[str, Any]) -> str:
     mrr_shown = _skipped_or_value(data.get("mrr"), bool(retrieval.get("skipped")))
     return (
         f"{label}"
-        f"Headline **{headline}**: {citation_shown}\n\n"
+        f"Métrica principal **{headline}**: {citation_shown}\n\n"
         f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
         f"{retrieval_block}\n\n"
         f"{generation_block}\n\n"
-        f"A vs B: A {a_score} · B {b_score}\n\n"
-        f"Strategy B documents: {', '.join(str(x) for x in b_docs) or '(none)'}\n\n"
-        f"Slices:\n{slice_lines or '- (none)'}"
+        f"Chunking A vs B: A {a_score} · B {b_score}\n\n"
+        f"Documentos de la estrategia B: {', '.join(str(x) for x in b_docs) or '(ninguno)'}\n\n"
+        f"Cortes:\n{slice_lines or '- (ninguno)'}"
     )
 
 
 def _skipped_or_value(value: object, skipped: bool) -> str:
     if skipped or value is None:
-        return "skipped"
+        return "omitido"
     return str(value)
 
 
 def _suite_markdown(title: str, block: dict[str, Any]) -> str:
     if not block:
-        return f"## {title}\n\n(not present)"
+        return f"## {title}\n\n(sin datos)"
     if block.get("skipped"):
-        reason = block.get("skip_reason") or "skipped"
-        return f"## {title}\n\nskipped ({reason})"
+        reason = block.get("skip_reason") or "omitido"
+        return f"## {title}\n\nomitido ({reason})"
     lines = [f"## {title}", ""]
     skip = {"skipped", "skip_reason"}
     for key, value in block.items():
@@ -418,9 +405,9 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         if detail:
             row += f'<span class="obs-trust-detail">{detail}</span>'
         if item.get("enforced") == "false":
-            row += '<span class="obs-trust-detail">not enforced</span>'
+            row += '<span class="obs-trust-detail">no aplicado</span>'
         if item.get("would_block") == "true":
-            row += '<span class="obs-trust-detail">would-block</span>'
+            row += '<span class="obs-trust-detail">bloquearía</span>'
         row += "</div>"
         parts.append(row)
     parts.append("</div>")
