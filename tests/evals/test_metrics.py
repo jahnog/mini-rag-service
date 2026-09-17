@@ -16,6 +16,7 @@ from bcra_rag.evals.domain.metrics import (
     FindingExact,
     HitAtK,
     Mrr,
+    NdcgAtK,
     PrecisionAtK,
 )
 from bcra_rag.evals.domain.types import GenerationSample, GoldRow, RetrievalSample, Score
@@ -175,3 +176,21 @@ def test_collect_drops_none_scores() -> None:
     assert "context_precision" not in grouped
 
 
+
+
+def test_ndcg_counts_each_gold_id_once() -> None:
+    gold = _gold(gold_ids=["texto_ordenado"], gold_puntos=[])
+    ids = ["texto_ordenado", "texto_ordenado", "A8359", "texto_ordenado", "A3500"]
+    sample = RetrievalSample(gold=gold, hits=[_chunk(i) for i in ids], retrieved_ids=ids)
+    assert NdcgAtK(5).score(sample).value == 1.0
+
+
+def test_ndcg_first_hit_rank_and_bound() -> None:
+    import math
+
+    gold = _gold(gold_ids=["A3500"], gold_puntos=[])
+    ids = ["A8359", "A3500", "A3500", "A3500", "A3500"]
+    sample = RetrievalSample(gold=gold, hits=[_chunk(i) for i in ids], retrieved_ids=ids)
+    value = NdcgAtK(5).score(sample).value
+    assert abs(value - 1 / math.log2(3)) < 1e-9
+    assert 0.0 <= value <= 1.0

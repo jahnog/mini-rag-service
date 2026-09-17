@@ -333,6 +333,13 @@ def inspector_right(ui_world: UiWorld) -> None:
     assert side["x"] >= stage["x"] + stage["width"] * 0.3
 
 
+@then("the observatory session card is on the right")
+def session_card_right(ui_world: UiWorld) -> None:
+    stage = bounding(ui_world["page"], "#observatory-stage")
+    card = bounding(ui_world["page"], "#auth-login")
+    assert card["x"] >= stage["x"] + stage["width"] * 0.3
+
+
 @then("the observatory inspector sits below the chat stage")
 def inspector_below(ui_world: UiWorld) -> None:
     stage = bounding(ui_world["page"], "#observatory-stage")

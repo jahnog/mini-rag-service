@@ -4,7 +4,6 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from bcra_rag.adapters.llm_fake import FakeLlm, UnavailableLlm
 from bcra_rag.adapters.llm_openai import (
@@ -12,6 +11,7 @@ from bcra_rag.adapters.llm_openai import (
     parse_llm_draft,
     unwrap_thinking_text,
 )
+from bcra_rag.ports.llm import LlmBadJson
 from bcra_rag.schemas import Finding, LlmDraft
 from bcra_rag.settings import Settings
 
@@ -144,8 +144,23 @@ def test_parse_llm_draft_invalid_finding_is_silencio() -> None:
 
 
 def test_parse_llm_draft_missing_answer_fails() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(LlmBadJson):
         parse_llm_draft(json.dumps({"finding": "silencio", "citations": []}))
+
+
+def test_parse_llm_draft_strips_fence() -> None:
+    body = "```json\n" + _cited_json() + "\n```"
+    assert parse_llm_draft(body).citations
+
+
+def test_parse_llm_draft_uses_last_object_after_prose() -> None:
+    body = "Aquí va la respuesta: " + _cited_json()
+    assert parse_llm_draft(body).citations
+
+
+def test_parse_llm_draft_prose_only_is_bad_json() -> None:
+    with pytest.raises(LlmBadJson):
+        parse_llm_draft("no puedo responder")
 
 
 class _Delta:
@@ -162,8 +177,9 @@ class _Delta:
 
 
 class _StreamChoice:
-    def __init__(self, delta: _Delta) -> None:
+    def __init__(self, delta: _Delta, finish_reason: str | None = None) -> None:
         self.delta = delta
+        self.finish_reason = finish_reason
 
 
 class _Usage:
@@ -173,8 +189,14 @@ class _Usage:
 
 
 class _StreamChunk:
-    def __init__(self, delta: _Delta | None = None, *, usage: _Usage | None = None) -> None:
-        self.choices = [_StreamChoice(delta)] if delta is not None else []
+    def __init__(
+        self,
+        delta: _Delta | None = None,
+        *,
+        usage: _Usage | None = None,
+        finish_reason: str | None = None,
+    ) -> None:
+        self.choices = [_StreamChoice(delta, finish_reason)] if delta is not None else []
         self.usage = usage
 
 
@@ -307,8 +329,10 @@ async def test_adapter_complete_coerces_string_citations() -> None:
         "type": "json_object"
     }
     system = client.chat.completions.kwargs[0]["messages"][0]["content"]
-    assert "array of objects" in system
+    assert "lista de objetos" in system
     assert "Fuente:" in system
+    assert "obligacion (" in system and "silencio (" in system
+    assert system.count("Ejemplo") == 2
     assert llm.calls == ["pregunta"]
     assert "extra_body" not in client.chat.completions.kwargs[0]
     assert client.chat.completions.kwargs[0]["stream"] is True
@@ -543,3 +567,47 @@ async def test_adapter_unwraps_json_answer_in_reasoning() -> None:
     assert seen[-1] == clause
     assert all("{" not in item and '"answer"' not in item for item in seen)
     assert "Fuente:" in draft.answer
+
+
+@pytest.mark.asyncio
+async def test_adapter_sends_generation_settings() -> None:
+    client = StubOpenAI(_cited_json())
+    llm = LlmAdapter(_local_settings(llm_seed=7, llm_reasoning_budget=512), client=client)
+    await llm.complete("pregunta")
+    kwargs = client.chat.completions.kwargs[0]
+    assert kwargs["temperature"] == 0.1
+    assert kwargs["max_tokens"] == 1500
+    assert kwargs["seed"] == 7
+    assert kwargs["extra_body"]["reasoning_budget"] == 512
+
+
+@pytest.mark.asyncio
+async def test_adapter_default_has_no_seed_or_budget() -> None:
+    client = StubOpenAI(_cited_json())
+    await LlmAdapter(_local_settings(), client=client).complete("pregunta")
+    kwargs = client.chat.completions.kwargs[0]
+    assert "seed" not in kwargs
+    assert "reasoning_budget" not in kwargs["extra_body"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_thinking_override_beats_setting() -> None:
+    client = StubOpenAI(_cited_json())
+    await LlmAdapter(_local_settings(), client=client).complete("pregunta", thinking=False)
+    assert client.chat.completions.kwargs[0]["extra_body"]["enable_thinking"] is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_reports_ttft_and_thinking_chars() -> None:
+    client = StubOpenAI(_cited_json(), reasoning_content="pienso")
+    draft = await LlmAdapter(_local_settings(), client=client).complete("pregunta")
+    assert draft.thinking_chars == len("pienso")
+    assert draft.ttft_ms >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_adapter_truncated_stream_is_bad_json() -> None:
+    chunks = [_StreamChunk(_Delta(content='{"answer": "corta'), finish_reason="length")]
+    client = StubOpenAI("", chunks=chunks)
+    with pytest.raises(LlmBadJson):
+        await LlmAdapter(_local_settings(), client=client).complete("pregunta")

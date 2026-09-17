@@ -13,6 +13,7 @@ from bcra_rag.auth import AuthSettings, FakeMailer, build_auth
 from bcra_rag.composition import build_app
 from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import Finding, LlmDraft
+from bcra_rag.settings import Settings
 from tests.chat_fixtures import (
     AUTH_EMAIL,
     AUTH_SECRET,
@@ -55,10 +56,14 @@ class _DelayedLlm:
         return self.inner.calls
 
     async def complete(
-        self, prompt: str, *, on_thinking: OnThinking | None = None
+        self,
+        prompt: str,
+        *,
+        on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> LlmDraft:
         await asyncio.sleep(self.delay_s)
-        return await self.inner.complete(prompt, on_thinking=on_thinking)
+        return await self.inner.complete(prompt, on_thinking=on_thinking, thinking=thinking)
 
 
 def test_chat_keeps_json_contract_across_proxy_keepalives(
@@ -390,3 +395,52 @@ def test_turn_caps_reset_next_utc_day(tmp_path: Path) -> None:
     clock.advance(86400)
     assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
     assert len(llm.calls) == 3
+
+
+def test_l1_document_served(tmp_path: Path) -> None:
+    client, _, _, _ = make_client(tmp_path, authenticate=False)
+    body = client.get("/l1").json()
+    assert body["unpublished"] is False
+    for key in ("retrieval", "generation", "judge", "n"):
+        assert key in body
+
+
+def test_l1_document_missing_returns_stub(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, evals_dir=tmp_path / "no-evals")
+    client, _, _, _ = make_client(tmp_path, settings=settings, authenticate=False)
+    response = client.get("/l1")
+    assert response.status_code == 200
+    assert response.json()["unpublished"] is True
+
+
+def test_scope_blocked_turn_is_refunded(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={"chat_turns_per_email_day": 2, "chat_turns_per_process_day": 10}
+    )
+    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
+    for _ in range(2):
+        blocked = client.post("/chat", json={"message": "What's the weather in Madrid?"})
+        assert blocked.status_code == 200
+        assert blocked.json()["abstain_reason"] == "scope"
+    answered = client.post("/chat", json={"message": "Qué es el MULC?"})
+    assert answered.status_code == 200
+    assert len(llm.calls) == 1
+
+
+def test_burst_limited_request_does_not_consume_cap(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(
+        update={
+            "rate_limit_requests": 1,
+            "rate_limit_window_s": 60,
+            "chat_turns_per_email_day": 1,
+            "chat_turns_per_process_day": 10,
+        }
+    )
+    client, _, _, _ = make_client(tmp_path, settings=settings, index=index)
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 200
+    assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429
+    caps = client.app.state.turn_caps
+    day_counts = list(caps._process_day.values())
+    assert day_counts == [1]

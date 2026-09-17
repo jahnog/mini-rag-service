@@ -133,6 +133,7 @@ async def test_empty_dump_sets_dates_and_stores_docs(settings: Settings) -> None
     assert index.has_document("texto_ordenado")
     assert index.has_document("A100")
     assert index.docs["A100"][0].metadata["doc_kind"] == "event"
+    assert index.docs["A100"][0].metadata["ordinal"] == 0
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,18 @@ class LiveAuthResult:
     sent_new: bool
 
 
+_DOTENV_ENABLED = False
+
+
+def enable_live_dotenv() -> None:
+    """Allow load_live_dotenv() to read the repository .env (live/prod runs only)."""
+    global _DOTENV_ENABLED
+    _DOTENV_ENABLED = True
+
+
 def load_live_dotenv(path: Path | None = None) -> None:
+    if path is None and not _DOTENV_ENABLED:
+        return
     env_path = path or Path(".env")
     if not env_path.is_file():
         return
@@ -52,7 +63,7 @@ def load_live_dotenv(path: Path | None = None) -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.strip().strip("'").strip('"')
+        value = os.path.expandvars(value.strip().strip("'").strip('"'))
         if key and key not in os.environ:
             os.environ[key] = value
 
@@ -114,8 +125,11 @@ def make_client(base_url: str | None = None) -> httpx.Client:
 
 def clone_client(client: httpx.Client) -> httpx.Client:
     cloned = make_client(str(client.base_url).rstrip("/"))
-    for name, value in client.cookies.items():
-        cloned.cookies.set(name, value)
+    for cookie in client.cookies.jar:
+        # Keep domain and path so a server-side delete_cookie clears the clone's copy too.
+        cloned.cookies.set(
+            cookie.name, cookie.value or "", domain=cookie.domain, path=cookie.path
+        )
     return cloned
 
 

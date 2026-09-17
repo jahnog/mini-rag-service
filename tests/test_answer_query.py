@@ -10,14 +10,19 @@ from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.composition import default_pipeline
+from bcra_rag.domain.freeze import names_freeze
 from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.turn_eval import TurnScores
 from bcra_rag.logconfig import configure_logging
-from bcra_rag.ports.llm import OnThinking
+from bcra_rag.ports.llm import LlmBadJson, OnThinking
 from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import AnswerQuery, generate_from_context
+from bcra_rag.use_cases.answer_query import (
+    AnswerQuery,
+    drain_turn_evals,
+    generate_from_context,
+)
 from tests.chat_fixtures import IN_CORPUS_DRAFT, LAST_REFRESH, TO_AS_OF, seed_ready
 
 
@@ -315,7 +320,7 @@ async def test_empty_hits_silencio_no_llm(tmp_path: Path) -> None:
     assert response.finding is Finding.SILENCIO
     assert response.abstain is True
     assert response.citations == []
-    assert LAST_REFRESH in response.answer
+    assert names_freeze(response.answer, LAST_REFRESH, TO_AS_OF)
     assert response.thinking is None
     assert llm.calls == []
 
@@ -493,8 +498,13 @@ class _SlowThinkingLlm:
         self.n = n
 
     async def complete(
-        self, prompt: str, *, on_thinking: OnThinking | None = None
+        self,
+        prompt: str,
+        *,
+        on_thinking: OnThinking | None = None,
+        thinking: bool | None = None,
     ) -> LlmDraft:
+        del thinking
         self.calls.append(prompt)
         acc = ""
         for _ in range(self.n):
@@ -539,6 +549,7 @@ async def test_thinking_past_timeout_is_silencio_not_partial_draft(
     assert "TimeoutError" not in ctx.answer
     assert "pienso" not in ctx.answer
     assert llm.calls
+    assert ctx.generate_reason == "llm_timeout"
 
 
 @pytest.mark.asyncio
@@ -739,6 +750,9 @@ async def test_in_corpus_turn_is_logged(
     question = "qué se exige hoy para liquidar el cobro de exportaciones"
     response = await use_case.run(ChatRequest(message=question), request_id="req-log")
     event = _assert_stdout_matches_file(capsys, log_file)
+    for key in ("retrieve_ms", "llm_ms", "ttft_ms", "thinking_chars"):
+        assert key in event
+    assert event["abstain_reason"] is None
     assert event["message"] == question
     assert event["answer"] == response.answer
     assert event["finding"] == response.finding.value
@@ -1131,6 +1145,7 @@ async def test_turn_eval_records_scores_on_generated_turn(tmp_path: Path) -> Non
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-eval-ok",
     )
+    await drain_turn_evals()
     assert response.finding is not Finding.SILENCIO or response.citations is not None
     assert evaluator.calls
     assert tracer.spans["chat.turn"].attrs.get("eval.faithfulness") == 1.0
@@ -1147,5 +1162,267 @@ async def test_turn_eval_failure_still_answers(tmp_path: Path) -> None:
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-eval-fail",
     )
+    await drain_turn_evals()
     assert response.answer
     assert evaluator.calls
+
+
+@pytest.mark.asyncio
+async def test_turn_eval_does_not_delay_response(tmp_path: Path) -> None:
+    import time
+
+    class SlowEvaluator(_FakeTurnEvaluator):
+        async def score(self, *, question: str, answer: str, context: str) -> TurnScores:
+            await asyncio.sleep(0.3)
+            return await super().score(question=question, answer=answer, context=context)
+
+    evaluator = SlowEvaluator()
+    use_case, _ = _uc(tmp_path, evaluator=evaluator)
+    started = time.perf_counter()
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="bg"
+    )
+    assert time.perf_counter() - started < 0.25
+    assert response.answer
+    await drain_turn_evals()
+    assert evaluator.calls
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_reason(tmp_path: Path) -> None:
+    class SlowLlm(FakeLlm):
+        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(0.3)
+            return await super().complete(prompt, on_thinking=on_thinking, thinking=thinking)
+
+    settings, index, _ = seed_ready(tmp_path)
+    settings = settings.model_copy(update={"llm_timeout_s": 0.05})
+    use_case = AnswerQuery(
+        settings,
+        index,
+        SlowLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="t"
+    )
+    assert response.abstain_reason == "llm_timeout"
+    assert "tardó demasiado" in response.answer
+    assert names_freeze(response.answer, LAST_REFRESH, TO_AS_OF)
+
+
+@pytest.mark.asyncio
+async def test_llm_bad_json_retries_without_thinking(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    llm = FakeLlm(IN_CORPUS_DRAFT, fail_first=LlmBadJson)
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="r"
+    )
+    assert llm.thinking_args == [None, False]
+    assert response.abstain_reason != "llm_bad_json"
+    assert any(
+        g.rule == "generate" and "retry_no_thinking" in (g.detail or "")
+        for g in response.guardrails
+    )
+
+
+@pytest.mark.asyncio
+async def test_llm_bad_json_twice(tmp_path: Path) -> None:
+    class BadLlm(FakeLlm):
+        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+            self.thinking_args.append(thinking)
+            raise LlmBadJson("bad")
+
+    settings, index, _ = seed_ready(tmp_path)
+    llm = BadLlm()
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="b"
+    )
+    assert response.abstain_reason == "llm_bad_json"
+    assert "no se pudo leer" in response.answer
+    assert llm.thinking_args == [None, False]
+
+
+@pytest.mark.asyncio
+async def test_thinking_flag_reaches_llm(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case = AnswerQuery(settings, index, llm, InMemorySessionStore(), default_pipeline(settings))
+    await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"),
+        request_id="u",
+        thinking=False,
+    )
+    assert llm.thinking_args == [False]
+
+
+@pytest.mark.asyncio
+async def test_answers_end_with_spanish_freeze_footer(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="f",
+    )
+    assert "Según el dump del 2026-09-01 (texto ordenado al A8307)." in response.answer
+    assert "last_refresh=" not in response.answer
+    weather = await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"), request_id="w"
+    )
+    assert weather.answer.startswith("No puedo responder: la pregunta no es sobre")
+    assert "(scope)" not in weather.answer
+    assert any(g.rule == "scope" and g.verdict == "block" for g in weather.guardrails)
+
+
+@pytest.mark.asyncio
+async def test_citations_are_enriched_from_manifest(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="e",
+    )
+    cite = response.citations[0]
+    assert cite.id == "texto_ordenado"
+    assert cite.url == "https://www.bcra.gob.ar/Pdfs/Texord/t-excbio.pdf"
+    assert cite.punto == "3.8.5"
+
+
+@pytest.mark.asyncio
+async def test_named_citation_gets_fecha_and_url(tmp_path: Path) -> None:
+    draft = LlmDraft(
+        answer="Tipo de cambio de referencia. Fuente: A3500",
+        finding=Finding.DEFINICION,
+        citations=[Citation(id="A3500", tipo="A", snippet="Tipo de cambio de referencia")],
+    )
+    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
+    response = await use_case.run(
+        ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="n"
+    )
+    cite = next(item for item in response.citations if item.id == "A3500")
+    assert cite.fecha == "2002-03-08"
+    assert cite.url == "https://www.bcra.gob.ar/archivos/Pdfs/comytexord/A3500.pdf"
+
+
+@pytest.mark.asyncio
+async def test_prior_exchange_reaches_prompt_as_context(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="h1"
+    )
+    await use_case.run(
+        ChatRequest(message="¿cuánto plazo?", session_id=first.session_id), request_id="h2"
+    )
+    prompt = llm.calls[-1]
+    assert "Conversación previa (contexto, no fuente" in prompt
+    assert "Usuario: qué se exige para liquidar exportaciones" in prompt
+    assert "Asistente: Los residentes deberán liquidar" in prompt
+    assert "Pregunta:\nqué se exige para liquidar exportaciones\n¿cuánto plazo?" in prompt
+
+
+@pytest.mark.asyncio
+async def test_short_named_question_is_not_composed(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="n1"
+    )
+    second = await use_case.run(
+        ChatRequest(message="Comunicación A 3500?", session_id=first.session_id),
+        request_id="n2",
+    )
+    assert "Pregunta:\nComunicación A 3500?" in llm.calls[-1]
+    assert any(g.rule == "retrieve" for g in second.guardrails)
+
+
+@pytest.mark.asyncio
+async def test_cleared_session_has_no_history_block(tmp_path: Path) -> None:
+    llm = FakeLlm(IN_CORPUS_DRAFT)
+    use_case, _ = _uc(tmp_path, llm=llm)
+    first = await use_case.run(
+        ChatRequest(message="qué se exige para liquidar exportaciones"), request_id="c1"
+    )
+    await use_case.run(
+        ChatRequest(message="/clear", session_id=first.session_id), request_id="c2"
+    )
+    await use_case.run(
+        ChatRequest(
+            message="qué se exige para liquidar exportaciones", session_id=first.session_id
+        ),
+        request_id="c3",
+    )
+    assert "Conversación previa" not in llm.calls[-1]
+
+
+@pytest.mark.asyncio
+async def test_phases_reported_in_order(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+    seen: list[str] = []
+
+    async def on_phase(code: str) -> None:
+        seen.append(code)
+
+    await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="p",
+        on_phase=on_phase,
+    )
+    assert seen == ["retrieve", "generate", "verify"]
+    seen.clear()
+    await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"), request_id="p2", on_phase=on_phase
+    )
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_phase_callback_error_does_not_fail_turn(tmp_path: Path) -> None:
+    use_case, _ = _uc(tmp_path)
+
+    async def boom(code: str) -> None:
+        raise RuntimeError(code)
+
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="p3",
+        on_phase=boom,
+    )
+    assert response.citations
+
+
+@pytest.mark.asyncio
+async def test_retrieval_runs_in_worker_thread(tmp_path: Path) -> None:
+    import threading
+
+    seen: list[int] = []
+
+    class ThreadIndex(FakeIndex):
+        def search(self, query, *, k=5, filters=None):  # type: ignore[no-untyped-def]
+            seen.append(threading.get_ident())
+            return super().search(query, k=k, filters=filters)
+
+    settings, seeded, _ = seed_ready(tmp_path)
+    index = ThreadIndex()
+    for doc_id, chunks in seeded.docs.items():
+        index.upsert(doc_id, chunks)
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="thr",
+    )
+    assert seen and all(ident != threading.get_ident() for ident in seen)

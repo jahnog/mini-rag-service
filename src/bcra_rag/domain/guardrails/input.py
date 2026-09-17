@@ -216,7 +216,7 @@ class ScopeRail(_Rail):
             return RailResult(
                 rule=self.id, stage=self.stage, verdict="pass", detail="in CAMEX scope"
             )
-        if FOLLOW_UP.search(latest):
+        if FOLLOW_UP.search(latest) or ctx.followup:
             return RailResult(
                 rule=self.id,
                 stage=self.stage,

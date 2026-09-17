@@ -101,6 +101,7 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "python", "evals/run_l1.py", "--deterministic-only"),
         ("uv", "run", "python", "evals/run_l1.py", "--retrieval-only"),
         ("uv", "run", "python", "evals/run_l1.py", "--generation-only"),
+        ("uv", "run", "python", "evals/run_l1.py", "--gate"),
         ("./scripts/deploy.sh",),
         ("./scripts/deploy.sh", "--ingest"),
         ("./scripts/run-l1.sh",),

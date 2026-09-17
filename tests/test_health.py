@@ -69,3 +69,22 @@ def test_jobs_modules_import() -> None:
 
     assert callable(ingest.main)
     assert callable(refresh.main)
+
+
+def test_health_cache_invalidates_on_manifest_rewrite(tmp_path: Path) -> None:
+    from bcra_rag.domain.health import dump_health
+
+    settings = Settings(data_dir=tmp_path)
+    settings.dump_dir.mkdir(parents=True)
+    manifest = Manifest(path=settings.manifest_path)
+    manifest.last_refresh = "2026-09-01T00:00:00+00:00"
+    manifest.documents = {"texto_ordenado": {"kind": "texto_ordenado"}}
+    manifest.save()
+    index = FakeIndex()
+    first = dump_health(settings, index)
+    assert first.last_refresh == "2026-09-01T00:00:00+00:00"
+    manifest.last_refresh = "2026-09-10T00:00:00+00:00"
+    manifest.documents["A8464"] = {"kind": "comunicacion", "title": "x" * 40}
+    manifest.save()
+    second = dump_health(settings, index)
+    assert second.last_refresh == "2026-09-10T00:00:00+00:00"

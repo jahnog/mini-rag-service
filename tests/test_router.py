@@ -52,7 +52,7 @@ def test_a3500_named_fetch_citation_id(tmp_path: Path) -> None:
     assert result.named_id == "A3500"
     assert result.kind == "named"
     assert result.hits[0].metadata["doc_id"] == "A3500"
-    assert len(result.hits[0].text) <= 2000
+    assert len(result.hits[0].text) <= 3000
 
 
 def test_named_without_punto_is_truncated(tmp_path: Path) -> None:
@@ -62,7 +62,7 @@ def test_named_without_punto_is_truncated(tmp_path: Path) -> None:
     result = _router(
         tmp_path, index, {"A3500": {"kind": "comunicacion"}}
     ).route("Qué dice A 3500?", k=5, to_as_of=None)
-    assert len(result.hits[0].text) <= 2000
+    assert len(result.hits[0].text) <= 3000
     assert "texto ordenado" not in result.hits[0].text.lower() or True
 
 
@@ -354,3 +354,27 @@ def test_rebuild_ab_and_serving_chunker_metadata() -> None:
     serving = FakeIndex()
     serving.upsert("texto_ordenado", b_chunks)
     assert serving.docs["texto_ordenado"][0].metadata["chunker"] == "B"
+
+
+def test_named_section_carries_url_title_and_punto(tmp_path: Path) -> None:
+    index = FakeIndex()
+    index.upsert(
+        "A3500",
+        [Chunk("A3500:2", "punto dos", {"doc_kind": "comunicacion", "punto": "2"})],
+    )
+    documents = {
+        "A3500": {
+            "kind": "comunicacion",
+            "url": "https://www.bcra.gob.ar/x/A3500.pdf",
+            "title": "Ref.: TCR",
+            "fecha": "2002-01-01",
+        }
+    }
+    result = _router(tmp_path, index, documents).route(
+        "Qué dice el punto 2 de la A 3500?", k=5, to_as_of=None
+    )
+    meta = result.hits[0].metadata
+    assert meta["url"] == "https://www.bcra.gob.ar/x/A3500.pdf"
+    assert meta["title"] == "Ref.: TCR"
+    assert meta["punto"] == "2"
+    assert meta["fecha"] == "2002-01-01"

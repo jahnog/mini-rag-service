@@ -296,7 +296,9 @@ class _FixedCiteLlm:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def complete(self, prompt: str, *, on_thinking: object = None) -> LlmDraft:
+    async def complete(
+        self, prompt: str, *, on_thinking: object = None, thinking: bool | None = None
+    ) -> LlmDraft:
         del on_thinking
         self.calls.append(prompt)
         return LlmDraft(

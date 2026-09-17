@@ -67,12 +67,12 @@ When the user names a Comunicación “A” by number, the system SHALL fetch th
 - **AND** the answer names `last_refresh`
 
 ### Requirement: Truncated extract without punto
-If the user names a Comunicación without a punto, the system SHALL return a truncated extract of that document, not an entire texto ordenado.
+If the user names a Comunicación without a punto, the system SHALL return an extract of that document in document order, bounded by `CONTEXT_CHUNK_CHARS`, not an entire texto ordenado.
 
 #### Scenario: Named A without punto is truncated
 - **GIVEN** Comunicación A 3500 is in the dump
 - **WHEN** the user asks what A 3500 says with no punto
-- **THEN** the body is a truncated extract, not the full texto ordenado
+- **THEN** the body is an ordered extract of at most `CONTEXT_CHUNK_CHARS` characters, not the full texto ordenado
 
 ### Requirement: Vigente prefers current law plus later patches
 When the user question uses a vigente intent from the closed list as whole words or phrases (hoy, vigente, puedo, qué exige, que exige, liquidar, today, current, liquidate) and does not name a Comunicación A number, the system SHALL search the texto ordenado first and SHALL also consider Comunicaciones A issued after the Comunicación recorded in `to_as_of` (that id’s issue date, or a later A number). It MUST NOT compare an issue date to the `to_as_of` id as if they were the same kind of value. It MUST NOT answer a vigente question using only a superseded 1980s or 2002 document when a TO or post-TO clause exists.
@@ -130,3 +130,53 @@ Chunk identifiers SHALL be stable across refresh when the source checksum is unc
 - **GIVEN** a chunk id for TO punto 3.8.5
 - **WHEN** refresh runs and the TO checksum is unchanged
 - **THEN** that chunk id is still the same
+
+### Requirement: Named sections are ordered and punto-scoped
+A fetched named section SHALL assemble that document's chunks in document order: by the `ordinal` recorded at ingest when every chunk has one, otherwise by numeric punto then ingest order. When the question names a punto, the section SHALL contain that punto and its sub-puntos plus one neighbouring chunk on each side; when the punto is not found, the whole ordered document is used. The section SHALL be capped at `CONTEXT_CHUNK_CHARS`. Ingest SHALL record an `ordinal` on every chunk.
+
+#### Scenario: Punto with sub-puntos and neighbours
+- **GIVEN** `A3500` has chunks with puntos 1, 2, 2.1, 2.2, 3, 4 in that order
+- **WHEN** the user asks about punto 2 of A 3500
+- **THEN** the fetched section contains puntos 1, 2, 2.1, 2.2 and 3, in that order
+- **AND** it does not contain punto 4
+
+#### Scenario: Whole document in order when punto is missing
+- **GIVEN** `A3500` has chunks with puntos 1, 2, 3 stored out of order
+- **WHEN** the user asks about punto 9.9.9 of A 3500
+- **THEN** the fetched section is puntos 1, 2, 3 in that order
+
+#### Scenario: Ingest records ordinals
+- **GIVEN** a document is ingested
+- **WHEN** its chunks are stored
+- **THEN** each chunk has an integer `ordinal` starting at 0 in document order
+
+### Requirement: Hybrid lexical and dense search
+Similarity search over the index SHALL combine a dense embedding query with a lexical BM25 query over the same chunks using reciprocal-rank fusion, and SHALL return the top k fused chunks. A chunk that matches the query only lexically (for example by an exact Comunicación number or punto token) SHALL be reachable. Each returned chunk SHALL carry a fused `score` in (0, 1], its `dense_score` (0 when it was not a dense hit) and its lexical rank. The lexical index SHALL be built from the collection once per collection version (chunk count and dump manifest version) and MUST NOT be rebuilt per query. The operator MAY disable fusion (`RETRIEVAL_HYBRID=false`), in which case results are dense-only as before. The number of candidates taken from each side is configurable (`RETRIEVAL_CANDIDATES`, default 20).
+
+#### Scenario: Exact token reachable through the lexical side
+- **GIVEN** a chunk whose text contains "SECOEXPO" and whose embedding is far from the query embedding
+- **WHEN** the user asks about SECOEXPO
+- **THEN** that chunk is among the returned hits
+
+#### Scenario: Hybrid off equals dense-only
+- **GIVEN** `RETRIEVAL_HYBRID=false`
+- **WHEN** a query runs
+- **THEN** the hits and their scores equal the dense-only ranking
+
+### Requirement: Similarity floor for silencio
+When `RETRIEVAL_MIN_SCORE` is greater than 0 and the collection uses cosine space, similarity search SHALL return no hits when the best dense cosine similarity is below that floor, so the router answers silencio with reason `empty_hits` without calling the language model. When the collection does not use cosine space, the floor SHALL be ignored with a logged warning. The default is 0 (off).
+
+#### Scenario: Unrelated question below the floor
+- **GIVEN** `RETRIEVAL_MIN_SCORE=0.3` on a cosine collection
+- **AND** the best cosine similarity for the question is 0.1
+- **WHEN** the user asks that question
+- **THEN** finding is silencio with reason `empty_hits`
+- **AND** the language model is not called
+
+### Requirement: Cosine space for new collections
+A collection created by ingest SHALL use the configured `INDEX_SPACE` (default `cosine`). An existing collection keeps its space; switching space requires removing the index and re-ingesting, and the operator documentation SHALL say so.
+
+#### Scenario: Fresh index is cosine
+- **GIVEN** no index directory
+- **WHEN** ingest creates the collection with default settings
+- **THEN** the collection metadata records cosine space

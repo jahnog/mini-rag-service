@@ -193,7 +193,7 @@ def test_deploy_script_requires_host_excludes_uv_restart_and_ingest_flag() -> No
     assert "DEPLOY_USER is required when DEPLOY_HOST has no user@" in text
 
 
-def test_deploy_seeds_unpublished_l1_json_only_when_dest_missing() -> None:
+def test_deploy_seeds_committed_l1_json_only_when_dest_missing() -> None:
     text = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     exclude_idx = text.index("evals/l1.json")
     seed_idx = text.index("unpublished")
@@ -201,7 +201,9 @@ def test_deploy_seeds_unpublished_l1_json_only_when_dest_missing() -> None:
     assert "sample" in text[seed_idx : seed_idx + 400]
     assert "test -f" in text
     assert "--delete-excluded" not in text
-    assert "git show HEAD:evals/l1.json" not in text
+    assert 'git -C "$REPO_ROOT" show HEAD:evals/l1.json' in text
+    assert "python3 -c" not in text[seed_idx : seed_idx + 800]
+    assert "never overwritten" in text
     assert "--ignore-existing" not in text
 
 

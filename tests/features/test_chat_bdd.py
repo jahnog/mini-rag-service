@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from bcra_rag.domain.freeze import names_freeze
 from bcra_rag.schemas import ChatFilters, ChatRequest
 from bcra_rag.use_cases.answer_query import AnswerQuery
 from tests.chat_fixtures import make_client, seed_ready
@@ -157,9 +158,12 @@ def no_leak(world: dict[str, object]) -> None:
 
 @then("the answer names last_refresh and to_as_of")
 def names_dates(world: dict[str, object]) -> None:
-    answer = world["response"].answer  # type: ignore[union-attr]
-    assert world["response"].last_refresh in answer  # type: ignore[union-attr]
-    assert world["response"].to_as_of in answer  # type: ignore[union-attr]
+    response = world["response"]
+    assert names_freeze(
+        response.answer,  # type: ignore[union-attr]
+        response.last_refresh,  # type: ignore[union-attr]
+        response.to_as_of,  # type: ignore[union-attr]
+    )
 
 
 @then("the clear response has no citations")

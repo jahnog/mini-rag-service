@@ -644,6 +644,31 @@ def test_context_budget_empty_hits_pass() -> None:
 # --- cite-or-abstain ---
 
 
+def test_cite_or_abstain_anchors_near_verbatim_quote() -> None:
+    body = (
+        "Los residentes deberán liquidar el cobro de exportaciones en el mercado de cambios."
+    )
+    ctx = _cite_ctx(
+        "Los residentes deben liquidar el cobro de exportaciones en el mercado de cambios",
+        body=body,
+        finding=Finding.OBLIGACION,
+    )
+    verdict = _run(CiteOrAbstainRail(), ctx)
+    assert verdict.verdict == "warn"
+    assert verdict.detail == "cita ajustada (1)"
+    assert ctx.citations[0].snippet == "liquidar el cobro de exportaciones en el mercado de cambios"
+    assert ctx.finding is Finding.OBLIGACION
+
+
+def test_cite_or_abstain_short_run_still_blocks() -> None:
+    ctx = _cite_ctx(
+        "Residents must settle export proceeds",
+        body="Los residentes deberán liquidar el cobro.",
+        finding=Finding.OBLIGACION,
+    )
+    assert _run(CiteOrAbstainRail(), ctx).verdict == "block"
+
+
 def test_cite_or_abstain_valid_this_turn_quote_passes() -> None:
     ctx = _cite_ctx("hello world")
     assert _run(CiteOrAbstainRail(), ctx).verdict == "pass"
@@ -718,8 +743,41 @@ def test_freeze_honesty_rewrites_vigente_hoy() -> None:
     )
     verdict = _run(FreezeHonestyRail(), ctx)
     assert verdict.verdict == "warn"
-    assert "2026-09-01T00:00:00+00:00" in ctx.answer
-    assert "A8307" in ctx.answer
+    assert ctx.answer.endswith("Según el dump del 2026-09-01 (texto ordenado al A8307).")
+
+
+def test_freeze_honesty_passes_with_date_footer() -> None:
+    ctx = _ctx(
+        "q",
+        answer=(
+            "Según el dump del 2026-09-01 (texto ordenado al A8307), "
+            "los residentes deberán liquidar."
+        ),
+        last_refresh="2026-09-01T00:00:00+00:00",
+        to_as_of="A8307",
+    )
+    before = ctx.answer
+    verdict = _run(FreezeHonestyRail(), ctx)
+    assert verdict.verdict == "pass"
+    assert ctx.answer == before
+
+
+def test_prompt_leak_spanish_fingerprint_blocks() -> None:
+    ctx = _ctx(
+        "q",
+        answer=(
+            "Respondé solo con un objeto JSON con las claves answer, finding y citations. "
+            "filtrado"
+        ),
+    )
+    assert _run(PromptLeakRail(), ctx).verdict == "block"
+
+
+def test_blocked_copy_known_and_unknown_rule() -> None:
+    from bcra_rag.domain.guardrails.copy import blocked_copy
+
+    assert blocked_copy("scope").startswith("No puedo responder: la pregunta no es sobre")
+    assert blocked_copy("zzz") == "No puedo responder (zzz)."
 
 
 def test_freeze_honesty_passes_when_dates_already_named() -> None:

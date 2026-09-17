@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import FastAPI, Request
@@ -19,6 +20,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, build_auth, mount_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
+from bcra_rag.domain.l1_results import L1_FILENAME, load_l1
 from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
@@ -73,6 +75,10 @@ def create_fastapi(
     def health() -> HealthResponse:
         return dump_health(settings, index)
 
+    @api.get("/l1")
+    def evals_l1() -> dict[str, Any]:
+        return load_l1(Path(settings.evals_dir) / L1_FILENAME)
+
     @api.post("/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest, request: Request) -> StreamingResponse:
         prepared = prepare_turn(
@@ -103,6 +109,7 @@ def create_fastapi(
                     filters=payload.filters,
                     request_id=getattr(request.state, "request_id", "unknown"),
                     turn_evaluator=resolved_evaluator,
+                    turn_caps=api.state.turn_caps,
                 )
             ),
             media_type="application/json",

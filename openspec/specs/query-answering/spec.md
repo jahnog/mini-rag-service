@@ -7,7 +7,7 @@ Turn a user question into a short cited answer or silencio, with a structured re
 ## Requirements
 
 ### Requirement: Structured cited answer
-The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag and reason, `last_refresh`, `to_as_of`, per-query guardrail log, retrieval sidecar, request id, session id, and optional `thinking` (a reasoning trace from the language-model provider; absent, empty, or null when none). Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary. A chat request MUST NOT accept `thinking` as an input field.
+The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag and reason, `last_refresh`, `to_as_of`, per-query guardrail log, retrieval sidecar, request id, session id, and optional `thinking` (a reasoning trace from the language-model provider; absent, empty, or null when none). Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. The visible answer SHALL name the dump freeze as a Spanish sentence of the form "Según el dump del <fecha> (texto ordenado al <to_as_of>)." where `<fecha>` is the calendar date of `last_refresh`; it MUST NOT print `last_refresh=` or `to_as_of=` identifiers. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary. A chat request MUST NOT accept `thinking` as an input field.
 
 #### Scenario: Successful in-corpus answer
 - **GIVEN** the index is ready
@@ -16,14 +16,17 @@ The system SHALL return a structured response that includes: answer text with a 
 - **AND** each citation id exists in the dump
 - **AND** quoted clauses remain in Spanish even if the question is English
 - **AND** the response includes `last_refresh` and `to_as_of`
+- **AND** the answer ends with the freeze sentence naming the dump date and `to_as_of`
 
 #### Scenario: Empty retrieval is silencio
 - **GIVEN** retrieval returns no usable hits
+- **AND** last_refresh is 2026-09-01T00:00:00+00:00 and to_as_of is A8307
 - **WHEN** the user asks a question
 - **THEN** finding is silencio
 - **AND** abstain is true
 - **AND** citations are empty
-- **AND** the answer names `last_refresh`
+- **AND** the answer contains "Según el dump del 2026-09-01 (texto ordenado al A8307)."
+- **AND** the answer does not contain "last_refresh="
 
 #### Scenario: Chat request does not accept thinking as input
 - **GIVEN** a ready index
@@ -129,12 +132,31 @@ If the client sends tipo, comm_id, or date filters, the system SHALL drop citati
 - **AND** if none remain, finding is silencio
 
 ### Requirement: Session memory
-The system SHALL keep the last six messages (three exchanges) per session id. If the client omits session id, the system SHALL mint one. Follow-up questions SHALL still retrieve from the dump; memory MUST NOT invent a circular. Idle sessions SHOULD expire after one hour.
+The system SHALL keep the last six messages (three exchanges) per session id. If the client omits session id, the system SHALL mint one. The prompt for a turn SHALL include the last two exchanges of that session as prior conversation that is explicitly marked as context and not a citation source; each remembered message is truncated to 300 characters. Follow-up questions SHALL still retrieve from the dump; memory MUST NOT invent a circular: citations keep requiring a dump id retrieved this turn and an anchored snippet. When the latest message starts with a follow-up prefix (`y`, `and`, `ese`, `esa`, `eso`, `that`, `el punto`) or has three words or fewer and names no Comunicación, the retrieval query SHALL be the previous user question followed by the latest message. Idle sessions SHOULD expire after one hour.
 
 #### Scenario: Follow-up still cites the dump
 - **GIVEN** the user asked about punto 3.8.5 and received a cited answer
 - **WHEN** the user asks “y ese punto?” in the same session
 - **THEN** the new answer includes a citation that exists in the dump
+
+#### Scenario: Prior exchange reaches the prompt as context
+- **GIVEN** the user asked "qué se exige para liquidar exportaciones" and received the answer "Los residentes deberán liquidar…"
+- **WHEN** the user asks "¿cuánto plazo?" in the same session
+- **THEN** the language-model prompt contains "Conversación previa (contexto, no fuente"
+- **AND** it contains "Usuario: qué se exige para liquidar exportaciones"
+- **AND** it contains "Asistente: Los residentes deberán liquidar"
+- **AND** the retrieval query is "qué se exige para liquidar exportaciones\n¿cuánto plazo?"
+
+#### Scenario: Short question naming a Comunicación is not composed
+- **GIVEN** a session with a prior in-corpus question
+- **WHEN** the user asks "Comunicación A 3500?"
+- **THEN** the retrieval query is the latest message alone
+- **AND** the named fetch runs for A3500
+
+#### Scenario: Cleared session has no prior conversation
+- **GIVEN** the user cleared the session
+- **WHEN** the user asks a new question
+- **THEN** the prompt contains no "Conversación previa" block
 
 ### Requirement: Clear session
 The system SHALL clear a session when the user sends `/clear`, uses the UI clear action, or the client posts `POST /chat/clear` with that session id. After clear, the system SHALL NOT use prior turns. The clear acknowledgement SHALL NOT retrieve.
@@ -211,15 +233,39 @@ When the index is ready and retrieval returned dump hits, the system SHALL still
 - **AND** the clear path does not call the language model
 
 ### Requirement: Language-model call failure is still silencio
-When the language-model call fails or no language-model key is configured, the system SHALL return finding `silencio` with `abstain_reason` `llm_unavailable`. The answer MUST NOT contain exception text. Unparseable non-JSON model bodies MAY use the same silencio path. Empty retrieval remains silencio without a language-model call (existing empty-hits contract).
+When the language-model call fails, the system SHALL return finding `silencio` with an `abstain_reason` that names the failure class: `llm_timeout` when the configured wall-clock bound elapsed, `llm_bad_json` when the model body could not be read as the answer object after one retry with thinking disabled, and `llm_unavailable` for any other failure or when no language-model key is configured. Before declaring `llm_bad_json` the system SHALL strip a surrounding code fence and SHALL accept the last balanced JSON object in the body. Each reason SHALL have its own Spanish answer sentence; the answer MUST NOT contain exception text and SHALL still name the dump freeze. Empty retrieval remains silencio without a language-model call (existing empty-hits contract).
 
 #### Scenario: Missing key or failed call
 - **GIVEN** the index is ready
-- **WHEN** the language-model call fails or no key is configured
+- **WHEN** the language-model call raises a non-timeout, non-parse error or no key is configured
 - **THEN** finding is `silencio`
 - **AND** `abstain_reason` is `llm_unavailable`
 - **AND** the answer does not contain exception text
 - **AND** the answer names `last_refresh`
+
+#### Scenario: Fenced JSON is accepted
+- **GIVEN** the model body is "```json\n{\"answer\": \"…\", \"finding\": \"definicion\", \"citations\": []}\n```"
+- **WHEN** the body is parsed
+- **THEN** the answer object is read and the turn is not silencio for a parse reason
+
+#### Scenario: Prose then JSON is accepted
+- **GIVEN** the model body is "Aquí va la respuesta: {\"answer\": \"…\", \"finding\": \"silencio\", \"citations\": []}"
+- **WHEN** the body is parsed
+- **THEN** the last balanced object is used as the draft
+
+#### Scenario: Unreadable body retries once without thinking
+- **GIVEN** the first model body is "no puedo" and the second call returns a valid object
+- **WHEN** the turn is processed
+- **THEN** the second call is made with thinking disabled
+- **AND** the turn uses the second draft
+- **AND** the generate step detail notes the retry
+
+#### Scenario: Unreadable body twice is llm_bad_json
+- **GIVEN** both model bodies are unreadable
+- **WHEN** the turn is processed
+- **THEN** finding is `silencio`
+- **AND** `abstain_reason` is `llm_bad_json`
+- **AND** the answer says the model reply could not be read
 
 #### Scenario: Empty retrieval still does not call the model
 - **GIVEN** retrieval returns no usable hits
@@ -293,3 +339,83 @@ When retrieval is a named Comunicación fetch and that dump id is in this turn�
 - **WHEN** the user asks an in-corpus question that does not name a single Comunicación
 - **THEN** finding is silencio
 - **AND** abstain reason is `cite-or-abstain`
+
+### Requirement: End-user layout does not pay for thinking
+A turn started from the end-user layout SHALL call the language model with thinking disabled unless `LLM_THINKING_USER_LAYOUT` is true; a turn from the staff layout SHALL use the `LLM_ENABLE_THINKING` setting. HTTP chat SHALL use the setting.
+
+#### Scenario: Usuario turn disables thinking
+- **GIVEN** an authenticated session in the end-user layout with default settings
+- **WHEN** the user sends a question
+- **THEN** the language-model call is made with thinking disabled
+
+#### Scenario: Staff turn keeps the setting
+- **GIVEN** an authenticated session in the staff layout with `LLM_ENABLE_THINKING=true`
+- **WHEN** the user sends a question
+- **THEN** the language-model call is made with thinking enabled
+
+### Requirement: Spanish instructions with finding definitions
+The language-model instructions SHALL be written in Spanish. The system prompt SHALL define each finding label in one sentence (obligacion, prohibicion, permiso, definicion, procedimiento, silencio), SHALL state the citation rules (dump document ids only, verbatim snippet, `Fuente:` line, Spanish quotes), and SHALL include one example JSON object with a citation and one without evidence. The per-turn prompt SHALL keep the retrieved documents inside a random delimiter with a data-only framing and SHALL present each chunk as `[chunk_id=<doc_id> punto=<punto>] <text>`.
+
+#### Scenario: System prompt defines findings
+- **GIVEN** the language-model adapter
+- **WHEN** a call is made
+- **THEN** the system message contains "obligacion (" and "silencio (" definitions
+- **AND** it contains a `Fuente:` instruction and both JSON examples
+
+#### Scenario: Per-turn prompt keeps the chunk line format
+- **GIVEN** a retrieved chunk of `texto_ordenado` punto 3.8.5
+- **WHEN** the per-turn prompt is built
+- **THEN** it contains a line starting with `[chunk_id=texto_ordenado punto=3.8.5] `
+- **AND** the documents are wrapped by the turn's random delimiter
+
+### Requirement: Blocked answers use human copy
+When a guardrail blocks a turn, the visible answer SHALL be a Spanish sentence starting with "No puedo responder" that explains the reason in user terms and MUST NOT print the internal rule id for rules with defined copy (length, secrets, no-advice, injection, scope, no-advice-output, secrets-output, prompt-leak, chunk-injection). The guardrail log keeps the rule id.
+
+#### Scenario: Weather block copy
+- **GIVEN** the user asks about the weather in Madrid
+- **WHEN** the request is processed
+- **THEN** the answer is "No puedo responder: la pregunta no es sobre la normativa cambiaria CAMEX del BCRA." followed by the freeze sentence
+- **AND** the guardrail log names `scope` as `block`
+
+#### Scenario: Injection block copy
+- **GIVEN** the user submits a jailbreak
+- **WHEN** the request is processed
+- **THEN** the answer starts with "No puedo responder: la pregunta intenta cambiar mis instrucciones."
+
+### Requirement: Citations carry dump metadata
+After citations are validated, the system SHALL fill each citation's `fecha` and `url` from the dump manifest entry of that document (the texto ordenado URL for `texto_ordenado`) when the model did not provide them, and SHALL fill `punto` from the cited chunk's metadata when the model omitted it. The language model is not asked to produce `fecha` or `url`.
+
+#### Scenario: Comunicación citation gets date and link
+- **GIVEN** the manifest entry for `A8464` has `fecha` 2026-08-06 and a `bcra.gob.ar` URL
+- **AND** the model cites `A8464` with a valid snippet and no `fecha`
+- **WHEN** the response is finalized
+- **THEN** the citation `fecha` is 2026-08-06
+- **AND** the citation `url` is that manifest URL
+
+#### Scenario: Texto ordenado citation gets its URL and punto
+- **GIVEN** the model cites `texto_ordenado` with a valid snippet and no punto
+- **AND** the anchoring chunk has punto 3.8.5
+- **WHEN** the response is finalized
+- **THEN** the citation `url` is the texto ordenado PDF URL
+- **AND** the citation `punto` is 3.8.5
+
+### Requirement: Context chunk cap is configured
+The number of characters of each retrieved chunk placed in the prompt, and the size of a fetched named section, SHALL be bounded by `CONTEXT_CHUNK_CHARS` (default 3000, at least 500). The context-budget rail keeps its own total bound.
+
+#### Scenario: Default cap
+- **GIVEN** default settings and a 5000-character section
+- **WHEN** the prompt is built
+- **THEN** that section contributes at most 3000 characters
+
+### Requirement: Turn phases are reported
+While answering, the system SHALL report the phases `retrieve` (before routing and retrieval), `generate` (before the language-model call) and `verify` (before the output guardrails) through an optional callback supplied by the caller. A callback error MUST NOT fail the turn. Paths that skip a phase (blocked input, empty retrieval, index not ready) SHALL NOT report it.
+
+#### Scenario: Cited answer reports three phases
+- **GIVEN** a ready index and a language model that answers
+- **WHEN** an in-corpus question runs with a phase callback
+- **THEN** the callback receives `retrieve`, `generate`, `verify` in that order
+
+#### Scenario: Blocked input reports no phase
+- **GIVEN** an out-of-scope question
+- **WHEN** it runs with a phase callback
+- **THEN** the callback is not called
