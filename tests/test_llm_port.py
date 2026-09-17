@@ -329,8 +329,10 @@ async def test_adapter_complete_coerces_string_citations() -> None:
         "type": "json_object"
     }
     system = client.chat.completions.kwargs[0]["messages"][0]["content"]
-    assert "array of objects" in system
+    assert "lista de objetos" in system
     assert "Fuente:" in system
+    assert "obligacion (" in system and "silencio (" in system
+    assert system.count("Ejemplo") == 2
     assert llm.calls == ["pregunta"]
     assert "extra_body" not in client.chat.completions.kwargs[0]
     assert client.chat.completions.kwargs[0]["stream"] is True

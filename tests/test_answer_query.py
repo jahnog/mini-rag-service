@@ -10,6 +10,7 @@ from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.composition import default_pipeline
+from bcra_rag.domain.freeze import names_freeze
 from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.turn_eval import TurnScores
@@ -315,7 +316,7 @@ async def test_empty_hits_silencio_no_llm(tmp_path: Path) -> None:
     assert response.finding is Finding.SILENCIO
     assert response.abstain is True
     assert response.citations == []
-    assert LAST_REFRESH in response.answer
+    assert names_freeze(response.answer, LAST_REFRESH, TO_AS_OF)
     assert response.thinking is None
     assert llm.calls == []
 
@@ -1181,7 +1182,7 @@ async def test_llm_timeout_reason(tmp_path: Path) -> None:
     )
     assert response.abstain_reason == "llm_timeout"
     assert "tardó demasiado" in response.answer
-    assert LAST_REFRESH in response.answer
+    assert names_freeze(response.answer, LAST_REFRESH, TO_AS_OF)
 
 
 @pytest.mark.asyncio
@@ -1229,3 +1230,27 @@ async def test_thinking_flag_reaches_llm(tmp_path: Path) -> None:
         thinking=False,
     )
     assert llm.thinking_args == [False]
+
+
+@pytest.mark.asyncio
+async def test_answers_end_with_spanish_freeze_footer(tmp_path: Path) -> None:
+    settings, index, _ = seed_ready(tmp_path)
+    use_case = AnswerQuery(
+        settings,
+        index,
+        FakeLlm(IN_CORPUS_DRAFT),
+        InMemorySessionStore(),
+        default_pipeline(settings),
+    )
+    response = await use_case.run(
+        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
+        request_id="f",
+    )
+    assert "Según el dump del 2026-09-01 (texto ordenado al A8307)." in response.answer
+    assert "last_refresh=" not in response.answer
+    weather = await use_case.run(
+        ChatRequest(message="What's the weather in Madrid?"), request_id="w"
+    )
+    assert weather.answer.startswith("No puedo responder: la pregunta no es sobre")
+    assert "(scope)" not in weather.answer
+    assert any(g.rule == "scope" and g.verdict == "block" for g in weather.guardrails)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from bcra_rag.domain.freeze import freeze_footer, names_freeze
 from bcra_rag.domain.guardrails.types import RailContext, RailPatch, RailResult, Stage
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding
@@ -13,6 +14,8 @@ VIGENTE_CLAIM = re.compile(
 PROMPT_FINGERPRINTS = (
     "Respond only with JSON keys answer, finding, citations.",
     "id is a dump document id (A8359 or texto_ordenado), never a chunk id.",
+    "Respondé solo con un objeto JSON con las claves answer, finding y citations.",
+    "id es el id de documento del dump (A8359 o texto_ordenado), nunca un id de chunk.",
 )
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 TOOL_SHAPE = re.compile(
@@ -84,11 +87,7 @@ class FreezeHonestyRail:
         self.enforce = enforce
 
     def run(self, ctx: RailContext) -> RailResult:
-        refresh = ctx.last_refresh or "desconocido"
-        as_of = ctx.to_as_of or "desconocido"
-        has_refresh = refresh in ctx.answer
-        has_as_of = as_of in ctx.answer
-        if has_refresh and has_as_of:
+        if names_freeze(ctx.answer, ctx.last_refresh, ctx.to_as_of):
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
@@ -97,7 +96,7 @@ class FreezeHonestyRail:
                 enforced=self.enforce,
             )
         if VIGENTE_CLAIM.search(ctx.answer):
-            rewritten = ctx.answer.rstrip() + f" (last_refresh={refresh}; to_as_of={as_of})"
+            rewritten = ctx.answer.rstrip() + " " + freeze_footer(ctx.last_refresh, ctx.to_as_of)
             return RailResult(
                 rule=self.id,
                 stage=self.stage,

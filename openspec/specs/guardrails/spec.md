@@ -52,13 +52,21 @@ A non-abstain answer MUST include at least one citation the language model produ
 - **AND** the draft is not shown
 
 ### Requirement: Freeze honesty
-The system SHALL NOT claim “normativa vigente hoy” without qualifying `last_refresh` and `to_as_of`. If the draft was unqualified, the system SHALL rewrite the visible answer so it names those dates, and the freeze-honesty verdict SHALL be `warn`. If the draft already named those dates, the verdict SHALL be `pass`. The same dates SHALL appear on the health document and the UI banner.
+The system SHALL NOT claim “normativa vigente hoy” without qualifying the dump freeze. A draft names the freeze when it contains `to_as_of` and either the full `last_refresh` value or its calendar date. If the draft was unqualified, the system SHALL append the Spanish freeze sentence "Según el dump del <fecha> (texto ordenado al <to_as_of>)." and the freeze-honesty verdict SHALL be `warn`. If the draft already named the freeze, the verdict SHALL be `pass`. The same dates SHALL appear on the health document and the UI banner.
 
 #### Scenario: Vigente wording is qualified
-- **GIVEN** last_refresh is 2026-09-01 and to_as_of is A 8307
-- **WHEN** the user asks what is vigente
-- **THEN** the answer names those dates
-- **AND** does not state unqualified “vigente hoy”
+- **GIVEN** last_refresh is 2026-09-01T00:00:00+00:00 and to_as_of is A8307
+- **AND** the draft says "Esta es la normativa vigente hoy."
+- **WHEN** the freeze-honesty rail runs
+- **THEN** the verdict is `warn`
+- **AND** the answer ends with "Según el dump del 2026-09-01 (texto ordenado al A8307)."
+
+#### Scenario: Date form already present passes
+- **GIVEN** last_refresh is 2026-09-01T00:00:00+00:00 and to_as_of is A8307
+- **AND** the draft says "Según el dump del 2026-09-01 (texto ordenado al A8307), los residentes deberán liquidar."
+- **WHEN** the freeze-honesty rail runs
+- **THEN** the verdict is `pass`
+- **AND** the answer is unchanged
 
 ### Requirement: Scope
 The system SHALL block questions outside BCRA CAMEX / Argentine FX regulation, including weather questions in English, Spanish, or German (`Wetter`). Scope SHALL be evaluated on the latest user utterance, not on prior-turn text composed for retrieval. An off-topic denylist hit on that utterance SHALL block even if the same utterance also contains a CAMEX keyword. Follow-ups that match the session prefix (`y`, `and`, `ese`, …) and are not on the off-topic denylist SHALL pass scope so retrieval can use the composed query. The token `punto` alone SHALL NOT make a standalone utterance in scope. Blocked turns SHALL name the scope rule in the guardrail log, SHALL use finding `silencio`, SHALL NOT retrieve, and SHALL NOT call the language model.
@@ -228,3 +236,16 @@ The system SHALL Unicode-normalize the latest user utterance (compatibility form
 - **WHEN** it is submitted
 - **THEN** the injection rule is `block`
 - **AND** the language model is not called
+
+### Requirement: Prompt leak fingerprints both prompt languages
+The prompt-leak rail SHALL block an answer containing the turn delimiter or any system-prompt fingerprint, and the fingerprint set SHALL include verbatim sentences from both the legacy English and the current Spanish system prompt.
+
+#### Scenario: Spanish fingerprint leaks
+- **GIVEN** the answer contains "Respondé solo con un objeto JSON con las claves answer, finding y citations."
+- **WHEN** the prompt-leak rail runs
+- **THEN** the verdict is `block` with detail "system prompt fingerprint"
+
+#### Scenario: English fingerprint still leaks
+- **GIVEN** the answer contains "Respond only with JSON keys answer, finding, citations."
+- **WHEN** the prompt-leak rail runs
+- **THEN** the verdict is `block`

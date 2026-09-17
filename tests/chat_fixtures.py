@@ -24,8 +24,7 @@ AUTH_EMAIL = "ops@example.com"
 IN_CORPUS_DRAFT = LlmDraft(
     answer=(
         "Los residentes deberán liquidar el cobro de exportaciones. "
-        "Fuente: texto_ordenado punto 3.8.5. "
-        f"last_refresh={LAST_REFRESH}; to_as_of={TO_AS_OF}."
+        "Fuente: texto_ordenado punto 3.8.5."
     ),
     finding=Finding.OBLIGACION,
     citations=[

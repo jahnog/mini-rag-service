@@ -718,8 +718,41 @@ def test_freeze_honesty_rewrites_vigente_hoy() -> None:
     )
     verdict = _run(FreezeHonestyRail(), ctx)
     assert verdict.verdict == "warn"
-    assert "2026-09-01T00:00:00+00:00" in ctx.answer
-    assert "A8307" in ctx.answer
+    assert ctx.answer.endswith("Según el dump del 2026-09-01 (texto ordenado al A8307).")
+
+
+def test_freeze_honesty_passes_with_date_footer() -> None:
+    ctx = _ctx(
+        "q",
+        answer=(
+            "Según el dump del 2026-09-01 (texto ordenado al A8307), "
+            "los residentes deberán liquidar."
+        ),
+        last_refresh="2026-09-01T00:00:00+00:00",
+        to_as_of="A8307",
+    )
+    before = ctx.answer
+    verdict = _run(FreezeHonestyRail(), ctx)
+    assert verdict.verdict == "pass"
+    assert ctx.answer == before
+
+
+def test_prompt_leak_spanish_fingerprint_blocks() -> None:
+    ctx = _ctx(
+        "q",
+        answer=(
+            "Respondé solo con un objeto JSON con las claves answer, finding y citations. "
+            "filtrado"
+        ),
+    )
+    assert _run(PromptLeakRail(), ctx).verdict == "block"
+
+
+def test_blocked_copy_known_and_unknown_rule() -> None:
+    from bcra_rag.domain.guardrails.copy import blocked_copy
+
+    assert blocked_copy("scope").startswith("No puedo responder: la pregunta no es sobre")
+    assert blocked_copy("zzz") == "No puedo responder (zzz)."
 
 
 def test_freeze_honesty_passes_when_dates_already_named() -> None:

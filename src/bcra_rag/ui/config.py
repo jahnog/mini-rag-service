@@ -8,6 +8,7 @@ import gradio as gr
 from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
+from bcra_rag.domain.freeze import dump_date as dump_date
 from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
 from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
 from bcra_rag.domain.l1_results import load_l1 as load_l1
@@ -66,14 +67,6 @@ AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
 AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
 AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu email."
-
-
-def dump_date(last_refresh: str | None) -> str:
-    if not last_refresh:
-        return "desconocido"
-    if len(last_refresh) >= 10 and last_refresh[4] == "-" and last_refresh[7] == "-":
-        return last_refresh[:10]
-    return last_refresh
 
 
 def freeze_chips_html(health: HealthResponse) -> str:
