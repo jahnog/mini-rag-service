@@ -37,6 +37,7 @@ LAYOUT_HELP = (
 )
 AUTH_KICKER = "Ingreso"
 CHAT_KICKER = "Consulta"
+EXAMPLES_KICKER = "Ejemplos"
 AUTH_EMAIL_LABEL = "Correo"
 AUTH_SEND = "Enviar código"
 AUTH_CODE_LABEL = "Código"

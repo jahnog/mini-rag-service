@@ -58,6 +58,7 @@ Feature: Live observatory layouts
     When the user looks at the observatory
     Then the observatory chat stage is on the left
     And the observatory inspector is on the right
+    And the observatory session card is on the right
 
   Scenario: Narrow layout stacks the inspector
     Given an authenticated observatory session with a prior turn

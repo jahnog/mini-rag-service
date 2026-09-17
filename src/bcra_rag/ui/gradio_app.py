@@ -31,9 +31,6 @@ from bcra_rag.ui.config import (
     AUTH_CODE_LABEL,
     AUTH_EMAIL_LABEL,
     AUTH_KICKER,
-    CHAT_KICKER,
-    CITATIONS_KICKER,
-    GUARDRAILS_KICKER,
     AUTH_LOGOUT,
     AUTH_SEND,
     AUTH_STATUS_FLASH_MS,
@@ -44,6 +41,10 @@ from bcra_rag.ui.config import (
     AUTH_STATUS_SMTP_PROBLEM,
     AUTH_VERIFY,
     CANNED_PROMPTS,
+    CHAT_KICKER,
+    CITATIONS_KICKER,
+    EXAMPLES_KICKER,
+    GUARDRAILS_KICKER,
     L1_ACCORDION_OPEN_DEFAULT,
     LAYOUT_HELP,
     LAYOUT_STAFF,
@@ -543,14 +544,29 @@ def build_blocks(
                         placeholder="La conversación aparece acá.",
                         group_consecutive_messages=False,
                     )
-                    msg = gr.Textbox(
-                        label="Pregunta",
-                        lines=1,
-                        max_lines=4,
-                        placeholder="Preguntá por una cláusula CAMEX…",
-                        elem_id="observatory-input",
-                    )
-                    with gr.Row(elem_id="observatory-actions"):
+                    # Examples sit above the composer; the composer is one
+                    # line (question, Enviar, Limpiar) and sticks to the
+                    # viewport bottom on desktop.
+                    gr.Markdown(EXAMPLES_KICKER, elem_id="examples-kicker")
+                    with gr.Row(elem_id="observatory-pills"):
+                        pills = [
+                            gr.Button(
+                                prompt,
+                                size="sm",
+                                scale=0,
+                                elem_classes=["observatory-pill"],
+                            )
+                            for prompt in CANNED_PROMPTS
+                        ]
+                    with gr.Row(elem_id="observatory-composer"):
+                        msg = gr.Textbox(
+                            label="Pregunta",
+                            lines=1,
+                            max_lines=4,
+                            placeholder="Preguntá por una cláusula CAMEX…",
+                            scale=1,
+                            elem_id="observatory-input",
+                        )
                         send = gr.Button(
                             "Enviar",
                             variant="primary",
@@ -560,23 +576,16 @@ def build_blocks(
                         clear = gr.Button(
                             AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
                         )
+                    for pill, prompt in zip(pills, CANNED_PROMPTS, strict=True):
+                        pill.click(  # type: ignore[attr-defined]
+                            lambda value=prompt: value,
+                            outputs=[msg],
+                        )
                     demo_box = gr.Textbox(
                         label="Clave demo",
                         type="password",
                         visible=bool(settings.demo_api_key),
                     )
-                    with gr.Row(elem_id="observatory-pills"):
-                        for prompt in CANNED_PROMPTS:
-                            pill = gr.Button(
-                                prompt,
-                                size="sm",
-                                scale=0,
-                                elem_classes=["observatory-pill"],
-                            )
-                            pill.click(  # type: ignore[attr-defined]
-                                lambda value=prompt: value,
-                                outputs=[msg],
-                            )
                 side = gr.Column(
                     scale=2, min_width=320, elem_id="observatory-side", visible=False
                 )

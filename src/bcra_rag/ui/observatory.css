@@ -2,7 +2,9 @@
    The page chrome (topbar, footer) is static family markup; this file makes
    Gradio's blocks read as the template's panels, inputs, buttons and chips.
    The page scrolls normally: no fixed frame, no nested scroll boxes on a
-   phone. Every size comes from the --wl-space-* / --wl-text-* scales. */
+   phone. From 64rem the shell is a two-column grid: the chat stage on the
+   left, a rail on the right with the session card over the sticky
+   inspector. Every size comes from the --wl-space-* / --wl-text-* scales. */
 
 :root {
   color-scheme: dark;
@@ -33,8 +35,12 @@ gradio-app {
   max-width: var(--wl-max) !important;
   width: 100% !important;
   margin: 0 auto !important;
-  padding: var(--wl-space-4) !important;
+  /* Gradio prefixes custom rules with .contain, so a media query cannot
+     reach this element: the gutter grows from space-4 to space-6 by clamp. */
+  padding: clamp(var(--wl-space-4), 4vw, var(--wl-space-6)) !important;
   background: transparent !important;
+  /* Gradio clips the container; sticky rail and composer need it open. */
+  overflow: visible !important;
   color-scheme: dark;
   color: var(--wl-text);
   font-family: var(--wl-font);
@@ -50,11 +56,12 @@ gradio-app {
 #observatory-shell {
   max-width: none !important;
   width: 100% !important;
+  padding: 0 !important;
   overflow: visible !important;
 }
 
-.gradio-container footer,
-footer.svelte-1ax1toq,
+/* Gradio's own footer and status tracker, not the family .wl-footer. */
+.gradio-container footer:not(.wl-footer),
 .built-with,
 [data-testid="status-tracker"] {
   display: none !important;
@@ -68,6 +75,7 @@ footer.svelte-1ax1toq,
 #observatory-footer-host > *,
 #auth-kicker,
 #chat-kicker,
+#examples-kicker,
 #citations-kicker,
 #guardrails-kicker,
 #auth-status,
@@ -95,6 +103,7 @@ footer.svelte-1ax1toq,
 
 #auth-kicker p,
 #chat-kicker p,
+#examples-kicker p,
 #citations-kicker p,
 #guardrails-kicker p {
   margin: 0;
@@ -168,6 +177,10 @@ footer.svelte-1ax1toq,
 
 @media (max-width: 39.99rem) {
   #auth-login-fields > *:has(#auth-email) {
+    flex-basis: 100% !important;
+  }
+
+  #observatory-composer > *:has(#observatory-input) {
     flex-basis: 100% !important;
   }
 }
@@ -311,15 +324,28 @@ footer.svelte-1ax1toq,
   background: transparent !important;
 }
 
-#observatory-actions {
+/* Composer: the question, Enviar and Limpiar on one line. Gradio wraps
+   the textbox in a .form; that wrapper is the flex item that grows. */
+#observatory-composer {
+  align-items: end !important;
   gap: var(--wl-space-2) !important;
-  justify-content: flex-start !important;
   flex-wrap: wrap !important;
 }
 
-#observatory-actions button {
+#observatory-composer > *:has(#observatory-input),
+#observatory-input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+#observatory-composer > *:has(#observatory-input) {
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+#observatory-composer button {
+  flex: 0 0 auto !important;
   min-width: 0;
-  flex: 0 1 auto;
 }
 
 /* Example prompts: chips, wrapping, phone-sized. */
@@ -500,6 +526,35 @@ footer.svelte-1ax1toq,
   border-bottom: 1px solid var(--wl-border) !important;
 }
 
+/* The HTML block pads its content; the panels align on the kickers. */
+#trust-panel .html-container {
+  padding: 0 !important;
+}
+
+/* Calidad L1 accordion: a flat section, its label styled as a kicker. */
+#observatory-side .gr-accordion,
+#observatory-side .gr-accordion > .label-wrap {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+#observatory-side .gr-accordion > .label-wrap {
+  min-height: 2.5rem;
+  gap: var(--wl-space-2);
+  font-size: var(--wl-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--wl-muted);
+}
+
+#observatory-side .gr-accordion > .label-wrap .icon {
+  color: var(--wl-muted);
+}
+
 .obs-empty,
 .obs-trust-detail {
   color: var(--wl-muted);
@@ -569,12 +624,12 @@ footer.svelte-1ax1toq,
 /* ---------- Breakpoints (mobile first) ---------- */
 
 @media (min-width: 40rem) {
-  .gradio-container {
-    padding: var(--wl-space-6) !important;
+  #observatory-composer {
+    flex-wrap: nowrap !important;
   }
 }
 
-@media (max-width: 69.99rem) {
+@media (max-width: 63.99rem) {
   #observatory-layout {
     flex-wrap: wrap !important;
   }
@@ -586,10 +641,80 @@ footer.svelte-1ax1toq,
   }
 }
 
-@media (min-width: 70rem) {
+/* Desktop: the shell becomes the grid and the Gradio row dissolves into it
+   (display: contents), so the stage, the session card and the inspector
+   are placed by area without moving any block in the DOM. */
+@media (min-width: 64rem) {
+  #observatory-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 24rem;
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-areas:
+      "topbar topbar"
+      "stage auth"
+      "stage side"
+      "footer footer";
+    align-items: start;
+  }
+
+  #observatory-layout {
+    display: contents;
+  }
+
+  #observatory-topbar {
+    grid-area: topbar;
+  }
+
+  #auth-login {
+    grid-area: auth;
+  }
+
+  #observatory-stage {
+    grid-area: stage;
+  }
+
   #observatory-side {
+    grid-area: side;
     position: sticky;
     top: var(--wl-space-4);
+  }
+
+  #observatory-footer-host {
+    grid-area: footer;
+  }
+
+  /* Session card in the rail: one field or button per line. */
+  #auth-login-fields > * {
+    flex-basis: 100% !important;
+  }
+
+  #auth-send,
+  #auth-verify {
+    width: 100%;
+  }
+
+  #layout-toggle > *:has(#layout-toggle-help),
+  #layout-toggle-help {
+    flex-basis: 100% !important;
+  }
+
+  #observatory-chat {
+    min-height: 24rem !important;
+  }
+
+  /* The composer stays in view while a long chat scrolls; the page itself
+     is still the only scroller. */
+  #observatory-composer {
+    position: sticky;
+    bottom: 0;
+    background: var(--wl-surface);
+    padding-block: var(--wl-space-2) !important;
+  }
+}
+
+@media (min-width: 90rem) {
+  #observatory-shell {
+    grid-template-columns: minmax(0, 1fr) 28rem;
   }
 }
 

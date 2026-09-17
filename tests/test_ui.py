@@ -186,8 +186,21 @@ def test_observatory_css_tokens() -> None:
     assert ".bot-row" in css
     assert "focus-visible" in css
     assert "@media (min-width: 40rem)" in css
-    assert "@media (min-width: 70rem)" in css
+    assert "@media (max-width: 63.99rem)" in css
+    assert "@media (min-width: 64rem)" in css
+    assert "@media (min-width: 90rem)" in css
     assert "1120px" not in css
+    assert "1024px" not in css
+    # Desktop: the shell is the grid, the Gradio row dissolves into it, the
+    # inspector sticks in the rail and the composer sticks to the bottom.
+    assert "display: contents" in css
+    assert "grid-template-areas" in css
+    assert '"stage side"' in css
+    assert "position: sticky" in css
+    assert "#observatory-composer" in css
+    assert "#examples-kicker" in css
+    assert "#observatory-actions" not in css
+    assert "#observatory-side .gr-accordion" in css
     assert "svelte-" not in css.split(".thought-group")[1][:400]
 
 
@@ -912,6 +925,8 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
         "auth-login",
         "observatory-freeze",
         "observatory-pills",
+        "examples-kicker",
+        "observatory-composer",
         "observatory-chat",
         "observatory-input",
         "observatory-send",
