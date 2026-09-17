@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 import respx
 
 from bcra_rag.auth.mail_copy import OTP_SUBJECT, otp_body
+from tests.features.live import http_client as live_http
 from tests.features.live.http_client import (
     LiveHttpError,
     ProcessLimiterError,
@@ -22,6 +25,11 @@ from tests.features.live.mailbox import FakeMailbox, OtpMail
 
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)
 BASE = "http://127.0.0.1:8000"
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
 
 
 @pytest.fixture
@@ -120,3 +128,35 @@ def test_unauthenticated_clear_always_sends_session_id(matching_origin: None) ->
     assert response.status_code == 401
     payload = json.loads(route.calls[0].request.content)
     assert payload["session_id"]
+
+
+def test_load_live_dotenv_is_noop_when_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("LIVE_DOTENV_PROBE=from-file\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LIVE_DOTENV_PROBE", raising=False)
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
+    live_http.load_live_dotenv()
+    assert "LIVE_DOTENV_PROBE" not in os.environ
+
+
+def test_load_live_dotenv_loads_without_overriding_when_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "LIVE_DOTENV_PROBE=from-file\nLIVE_DOTENV_KEEP=from-file\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LIVE_DOTENV_PROBE", raising=False)
+    monkeypatch.setenv("LIVE_DOTENV_KEEP", "from-shell")
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
+    live_http.enable_live_dotenv()
+    try:
+        live_http.load_live_dotenv()
+    finally:
+        live_http._DOTENV_ENABLED = False
+    assert os.environ["LIVE_DOTENV_PROBE"] == "from-file"
+    assert os.environ["LIVE_DOTENV_KEEP"] == "from-shell"

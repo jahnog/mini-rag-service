@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
-import re
 from fastapi import HTTPException
 
 from bcra_rag.api.rate_limit import RateLimiter
@@ -369,6 +369,18 @@ def test_rewrite_middleware_rewrites_card_html() -> None:
     assert "GradioModel" in page.text
     pinged = client.get("/ping")
     assert pinged.text == "ok"
+
+
+def test_forced_includes_exist() -> None:
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    includes = data["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    missing = [src for src in includes if not (root / src).is_file()]
+    assert missing == []
+    assert "src/bcra_rag/ui/favicon.ico" in includes
+    assert "src/bcra_rag/ui/apple-touch-icon.png" in includes
 
 
 def test_page_images_are_served(tmp_path: Path) -> None:

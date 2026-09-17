@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from bcra_rag.auth.mail_copy import OTP_SUBJECT, otp_body
+from tests.features.live import http_client as live_http
 from tests.features.live.http_client import ProcessLimiterError
 from tests.features.live.mailbox import FakeMailbox, MailboxTimeout, OtpMail
 from tests.prod.http_client import (
@@ -46,6 +47,11 @@ PROXY_502 = (
     "<html><head><title>502 Proxy Error</title></head><body>"
     "<h1>Proxy Error</h1></body></html>\n"
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
 
 
 @pytest.fixture

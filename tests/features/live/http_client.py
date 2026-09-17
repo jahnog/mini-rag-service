@@ -42,7 +42,18 @@ class LiveAuthResult:
     sent_new: bool
 
 
+_DOTENV_ENABLED = False
+
+
+def enable_live_dotenv() -> None:
+    """Allow load_live_dotenv() to read the repository .env (live/prod runs only)."""
+    global _DOTENV_ENABLED
+    _DOTENV_ENABLED = True
+
+
 def load_live_dotenv(path: Path | None = None) -> None:
+    if path is None and not _DOTENV_ENABLED:
+        return
     env_path = path or Path(".env")
     if not env_path.is_file():
         return
