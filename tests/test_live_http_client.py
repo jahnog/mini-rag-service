@@ -160,3 +160,20 @@ def test_load_live_dotenv_loads_without_overriding_when_enabled(
         live_http._DOTENV_ENABLED = False
     assert os.environ["LIVE_DOTENV_PROBE"] == "from-file"
     assert os.environ["LIVE_DOTENV_KEEP"] == "from-shell"
+
+
+def test_load_live_dotenv_expands_shell_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("LIVE_DOTENV_REF=${LIVE_DOTENV_SOURCE}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LIVE_DOTENV_REF", raising=False)
+    monkeypatch.setenv("LIVE_DOTENV_SOURCE", "resolved")
+    monkeypatch.setattr(live_http, "_DOTENV_ENABLED", False)
+    live_http.enable_live_dotenv()
+    try:
+        live_http.load_live_dotenv()
+    finally:
+        live_http._DOTENV_ENABLED = False
+    assert os.environ["LIVE_DOTENV_REF"] == "resolved"
