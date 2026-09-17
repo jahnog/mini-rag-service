@@ -476,9 +476,11 @@ def test_html_mail_escapes_and_has_observatory_look() -> None:
     assert "lang=\"es\"" in html
     assert "Iniciar sesión" in html
     assert 'rel="noopener noreferrer"' in html
-    assert "#04111d" in html
-    assert "#72d6cb" in html
-    assert "#03101c" in html
+    assert "#050821" in html
+    assert "#f4b223" in html
+    assert "#121548" in html
+    assert "#04111d" not in html
+    assert "#72d6cb" not in html
     assert "<img" not in html.lower()
     assert OPS not in html
     assert "a&amp;b" in html

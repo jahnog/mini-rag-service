@@ -11,12 +11,24 @@ from gradio.themes import Base, GoogleFont
 
 WEBLAB_CSS_PATH = Path(__file__).with_name("weblab.css")
 CSS_PATH = Path(__file__).with_name("observatory.css")
-FAVICON_PATH = Path(__file__).with_name("favicon.png")
+FAVICON_PATH = Path(__file__).with_name("favicon.ico")
+FAVICON_SVG_PATH = Path(__file__).with_name("favicon.svg")
+APPLE_ICON_PATH = Path(__file__).with_name("apple-touch-icon.png")
 OG_IMAGE_PATH = Path(__file__).with_name("og.png")
-PAGE_TITLE = "BCRA CAMEX"
-PAGE_DESCRIPTION = "Extracto no oficial CAMEX"
+PAGE_TITLE = "BCRA Mini-RAG"
+PAGE_KICKER = "RAG con citas"
+PAGE_SUBTITLE = "Extracto no oficial de la normativa cambiaria (CAMEX) del BCRA."
+PAGE_DESCRIPTION = (
+    "Preguntá qué dice una Comunicación A del BCRA y recibí la cláusula citada, "
+    "o un silencio honesto. Extracto no oficial de la normativa CAMEX."
+)
+PORTFOLIO_URL = "https://jahnog.github.io/"
+SOURCE_URL = "https://github.com/jahnog/mini-rag-service"
+WRITEUP_URL = "https://jahnog.github.io/BCRA-Mini-RAG/"
 THEME_COLOR = "#050821"
 FAVICON_HREF = "/favicon.ico"
+FAVICON_SVG_HREF = "/favicon.svg"
+APPLE_ICON_HREF = "/apple-touch-icon.png"
 OG_IMAGE_HREF = "/og.png"
 GRADIO_HEADER_IMAGE = (
     "https://raw.githubusercontent.com/gradio-app/gradio/main/"
@@ -28,6 +40,13 @@ _GRADIO_HREF_RE = re.compile(
     r"""href=(["'])https://gradio\.app/?\1""",
     re.IGNORECASE,
 )
+_HTML_TAG_RE = re.compile(r"<html\b([^>]*)>", re.IGNORECASE)
+_LANG_ATTR_RE = re.compile(r"""\slang=(["'])[^"']*\1""", re.IGNORECASE)
+_CLASS_ATTR_RE = re.compile(r"""\sclass=(["'])([^"']*)\1""", re.IGNORECASE)
+_VIEWPORT_RE = re.compile(
+    r"""<meta\s+name=(["'])viewport\1\s+content=(["'])[^"']*\2\s*/?>""", re.IGNORECASE
+)
+VIEWPORT_CONTENT = "width=device-width, initial-scale=1, viewport-fit=cover"
 _DROP_CARD_KEYS = frozenset({"twitter:creator"})
 _SET_CARD_KEYS = frozenset(
     {
@@ -71,6 +90,14 @@ def observatory_favicon_path() -> Path:
     return FAVICON_PATH
 
 
+def observatory_favicon_svg_path() -> Path:
+    return FAVICON_SVG_PATH
+
+
+def observatory_apple_icon_path() -> Path:
+    return APPLE_ICON_PATH
+
+
 def observatory_og_image_path() -> Path:
     return OG_IMAGE_PATH
 
@@ -87,6 +114,19 @@ def card_page_url(origin: str = "") -> str:
     if origin.startswith(("http://", "https://")):
         return f"{origin}/"
     return "/"
+
+
+def _family_html_tag(match: re.Match[str]) -> str:
+    """Force lang="es" and class="wl-page" on the root element, once."""
+    attrs = _LANG_ATTR_RE.sub("", match.group(1))
+    class_match = _CLASS_ATTR_RE.search(attrs)
+    if class_match is None:
+        attrs += ' class="wl-page"'
+    elif "wl-page" not in class_match.group(2).split():
+        attrs = _CLASS_ATTR_RE.sub(
+            lambda m: f' class={m.group(1)}{m.group(2)} wl-page{m.group(1)}', attrs, count=1
+        )
+    return f'<html lang="es"{attrs}>'
 
 
 def rewrite_gradio_html(html: str, *, origin: str = "") -> str:
@@ -117,6 +157,12 @@ def rewrite_gradio_html(html: str, *, origin: str = "") -> str:
 
     rewritten = _META_RE.sub(replace_meta, html)
     rewritten = rewritten.replace(GRADIO_HEADER_IMAGE, image)
+    # The page is Spanish and must say so before any script runs; Gradio
+    # ships lang="en" and a viewport without viewport-fit.
+    rewritten = _HTML_TAG_RE.sub(_family_html_tag, rewritten, count=1)
+    rewritten = _VIEWPORT_RE.sub(
+        f'<meta name="viewport" content="{VIEWPORT_CONTENT}" />', rewritten, count=1
+    )
     return _GRADIO_HREF_RE.sub('href="/"', rewritten)
 
 
@@ -177,11 +223,15 @@ def matomo_snippet(url: str = "", site_id: str = "") -> str:
 
 
 def observatory_head(*, matomo_url: str = "", matomo_site_id: str = "") -> str:
+    description = html_lib.escape(PAGE_DESCRIPTION, quote=True)
     return (
         f"<title>{PAGE_TITLE}</title>"
+        f'<meta name="description" content="{description}">'
         f'<meta name="theme-color" content="{THEME_COLOR}">'
-        f'<link rel="icon" href="{FAVICON_HREF}">'
-        f'<link rel="apple-touch-icon" href="{FAVICON_HREF}">'
+        f'<link rel="icon" href="{FAVICON_HREF}" sizes="48x48">'
+        f'<link rel="icon" href="{FAVICON_SVG_HREF}" type="image/svg+xml">'
+        f'<link rel="apple-touch-icon" href="{APPLE_ICON_HREF}">'
+        f'<meta property="og:type" content="website">'
         f'<meta property="og:title" content="{PAGE_TITLE}">'
         f'<meta property="og:description" content="{PAGE_DESCRIPTION}">'
         f'<meta property="og:image" content="{OG_IMAGE_HREF}">'
@@ -189,8 +239,40 @@ def observatory_head(*, matomo_url: str = "", matomo_site_id: str = "") -> str:
         f'<meta name="twitter:title" content="{PAGE_TITLE}">'
         f'<meta name="twitter:description" content="{PAGE_DESCRIPTION}">'
         f'<meta name="twitter:image" content="{OG_IMAGE_HREF}">'
+        '<meta name="twitter:card" content="summary_large_image">'
         '<script>document.documentElement.lang="es";</script>'
         + matomo_snippet(matomo_url, matomo_site_id)
+    )
+
+
+def topbar_html() -> str:
+    """Family topbar: category kicker, the product name as the page h1, one
+    line of subtitle, and the Portfolio · Source · Write-up nav."""
+    return (
+        '<header class="wl-topbar" id="observatory-brand">'
+        '<div class="wl-brand">'
+        f'<p class="wl-kicker">{html_lib.escape(PAGE_KICKER)}</p>'
+        f'<h1 class="wl-title">{html_lib.escape(PAGE_TITLE)}</h1>'
+        f'<p class="wl-subtitle">{html_lib.escape(PAGE_SUBTITLE)}</p>'
+        "</div>"
+        '<nav class="wl-nav" aria-label="Sitio">'
+        f'<a href="{PORTFOLIO_URL}">Portfolio</a>'
+        f'<a href="{SOURCE_URL}">Código</a>'
+        f'<a href="{WRITEUP_URL}">Write-up</a>'
+        "</nav>"
+        "</header>"
+    )
+
+
+def footer_html(disclaimer: str) -> str:
+    """Family footer: the portfolio line, then the site's own disclaimer."""
+    return (
+        '<footer class="wl-footer" id="observatory-footer">'
+        "<p>Parte del portfolio en "
+        f'<a href="{PORTFOLIO_URL}">jahnog.github.io</a> · '
+        f'<a href="{SOURCE_URL}">Código</a></p>'
+        f"<p>{html_lib.escape(disclaimer)}</p>"
+        "</footer>"
     )
 
 
@@ -199,7 +281,7 @@ def observatory_js() -> str:
 () => {{
   document.title = {PAGE_TITLE!r};
   document.documentElement.lang = "es";
-  document.documentElement.classList.add("dark");
+  document.documentElement.classList.add("dark", "wl-page");
   document.body.classList.add("dark");
 }}
 """
@@ -235,8 +317,8 @@ def observatory_theme() -> Base:
         border_color_accent=ACCENT,
         border_color_accent_dark=ACCENT,
         color_accent=ACCENT,
-        link_text_color=ACCENT_STRONG,
-        link_text_color_dark=ACCENT_STRONG,
+        link_text_color=TEXT_SUBDUED,
+        link_text_color_dark=TEXT_SUBDUED,
         accordion_text_color=TEXT,
         accordion_text_color_dark=TEXT,
         input_background_fill=INPUT_BG,

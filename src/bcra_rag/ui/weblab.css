@@ -1,4 +1,4 @@
-/*! weblab 0.2.0 */
+/*! weblab 0.3.0 */
 
 /* Mobile first. Narrow is the default; breakpoints only add layout.
    Everything is class-scoped so host widgets are never restyled by accident. */
@@ -338,6 +338,28 @@
   line-height: 1.4;
 }
 
+/* A chip rendered as a <button> (filters, toggles) keeps the page font and
+   gets a real tap target. Badges and status chips keep their compact size. */
+button.wl-chip,
+button.wl-pill {
+  appearance: none;
+  font: inherit;
+  font-size: var(--wl-text-xs);
+  cursor: pointer;
+}
+
+.wl-chip-btn {
+  min-height: 2.5rem;
+  padding-inline: var(--wl-space-4);
+  font-size: var(--wl-text-sm);
+}
+
+.wl-chip[aria-pressed="true"],
+.wl-chip-btn[aria-pressed="true"] {
+  border-color: var(--wl-gold);
+  color: var(--wl-gold);
+}
+
 .wl-chip-pass {
   border-color: var(--wl-success);
   color: var(--wl-success);
@@ -404,6 +426,16 @@
 
 .wl-prose p {
   margin: 0 0 var(--wl-space-4);
+}
+
+/* Markdown sources sometimes emit h1 inside an article. Render it at the
+   h2 level so it never competes with the page title. */
+.wl-prose h1 {
+  margin: var(--wl-space-8) 0 var(--wl-space-3);
+  font-size: var(--wl-text-2xl);
+  font-weight: 600;
+  line-height: var(--wl-leading-tight);
+  letter-spacing: -0.02em;
 }
 
 .wl-prose h2 {
@@ -544,7 +576,9 @@
 
 .wl-btn:focus-visible,
 .wl-input:focus-visible,
-.wl-nav a:focus-visible {
+.wl-nav a:focus-visible,
+button.wl-chip:focus-visible,
+a.wl-chip:focus-visible {
   outline: 2px solid var(--wl-blue);
   outline-offset: 2px;
 }
@@ -595,6 +629,113 @@
   flex-direction: column;
   gap: var(--wl-space-6);
   padding: var(--wl-space-6) 0;
+}
+
+/* ---------- Hero ----------
+   Intro block: kicker, large title, one-line subtitle, actions. */
+
+.wl-hero {
+  display: grid;
+  gap: var(--wl-space-4);
+  max-width: var(--wl-measure);
+}
+
+.wl-hero > * {
+  margin: 0;
+}
+
+/* ---------- Stage ----------
+   Frame for a canvas or map. Children fill it; height comes from the
+   viewport so the stage is most of a phone screen and controls sit below. */
+
+.wl-stage {
+  position: relative;
+  min-height: clamp(20rem, 60vh, 44rem);
+  border-radius: var(--wl-radius);
+  overflow: hidden;
+  background: var(--wl-surface-strong);
+}
+
+.wl-stage > canvas,
+.wl-stage > .wl-stage-fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Stepper ----------
+   <ol class="wl-stepper"><li aria-current="step">…</li></ol>
+   Numbers come from the list; done steps get .wl-step-done. */
+
+.wl-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wl-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: wl-step;
+}
+
+.wl-stepper > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wl-space-2);
+  min-height: 2.5rem;
+  padding: var(--wl-space-1) var(--wl-space-3) var(--wl-space-1) var(--wl-space-1);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius-pill);
+  background: var(--wl-surface-strong);
+  color: var(--wl-muted);
+  font-size: var(--wl-text-sm);
+  counter-increment: wl-step;
+}
+
+.wl-stepper > li::before {
+  content: counter(wl-step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--wl-radius-pill);
+  border: 1px solid currentColor;
+  font-size: var(--wl-text-xs);
+  font-weight: 600;
+}
+
+.wl-stepper > li[aria-current="step"] {
+  border-color: var(--wl-gold);
+  color: var(--wl-text);
+}
+
+.wl-stepper > li[aria-current="step"]::before {
+  background: var(--wl-gold);
+  border-color: var(--wl-gold);
+  color: var(--wl-on-gold);
+}
+
+.wl-stepper > li.wl-step-done {
+  color: var(--wl-success);
+}
+
+.wl-stepper > li.wl-step-done::before {
+  content: "\2713";
+}
+
+/* ---------- Utilities ---------- */
+
+.wl-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---------- Lists ---------- */
@@ -652,5 +793,19 @@
 @media (min-width: 70rem) {
   .wl-layout {
     grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+}
+
+/* ---------- Motion ----------
+   The template has no animation; hosts that add some get the guard here. */
+
+@media (prefers-reduced-motion: reduce) {
+  .wl-page *,
+  .wl-page *::before,
+  .wl-page *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

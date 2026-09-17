@@ -30,6 +30,10 @@ from bcra_rag.ui.config import (
     AUTH_CLEAR,
     AUTH_CODE_LABEL,
     AUTH_EMAIL_LABEL,
+    AUTH_KICKER,
+    CHAT_KICKER,
+    CITATIONS_KICKER,
+    GUARDRAILS_KICKER,
     AUTH_LOGOUT,
     AUTH_SEND,
     AUTH_STATUS_FLASH_MS,
@@ -61,19 +65,23 @@ from bcra_rag.ui.config import (
     load_l1,
     thinking_for_staff,
     thought_publish_ready,
-    title_markdown,
     trust_markdown,
     trust_payload,
 )
 from bcra_rag.ui.theme import (
     PAGE_TITLE,
+    footer_html,
+    observatory_apple_icon_path,
     observatory_css_paths,
     observatory_favicon_path,
+    observatory_favicon_svg_path,
     observatory_head,
     observatory_js,
     observatory_og_image_path,
     observatory_theme,
     rewrite_gradio_html,
+    topbar_html,
+    weblab_css_path,
 )
 from bcra_rag.use_cases.answer_query import new_request_id
 
@@ -317,7 +325,7 @@ async def iter_observatory_turn(
     cards = citation_cards(outcome) if staff else []
     inspector = inspector_payload(outcome) if staff else {}
     trust = trust_payload(outcome) if staff else []
-    banner = "Silencio / abstain" if abstain_visible(outcome) else ""
+    banner = "Silencio: no hay una cláusula que responda esto." if abstain_visible(outcome) else ""
     copy_id = str(inspector.get("copy_id") or "")
     choices = [str(card["id"]) for card in cards]
     yield (
@@ -460,41 +468,46 @@ def build_blocks(
                 return card, _copy_update(copy_id), citation_card_markdown(card)
         return {}, _copy_update(""), citation_card_markdown(None)
 
-    with gr.Blocks(title=PAGE_TITLE, fill_height=True) as demo:
+    with gr.Blocks(title=PAGE_TITLE) as demo:
         session_state = gr.State(None)
         cards_state = gr.State([])
         with gr.Column(
             elem_id="observatory-shell",
             elem_classes=["layout-user"],
         ) as shell:
-            with gr.Column(scale=0, elem_id="observatory-topbar"):
-                gr.Markdown(title_markdown(health), elem_id="observatory-title")
-                with gr.Column(elem_id="auth-login"):
-                    with gr.Row(elem_id="auth-login-fields") as auth_fields:
-                        auth_email = gr.Textbox(
-                            label=AUTH_EMAIL_LABEL,
-                            show_label=False,
-                            placeholder=AUTH_EMAIL_LABEL,
-                            scale=2,
-                            elem_id="auth-email",
-                        )
-                        send_code = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
-                        auth_code = gr.Textbox(
-                            label=AUTH_CODE_LABEL,
-                            show_label=False,
-                            placeholder=AUTH_CODE_LABEL,
-                            scale=1,
-                            elem_id="auth-code",
-                        )
-                        verify_code = gr.Button(
-                            AUTH_VERIFY, scale=0, elem_id="auth-verify"
-                        )
-                    auth_status = gr.Markdown(
-                        AUTH_STATUS_GENERIC, elem_id="auth-status"
+            # Family chrome: static topbar, then the sign-in card, then the
+            # stage and side panels, then the family footer.
+            gr.HTML(
+                topbar_html(),
+                elem_id="observatory-topbar",
+                apply_default_css=False,
+                js_on_load="",
+            )
+            with gr.Column(elem_id="auth-login"):
+                gr.Markdown(AUTH_KICKER, elem_id="auth-kicker")
+                with gr.Row(elem_id="auth-login-fields") as auth_fields:
+                    auth_email = gr.Textbox(
+                        label=AUTH_EMAIL_LABEL,
+                        placeholder="nombre@dominio.com",
+                        scale=2,
+                        elem_id="auth-email",
                     )
-                    with gr.Row(elem_id="auth-session", visible=False) as auth_session:
-                        auth_who = gr.Markdown("", elem_id="auth-who")
-                        logout = gr.Button(AUTH_LOGOUT, scale=0, elem_id="auth-logout")
+                    send_code = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
+                    auth_code = gr.Textbox(
+                        label=AUTH_CODE_LABEL,
+                        placeholder="6 dígitos",
+                        scale=1,
+                        elem_id="auth-code",
+                    )
+                    verify_code = gr.Button(
+                        AUTH_VERIFY, scale=0, elem_id="auth-verify"
+                    )
+                auth_status = gr.Markdown(
+                    AUTH_STATUS_GENERIC, elem_id="auth-status"
+                )
+                with gr.Row(elem_id="auth-session", visible=False) as auth_session:
+                    auth_who = gr.Markdown("", elem_id="auth-who")
+                    logout = gr.Button(AUTH_LOGOUT, scale=0, elem_id="auth-logout")
                 with gr.Row(elem_id="layout-toggle"):
                     layout_choice = gr.Radio(
                         label="Vista",
@@ -518,11 +531,12 @@ def build_blocks(
                         elem_id="abstain-banner",
                         visible=False,
                     )
+                    gr.Markdown(CHAT_KICKER, elem_id="chat-kicker")
                     chatbot = gr.Chatbot(
                         label="Chat",
                         show_label=False,
                         elem_id="observatory-chat",
-                        height="100%",
+                        height="auto",
                         min_height=192,
                         buttons=[],
                         feedback_options=[],
@@ -531,7 +545,6 @@ def build_blocks(
                     )
                     msg = gr.Textbox(
                         label="Pregunta",
-                        show_label=False,
                         lines=1,
                         max_lines=4,
                         placeholder="Preguntá por una cláusula CAMEX…",
@@ -548,7 +561,7 @@ def build_blocks(
                             AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
                         )
                     demo_box = gr.Textbox(
-                        label="Demo key",
+                        label="Clave demo",
                         type="password",
                         visible=bool(settings.demo_api_key),
                     )
@@ -574,6 +587,7 @@ def build_blocks(
                         interactive=True,
                         visible=False,
                     )
+                    gr.Markdown(CITATIONS_KICKER, elem_id="citations-kicker")
                     card_md = gr.Markdown(
                         citation_card_markdown(None),
                         elem_id="citation-card",
@@ -584,6 +598,7 @@ def build_blocks(
                         buttons=["copy"],
                         visible=False,
                     )
+                    gr.Markdown(GUARDRAILS_KICKER, elem_id="guardrails-kicker")
                     trust_box = gr.HTML(
                         trust_markdown(None),
                         elem_id="trust-panel",
@@ -592,9 +607,14 @@ def build_blocks(
                     )
                     with gr.Accordion("Calidad L1", open=L1_ACCORDION_OPEN_DEFAULT):
                         gr.Markdown(l1_markdown(l1_data), elem_id="l1-panel")
-                    inspector = gr.JSON(label="Citation inspector", visible=False)
-                    trust = gr.JSON(label="Trust panel", visible=False)
-            gr.Markdown(footer_text(health.last_refresh), elem_id="observatory-footer")
+                    inspector = gr.JSON(label="Inspector de citas", visible=False)
+                    trust = gr.JSON(label="Panel de guardrails", visible=False)
+            gr.HTML(
+                footer_html(footer_text(health.last_refresh)),
+                elem_id="observatory-footer-host",
+                apply_default_css=False,
+                js_on_load="",
+            )
 
         outputs = [
             chatbot,
@@ -717,9 +737,25 @@ def mount_ui(
     def og_image() -> FileResponse:
         return FileResponse(observatory_og_image_path(), media_type="image/png")
 
+    def favicon_svg() -> FileResponse:
+        return FileResponse(observatory_favicon_svg_path(), media_type="image/svg+xml")
+
+    def apple_icon() -> FileResponse:
+        return FileResponse(observatory_apple_icon_path(), media_type="image/png")
+
+    def weblab_css() -> FileResponse:
+        return FileResponse(weblab_css_path(), media_type="text/css")
+
     matomo_url = settings.matomo_url if settings is not None else ""
     matomo_site_id = settings.matomo_site_id if settings is not None else ""
     api.add_api_route("/og.png", og_image, methods=["GET"], include_in_schema=False)
+    api.add_api_route(
+        "/favicon.svg", favicon_svg, methods=["GET"], include_in_schema=False
+    )
+    api.add_api_route(
+        "/apple-touch-icon.png", apple_icon, methods=["GET"], include_in_schema=False
+    )
+    api.add_api_route("/weblab.css", weblab_css, methods=["GET"], include_in_schema=False)
     api.add_middleware(_RewriteGradioHtml)
     mounted: Any = gr.mount_gradio_app(
         api,

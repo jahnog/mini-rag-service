@@ -16,9 +16,11 @@ from bcra_rag.auth.ip import client_ip
 from bcra_rag.auth.origin import cookie_secure, origin_matches
 from bcra_rag.auth.pages import confirm_page, fail_page
 
+# The link pages use the vendored template and Sora, nothing inline.
 _LINK_CSP = (
     "default-src 'none'; form-action 'self'; base-uri 'none'; "
-    "frame-ancestors 'none'; style-src 'unsafe-inline'"
+    "frame-ancestors 'none'; style-src 'self' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; img-src 'self'"
 )
 
 
