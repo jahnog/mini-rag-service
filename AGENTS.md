@@ -4,7 +4,12 @@ Minimal operating guide for coding agents in this repo.
 
 Human-facing How to run: `README.md`. Command catalog: `scripts/commands.toml` (TUI: `./run.sh`). Keep those three in sync when a command is added, changed, or removed.
 
-BCRA CAMEX only. Never Banxico. Five ports, no Redis, no Next.js in v1. Default tests are fakes; `src` coverage MUST be >= 80%. Do not spawn uvicorn from tests. Do not run `--run-live-server`, `--run-prod-smoke`, or a paid L1 eval in CI.
+Ground rules:
+
+- Corpus is BCRA CAMEX only; never add other regulators or hosts.
+- Keep the ports-and-adapters layout: the five ports under `src/bcra_rag/ports/` (catalog, extractor, index, LLM, session). No Redis and no second front end; the UI is the Gradio app in `src/bcra_rag/ui/`.
+- Default tests use fakes; `src` coverage MUST be >= 80%. Do not spawn uvicorn from tests.
+- Do not run `--run-live-server`, `--run-prod-smoke`, or a paid L1 eval in CI.
 
 ## Commands
 
@@ -42,8 +47,8 @@ BCRA CAMEX only. Never Banxico. Five ports, no Redis, no Next.js in v1. Default 
 
 Live server tests attach to an already-running process (`LIVE_BASE_URL`, default `http://127.0.0.1:8000`). They need IMAP (`LIVE_IMAP_*`), HTTP-local `AUTH_PUBLIC_ORIGIN` matching that origin, and Chromium for UI. HTTP-only: `-m live_http`.
 
-Production smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` sets `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. It needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP. It does not spawn uvicorn. Laptop `scripts/run-prod-smoke-cron.sh` is the daily 10:11 wrapper; it emails `PROD_SMOKE_NOTIFY_TO` or `LIVE_EMAIL` when the run finishes OK, fails, or times out.
+Production smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` sets `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`. It needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT` or `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process OTLP. It does not spawn uvicorn. `scripts/run-prod-smoke-cron.sh` is the operator-machine cron wrapper (`scripts/prod-smoke.crontab`, daily at 10:11 local time); it emails `PROD_SMOKE_NOTIFY_TO` or `LIVE_EMAIL` when the run finishes OK, fails, or times out.
 
 ## OpenSpec
 
-Planning artifacts live under `openspec/changes/<name>/`. Apply with `/openspec-apply-change`. Do not invent extra circular families or a second UI.
+Planning artifacts live under `openspec/changes/<name>/`; completed changes are under `openspec/changes/archive/`. Apply with `/openspec-apply-change`. Do not invent extra circular families or a second UI.
