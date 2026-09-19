@@ -759,3 +759,6 @@ deploy/local.env
 
 
 
+
+# local screenshots
+/obs3-*.png

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Laptop cron wrapper for production smoke. Emails PROD_SMOKE_NOTIFY_TO or
+# Operator-machine cron wrapper for production smoke. Emails PROD_SMOKE_NOTIFY_TO or
 # LIVE_EMAIL via AUTH_SMTP_* when the suite finishes (OK, FAILED, or TIMED OUT).
 # An overlapping skip that never started does not mail.
 set -euo pipefail
