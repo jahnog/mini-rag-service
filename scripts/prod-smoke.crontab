@@ -1,4 +1,4 @@
-# Laptop crontab (uses the machine local timezone). Do not crontab -r this file.
+# Operator-machine crontab (uses the machine's local timezone). Do not crontab -r this file.
 # MAILTO="" so cron itself does not mail the unix user; the wrapper emails
 # PROD_SMOKE_NOTIFY_TO or LIVE_EMAIL on success and on failure.
 #

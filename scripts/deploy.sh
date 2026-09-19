@@ -83,7 +83,7 @@ rsync -a --delete \
 
 # Seed dest evals/l1.json only when the host has none. The seed is the document
 # committed at evals/l1.json in HEAD (the last operator run on the published dump,
-# see README Evals) — never an uncommitted laptop run. An existing host document,
+# see README Evals) — never an uncommitted local run. An existing host document,
 # unpublished, sample or operator run, is never overwritten.
 if ! remote "test -f '$DEPLOY_DIR/evals/l1.json'"; then
   _seed_l1="$(mktemp)"
