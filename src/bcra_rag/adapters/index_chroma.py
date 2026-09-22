@@ -144,6 +144,12 @@ class ChromaIndex:
         k: int = 5,
         filters: Mapping[str, object] | None = None,
     ) -> list[Chunk]:
+        """Embedding search plus BM25, fused with RRF when retrieval_hybrid is on.
+
+        An embedding is a vector for the meaning of the text; closer vectors
+        are more similar. BM25 is the keyword ranking. The score floor, when
+        set, can drop every hit before that fusion.
+        """
         collection = self._get_collection()
         count = int(collection.count() or 0)
         if count <= 0:
@@ -229,6 +235,12 @@ class ChromaIndex:
     def _below_floor(
         self, collection: Any, dense: list[tuple[str, str, dict[str, Any], float]]
     ) -> bool:
+        """True when retrieval_min_score is set and the best cosine hit is under it.
+
+        The default floor is 0, which is off. Non-cosine collections ignore it.
+        A true result returns no hits before BM25 fusion; the turn abstains
+        with empty_hits.
+        """
         floor = self._settings.retrieval_min_score
         if floor <= 0 or not dense:
             return False

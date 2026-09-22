@@ -38,6 +38,8 @@ INJECTION = re.compile(
 
 
 class RegexBackend:
+    """Jailbreak check as a regex, not a model call. True means the text matches."""
+
     def score(self, text: str) -> tuple[bool, str]:
         if INJECTION.search(text):
             return True, "prompt injection"

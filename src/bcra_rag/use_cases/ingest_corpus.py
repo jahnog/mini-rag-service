@@ -47,6 +47,14 @@ class IngestCorpus:
         self._structured = StructuredChunker(max_chars=max_chars)
 
     async def run(self, mode: Mode) -> None:
+        """Download CAMEX PDFs, extract text, chunk, and upsert into the index.
+
+        The first full run takes the catalog. A later full run, once
+        last_refresh is set, only revisits ids already in the manifest.
+        refresh refuses to start unless a full run has completed, and it
+        replaces the texto ordenado. Comunicaciones are not replaced when the
+        stored file still matches.
+        """
         self._settings.dump_dir.mkdir(parents=True, exist_ok=True)
         self._settings.raw_dir.mkdir(parents=True, exist_ok=True)
         self._settings.extract_dir.mkdir(parents=True, exist_ok=True)
@@ -314,6 +322,7 @@ class IngestCorpus:
     def _chunk(
         self, doc_id: str, kind: str, text: str, metadata: dict[str, object]
     ) -> list[Chunk]:
+        """choose_chunker picks A or B. Each chunk gets an ordinal for document order."""
         which = choose_chunker(kind, text)
         chunker = self._structured if which == "B" else self._fixed
         chunks = chunker.chunk(doc_id, text, metadata)

@@ -29,6 +29,10 @@ def join_hyphenated_lines(text: str) -> str:
 
 
 def normalize_extract(text: str) -> str:
+    """Drop the repeated BCRA running header and join a word split by a hyphen.
+
+    This runs before chunking.
+    """
     cleaned = strip_running_headers(text)
     cleaned = join_hyphenated_lines(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -69,6 +73,10 @@ _COMM_RE = re.compile(r"\ba\s?(\d{2,5})\b")
 
 
 def tokenize(text: str) -> list[str]:
+    """Tokens for BM25. Drops Spanish stopwords and tokens shorter than two characters.
+
+    Accents are stripped. "A" plus a number also adds an a#### token.
+    """
     lowered = unicodedata.normalize("NFKD", text or "").lower()
     lowered = "".join(ch for ch in lowered if not unicodedata.combining(ch))
     tokens = [

@@ -48,6 +48,11 @@ def build_turn_evaluator(
     env: _JudgeEnv | None = None,
     client: Any | None = None,
 ) -> TurnEvaluator:
+    """Optional per-turn judge: faithfulness and answer relevancy, as in L1.
+
+    Off when chat_turn_evals is off or no judge key is set. Scores go to
+    traces, not the chat body.
+    """
     if not settings.chat_turn_evals:
         return NoOpTurnEvaluator()
     resolved = env or _JudgeEnv()

@@ -32,6 +32,12 @@ _PROMPTS = {
 
 
 class PhoenixJudge:
+    """Ask the judge model for a yes or no on one metric.
+
+    The call uses the OpenAI-compatible judge endpoint. Phoenix tracing is
+    suppressed so that call is not stored as its own span.
+    """
+
     def __init__(self, settings: EvalSettings, client: Any | None = None) -> None:
         from openai import OpenAI
 

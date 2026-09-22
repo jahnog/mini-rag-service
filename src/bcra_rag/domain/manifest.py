@@ -26,6 +26,14 @@ _CACHE: dict[Path, tuple[tuple[int, int], Manifest]] = {}
 
 @dataclass
 class Manifest:
+    """Inventory of this frozen dump. documents maps each ingested id to its checkpoint.
+
+    last_refresh is the clock time mark_complete writes at the end of a full
+    or refresh run, not a PDF date. to_as_of is the comunicación parsed from
+    the texto ordenado. A citation still has to be a hit from this turn; this
+    map is not that allow-list.
+    """
+
     path: Path
     last_refresh: str | None = None
     to_as_of: str | None = None

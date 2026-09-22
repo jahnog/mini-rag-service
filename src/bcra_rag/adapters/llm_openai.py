@@ -83,6 +83,11 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
 
 
 def parse_llm_draft(raw: str) -> LlmDraft:
+    """Turn the model text into an LlmDraft.
+
+    A missing or unknown finding becomes silencio. Unusable JSON raises
+    LlmBadJson.
+    """
     payload = _extract_json_object(raw)
     finding_raw = payload.get("finding")
     if finding_raw is None:
@@ -195,6 +200,10 @@ class LlmAdapter:
         on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
+        """Call the chat model. SYSTEM_PROMPT fixes the JSON shape and the six findings.
+
+        The prompt argument is only the user message built by _prompt.
+        """
         self.calls.append(prompt)
         client = self._client_or_create()
         enabled = self._settings.llm_enable_thinking if thinking is None else thinking

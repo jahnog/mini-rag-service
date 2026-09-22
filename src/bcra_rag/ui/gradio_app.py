@@ -1,3 +1,9 @@
+"""Browser UI for one CAMEX chat turn, the same answer path as POST /chat.
+
+Staff (IA) shows the side column: citations, the guardrail log, and Calidad L1.
+Usuario hides it. Calidad L1 is the eval file read while these blocks are built.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -122,6 +128,8 @@ _LOG = structlog.get_logger("bcra_rag.observatory")
 
 @dataclass(frozen=True)
 class InspectorPrior:
+    """Previous turn's citation card, guardrail rows, cards, and selected id."""
+
     inspector: dict[str, Any]
     trust: list[dict[str, str]]
     cards: list[dict[str, Any]]
@@ -276,6 +284,11 @@ async def iter_observatory_turn(
     staff: bool = True,
     prior: InspectorPrior | None = None,
 ) -> AsyncIterator[tuple[Any, ...]]:
+    """Stream retrieve, generate, and verify, then fill the citation card and guardrail log.
+
+    HTTPException (rate limit and other HTTP errors) restores InspectorPrior.
+    Any other failure clears the side panel.
+    """
     snapshot = list(history or [])
     started = time.perf_counter()
     yield (
@@ -702,6 +715,8 @@ def build_blocks(
                         type="password",
                         visible=bool(settings.demo_api_key),
                     )
+                # Staff column: citations, guardrail log, and Calidad L1.
+                # L1 is evals/l1.json, read once while these blocks were built.
                 side = gr.Column(
                     scale=2, min_width=320, elem_id="observatory-side", visible=False
                 )

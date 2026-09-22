@@ -1,3 +1,14 @@
+"""Run the ordered guardrail checks for one turn.
+
+A rail is one check. run_named runs a named list in order. When the global
+flag and the rail are both enforced, the verdict stands and the patch is
+applied. When either is off, a block is rewritten to pass, would_block stays
+true, and the patch is not applied. would_block means this rail's own verdict
+was block, not that enforcement is currently off. normalize is always applied.
+The default short-circuit logs later rails as skipped after an enforced block
+and does not run them. Output calls this with short-circuit off.
+"""
+
 from __future__ import annotations
 
 import time
@@ -194,6 +205,7 @@ def _apply_patch(ctx: RailContext, patch: RailPatch | None) -> None:
 
 
 def _apply_enforce(result: RailResult, rail: Rail, global_enforce: bool) -> RailResult:
+    # Enforcement off rewrites block to pass and keeps would_block. The patch is not applied.
     enforced = bool(global_enforce and rail.enforce)
     would_block = result.verdict == "block" or result.would_block
     if enforced:
@@ -214,6 +226,8 @@ def _skipped(rail: Rail, reason: str) -> RailResult:
 
 
 class ChunkMappingRail:
+    """Keep, redact, or drop each retrieved passage. Dropping every passage is a block."""
+
     id: str
     stage: Stage = "retrieve"
     enforce: bool = True

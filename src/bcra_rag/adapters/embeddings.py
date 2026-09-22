@@ -1,3 +1,10 @@
+"""Vectors Chroma compares. The same function embeds chunks and the question.
+
+auto uses the OpenAI-compatible endpoint when EMBEDDING_API_KEY is set, and
+the deterministic local vectors otherwise. onnx is the only path that uses
+the local MiniLM model.
+"""
+
 from __future__ import annotations
 
 from typing import Any, cast

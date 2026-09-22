@@ -19,6 +19,11 @@ def asks_for_back_matter(query: str) -> bool:
 
 
 def drop_back_matter(chunks: list[Chunk], query: str) -> list[Chunk]:
+    """Drop correlaciones, historial, or origen de las disposiciones passages.
+
+    A match in the passage text or its heading is enough. If the question
+    itself contains correlaciones, historial, or origen, nothing is dropped.
+    """
     if asks_for_back_matter(query):
         return chunks
     kept: list[Chunk] = []

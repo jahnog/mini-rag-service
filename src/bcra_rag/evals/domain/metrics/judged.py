@@ -10,6 +10,12 @@ def _context_text(sample: RetrievalSample | GenerationSample) -> str:
 
 
 class ContextPrecision:
+    """How many retrieved passages the judge calls relevant, weighted by rank.
+
+    Relevant means the judge score is at least 0.5. The number is the RAGAS
+    average of precision-at-rank at those relevant ranks, not precision_at_5.
+    """
+
     name = "context_precision"
     kind = "llm"
 
@@ -31,7 +37,8 @@ class ContextPrecision:
             )
             values.append(result.value)
         n = len(values)
-        # RAGAS context precision: mean precision@k at relevant ranks (not code precision_at_5).
+        # RAGAS context precision: mean precision@k at relevant ranks (score >= 0.5).
+        # Not the code metric precision_at_5.
         hits = 0.0
         total = 0.0
         for index, value in enumerate(values, start=1):
@@ -44,6 +51,11 @@ class ContextPrecision:
 
 
 class ContextRecall:
+    """Fraction of reference-answer sentences the retrieved text supports.
+
+    No reference answer means no score.
+    """
+
     name = "context_recall"
     kind = "llm"
 
@@ -71,6 +83,12 @@ class ContextRecall:
 
 
 class Faithfulness:
+    """Judge: does the answer follow from the context?
+
+    No score when the gold question is not answerable, or the context is not
+    usable. That is the gold label, not "the model answered silencio".
+    """
+
     name = "faithfulness"
     kind = "llm"
 
@@ -88,6 +106,11 @@ class Faithfulness:
 
 
 class AnswerRelevancy:
+    """Judge: does the answer address the question? The judge does not see the context.
+
+    Same skip as faithfulness: gold not answerable, or context not usable.
+    """
+
     name = "answer_relevancy"
     kind = "llm"
 

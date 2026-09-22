@@ -85,6 +85,8 @@ class _Rail:
 
 
 class LengthRail(_Rail):
+    """Block when the raw message is over the character cap, before search."""
+
     id = "length"
     stage: Stage = "input"
 
@@ -106,6 +108,8 @@ class LengthRail(_Rail):
 
 
 class NormalizeRail(_Rail):
+    """NFKC-fold the message and strip invisible characters. Always applied."""
+
     id = "normalize"
     stage: Stage = "input"
 
@@ -121,6 +125,11 @@ class NormalizeRail(_Rail):
 
 
 class SecretsRail(_Rail):
+    """Block an API-key shape on the question or the answer. Does not rewrite it.
+
+    Trace scrubbing is redact_secrets, a different function.
+    """
+
     id = "secrets"
     stage: Stage = "input"
 
@@ -146,6 +155,12 @@ class SecretsRail(_Rail):
 
 
 class NoAdviceRail(_Rail):
+    """Block "should I buy dollars". Regulatory "shall" is not advice.
+
+    Reads the latest utterance, not the composed search query. On the answer,
+    the same phrase quoted from a passage retrieved this turn still passes.
+    """
+
     id = "no-advice"
     stage: Stage = "input"
 
@@ -178,6 +193,8 @@ class NoAdviceRail(_Rail):
 
 
 class InjectionRail(_Rail):
+    """Block jailbreak phrasing via RegexBackend. Scores text, the composed query."""
+
     id = "injection"
     stage: Stage = "input"
 
@@ -200,6 +217,12 @@ class InjectionRail(_Rail):
 
 
 class ScopeRail(_Rail):
+    """Keep the latest utterance inside BCRA CAMEX. The word punto alone is not enough.
+
+    Denylist first, even if the utterance also has a CAMEX word. Then a CAMEX
+    hint. Then a follow-up prefix or a glued follow-up. Otherwise block.
+    """
+
     id = "scope"
     stage: Stage = "input"
 

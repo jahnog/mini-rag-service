@@ -142,6 +142,12 @@ def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any
 
 
 def l1_markdown(data: dict[str, Any]) -> str:
+    """Reprint the last offline L1 file. The headline is citation-id exact match.
+
+    ``omitido`` means that suite or the judge did not run, not that the score
+    is zero. Chunking A and B are how many chunks each splitter produces for
+    texto ordenado, not a quality score.
+    """
     label = ""
     if is_sample_l1(data):
         label = (
@@ -213,6 +219,7 @@ def _judge_markdown(raw: object) -> str:
 
 
 def _suite_markdown(title: str, block: dict[str, Any]) -> str:
+    """One retrieval or generation block from the L1 file, including its skip reason."""
     if not block:
         return f"## {title}\n\n(sin datos)"
     if block.get("skipped"):
@@ -243,6 +250,7 @@ ChatRow = dict[str, Any]
 _ATX_HEADING = re.compile(r"(?m)^(#{1,6})(?=\s|$)")
 _THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
 THOUGHT_PUBLISH_S = 0.5
+# retrieve = search, generate = model draft, verify = the output rails.
 PHASE_COPY = {
     "retrieve": "Buscando en el dump…",
     "generate": "Redactando respuesta…",
@@ -345,6 +353,10 @@ def append_messages(
 
 
 def citation_card_markdown(card: dict[str, Any] | None) -> str:
+    """One citation: a dump document id, an optional punto, and a retrieved quote.
+
+    The id is a Comunicación "A" number or texto ordenado, not a chunk id.
+    """
     if not card:
         return EMPTY_CITATION_CARD
     punto = card.get("punto") or "—"
@@ -391,6 +403,11 @@ def inspector_payload(
 
 
 def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
+    """One row per guardrail. An unenforced block is stored as pass; see would_block.
+
+    Verdicts follow GuardrailPipeline: enforcement off rewrites block to pass
+    and still sets would_block, so the panel shows both.
+    """
     if response is None:
         return []
     return [
@@ -407,6 +424,7 @@ def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
 
 
 def trust_markdown(rows: list[dict[str, str]] | None) -> str:
+    """Render the guardrail log, including would_block next to a rewritten pass."""
     if not rows:
         return EMPTY_TRUST
     parts: list[str] = ['<div class="obs-trust">']
@@ -437,6 +455,7 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
 
 
 def abstain_visible(response: ChatResponse | None) -> bool:
+    """True when the finding is silencio: a deliberate abstention, not an exception."""
     return bool(response and response.finding.value == "silencio")
 
 

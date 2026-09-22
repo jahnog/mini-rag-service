@@ -23,6 +23,12 @@ async def run_generation(
     context_source: str,
     retrieval: list[RetrievalSample] | None = None,
 ) -> list[GenerationSample]:
+    """Call generate_from_context on the oracle clause or this run's retrieval hits.
+
+    Oracle does not run the router; it loads the labeled clause with
+    get_section. The sample keeps that input context even if the rails later
+    clear the citations.
+    """
     health = dump_health(settings, index)
     by_id = {sample.gold.id: sample for sample in retrieval or []}
     samples: list[GenerationSample] = []

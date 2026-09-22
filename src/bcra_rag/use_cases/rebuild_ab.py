@@ -12,7 +12,12 @@ def rebuild_structured_slice(
     strategy: str,
     max_chars: int = 2048,
 ) -> list[Chunk]:
-    """Chunk each extract with strategy A (fixed) or B (structured)."""
+    """Chunk each extract with strategy A (fixed windows) or B (numbered clauses).
+
+    L1 calls this on the texto ordenado extract only. The panel's A and B are
+    the two chunk counts, not a quality score. This does not change the live
+    index.
+    """
     chunker: FixedChunker | StructuredChunker
     if strategy == "B":
         chunker = StructuredChunker(max_chars=max_chars)

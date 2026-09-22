@@ -9,6 +9,11 @@ ALIAS_TABLE: tuple[tuple[str, str], ...] = (
 
 
 def expand_aliases(text: str) -> str:
+    """Append the long form of MULC and cepo when it is not already in the question.
+
+    Router uses the expanded text for vigente and similar search. Named-id
+    detection still uses the original question.
+    """
     extras: list[str] = []
     for pattern, replacement in ALIAS_TABLE:
         if re.search(pattern, text, flags=re.IGNORECASE) and replacement not in text:

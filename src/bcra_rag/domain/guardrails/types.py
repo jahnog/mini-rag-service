@@ -41,6 +41,12 @@ class RailPatch:
 
 @dataclass
 class RailResult:
+    """One guardrail log row.
+
+    Verdicts are pass, warn, block, redact, or skipped. An unenforced block
+    is stored as pass with would_block set; see GuardrailPipeline.
+    """
+
     rule: str
     stage: Stage
     verdict: Verdict
@@ -72,6 +78,12 @@ class ChunkResult:
 
 @dataclass
 class RailContext:
+    """Mutable turn state the rails read and patch.
+
+    raw is this utterance. text may be the follow-up glued onto the previous
+    question. hits are the passages search returned.
+    """
+
     raw: str
     text: str
     hits: list[Chunk] = field(default_factory=list)

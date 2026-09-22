@@ -19,6 +19,8 @@ ROLE_NOISE = re.compile(
 
 
 class ChunkHygieneRail(ChunkMappingRail):
+    """Strip role markers (SYSTEM:, chat tokens, HTML comments). Drop if nothing remains."""
+
     id = "chunk-hygiene"
     stage: Stage = "retrieve"
 
@@ -40,6 +42,8 @@ class ChunkHygieneRail(ChunkMappingRail):
 
 
 class ChunkInjectionRail(ChunkMappingRail):
+    """Drop a retrieved passage that itself matches the jailbreak regex."""
+
     id = "chunk-injection"
     stage: Stage = "retrieve"
 
@@ -56,6 +60,8 @@ class ChunkInjectionRail(ChunkMappingRail):
 
 
 class ContextBudgetRail:
+    """Keep passages until max_context_chars. Extra tail passages are a redact, not a block."""
+
     id = "context-budget"
     stage: Stage = "retrieve"
 

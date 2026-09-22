@@ -19,4 +19,10 @@ class LlmPort(Protocol):
         *,
         on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
-    ) -> LlmDraft: ...
+    ) -> LlmDraft:
+        """Send the prompt and return an LlmDraft.
+
+        on_thinking is the model's private trace for the Staff chat, not a
+        second answer.
+        """
+        ...

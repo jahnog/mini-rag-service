@@ -1,3 +1,25 @@
+"""One chat turn: search the CAMEX dump, then ask the model to cite a clause.
+
+RAG here does not answer from model memory. It searches a local index of BCRA
+CAMEX passages, puts those passages in the prompt, and requires a citation.
+
+A chunk is one stored passage. A hit is a chunk the search returned. A citation
+id is metadata["doc_id"] (a Comunicación or texto ordenado), never chunk_id.
+
+Silencio is a deliberate abstention: an input block, a missing or empty
+document, an empty search, a citation that does not anchor, or an output block.
+
+Guardrails are deterministic checks in stages input, retrieve, generate, and
+output. When a rail is enforced, its verdict stands and its patch is applied.
+When it is not, a block is stored as pass with would_block set, and the patch
+is dropped. normalize still applies. Input and retrieve stop after an enforced
+block and log the rest as skipped. Output rails all run; only an enforced
+block changes the answer.
+
+The page phases are retrieve (search), generate (model draft), and verify
+(the output rails).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -192,6 +214,11 @@ class AnswerQuery:
         thinking: bool | None = None,
         on_phase: OnPhase | None = None,
     ) -> ChatResponse:
+        """Run one turn: input rails, follow-up glue, route, retrieve, then generate.
+
+        length and normalize see the raw message. Scope and no-advice still
+        read raw after the follow-up is glued into text. Injection scores text.
+        """
         thinking_mode = thinking
         session_id = request.session_id or self._sessions.mint()
         health = await asyncio.to_thread(dump_health, self._settings, self._index)
@@ -463,6 +490,11 @@ class AnswerQuery:
         extra_log: list[RailResult] | None = None,
         thinking: str | None = None,
     ) -> ChatResponse:
+        """Build the response the side panel renders, including the guardrail log.
+
+        Paths that never generated append the dump footer here, then run output
+        rails (those calls short-circuit). A generated turn already did both.
+        """
         if extra_log is None:
             ctx.answer = f"{ctx.answer} {freeze_footer(ctx.last_refresh, ctx.to_as_of)}"
             extra_log = self._pipeline.run_named(output_ids, ctx)
@@ -559,6 +591,15 @@ async def generate_from_context(
     history: str = "",
     on_phase: OnPhase | None = None,
 ) -> GeneratedFromContext:
+    """Draft from retrieved text only, then run every output rail.
+
+    The passages sit inside a random <<<DOC_…>>> fence so a passage cannot
+    close the prompt. The model must return JSON answer, finding, citations.
+    Verify runs every output rail (they do not short-circuit). demote_finding
+    may downgrade obligacion or prohibicion. The dump footer is appended here
+    when the answer does not already name the freeze; freeze-honesty only
+    rewrites a "vigente hoy" claim.
+    """
     ctx.turn_ids = {
         str(chunk.metadata.get("doc_id") or "")
         for chunk in ctx.hits
@@ -607,6 +648,7 @@ async def generate_from_context(
 
     output_ids = pipeline.ids_for("output")
     await _emit(on_phase, PHASE_VERIFY)
+    # Every output rail logs. Only an enforced block changes the answer.
     output_log = pipeline.run_named(output_ids, ctx, short_circuit=False)
     if ctx.finding is not Finding.SILENCIO:
         cited_text = "\n".join(item.snippet for item in ctx.citations)
@@ -631,6 +673,7 @@ async def generate_from_context(
         ctx.answer = ctx.answer.rstrip() + f"\nFuente: {ctx.citations[0].id}"
         if ctx.citations[0].punto:
             ctx.answer += f" punto {ctx.citations[0].punto}"
+    # Freeze-honesty only rewrites "vigente hoy". This footer still names the dump.
     if not names_freeze(ctx.answer, ctx.last_refresh, ctx.to_as_of):
         ctx.answer = ctx.answer.rstrip() + "\n" + freeze_footer(ctx.last_refresh, ctx.to_as_of)
     return GeneratedFromContext(
@@ -791,6 +834,7 @@ def _is_short_followup(message: str) -> bool:
 
 
 def _compose_followup(message: str, history: list[tuple[str, str]]) -> str:
+    """Glue a short follow-up (y, ese, el punto, …) onto the previous question before search."""
     if not history:
         return message
     previous_user = next((text for role, text in reversed(history) if role == "user"), None)
@@ -833,6 +877,12 @@ def _prompt(
     chunk_chars: int = 1500,
     history: str = "",
 ) -> str:
+    """The user message. Each hit is clipped and wrapped in the random fence.
+
+    The bracket says chunk_id, but the value is metadata["doc_id"]. Prior
+    turns are context and must not be cited. The system message is separate,
+    in LlmAdapter.
+    """
     clauses = f"\n{delim}\n".join(
         f"[chunk_id={chunk.metadata.get('doc_id')} punto={chunk.metadata.get('punto')}] "
         f"{chunk.text[:chunk_chars]}"
@@ -938,6 +988,10 @@ def enrich_citations(
     hits: list[Chunk],
     doc_meta: Mapping[str, Mapping[str, Any]],
 ) -> list[Citation]:
+    """Fill fecha, url, and punto from the hit and the manifest.
+
+    Whether the quote sits in the retrieved passage is anchor_span, not here.
+    """
     by_doc: dict[str, Chunk] = {}
     for chunk in hits:
         doc_id = str(chunk.metadata.get("doc_id") or "")
@@ -963,6 +1017,12 @@ def enrich_citations(
 def _citations_from_model(
     draft: LlmDraft, hits: list[Chunk], turn_ids: set[str]
 ) -> list[Citation]:
+    """Keep citations whose id was retrieved this turn. Drop duplicate ids.
+
+    An empty quote is filled with the first 280 characters of the first hit
+    for that document. Cite-or-abstain still has to anchor it. Texto ordenado
+    is forced to tipo TO.
+    """
     by_doc: dict[str, Chunk] = {}
     for chunk in hits:
         doc_id = str(chunk.metadata.get("doc_id") or "")

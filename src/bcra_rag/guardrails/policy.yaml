@@ -1,3 +1,6 @@
+# Ordered guardrail list the chat log shows.
+# enforce: false on one rail logs a block as pass with would_block, and does not
+# apply that rail's patch. normalize still applies its text cleanup.
 version: 3
 enforce: true
 rails:

@@ -1,4 +1,8 @@
-"""Static L1 results document readers shared by the UI and the API."""
+"""Static L1 results document readers shared by the UI and GET /l1.
+
+A missing file is an unpublished sample. The Calidad L1 panel labels it as
+such, rather than as an operator run.
+"""
 
 from __future__ import annotations
 
