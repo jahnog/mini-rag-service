@@ -1,3 +1,10 @@
+"""Optional judge after a real answer. Off unless CHAT_TURN_EVALS is on.
+
+Faithfulness: does the answer follow from the retrieved text? Answer relevancy:
+does it address the question? Scores go to traces, not the chat body. This is
+not the offline L1 suite.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

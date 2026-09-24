@@ -1,4 +1,10 @@
-"""Document-order assembly of a named Comunicación section."""
+"""Reassemble one document's chunks, then clip them to max_chars.
+
+If every chunk has an ordinal, that order is used; otherwise order is by
+punto. When a punto is named and at least one chunk matches, the result is
+that run plus one chunk on each side. When none match, the clipped whole
+document is returned. Named routing and the eval oracle read this.
+"""
 
 from __future__ import annotations
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import structlog
@@ -14,15 +15,16 @@ log = structlog.get_logger(__name__)
 _PROMPTS = {
     "faithfulness": (
         "¿Cada afirmación de la respuesta está respaldada por el contexto? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Contexto:\n{context}\nRespuesta:\n{answer}"
     ),
     "answer_relevancy": (
         "¿La respuesta aborda la pregunta? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Pregunta:\n{question}\nRespuesta:\n{answer}"
     ),
 }
+_POSITIVE_LABEL = re.compile(r"\b(sí|si|yes|faithful|relevant|correct)\b", re.IGNORECASE)
 
 
 class _JudgeEnv(BaseSettings):
@@ -48,6 +50,11 @@ def build_turn_evaluator(
     env: _JudgeEnv | None = None,
     client: Any | None = None,
 ) -> TurnEvaluator:
+    """Optional per-turn judge: faithfulness and answer relevancy, as in L1.
+
+    Off when chat_turn_evals is off or no judge key is set. Scores go to
+    traces, not the chat body.
+    """
     if not settings.chat_turn_evals:
         return NoOpTurnEvaluator()
     resolved = env or _JudgeEnv()
@@ -100,7 +107,7 @@ class OpenAITurnEvaluator:
             kwargs["extra_body"] = {"reasoning_effort": self._effort}
         response = await _create(self._client, kwargs)
         content = (response.choices[0].message.content or "").strip()
-        return 1.0 if _label(content) in {"yes", "faithful", "relevant"} else 0.0
+        return 1.0 if _label(content) == "yes" else 0.0
 
 
 async def _create(client: Any, kwargs: dict[str, Any]) -> Any:
@@ -120,10 +127,16 @@ def _label(raw: str) -> str:
     try:
         payload = json.loads(text)
         if isinstance(payload, dict) and payload.get("label"):
-            return str(payload["label"]).strip().lower()
+            return _positive(str(payload["label"]))
     except json.JSONDecodeError:
         pass
-    lowered = text.lower()
-    if "yes" in lowered:
+    if _POSITIVE_LABEL.search(text):
         return "yes"
     return "no"
+
+
+def _positive(token: str) -> str:
+    cleaned = token.strip().lower()
+    if cleaned in {"sí", "si", "yes", "faithful", "relevant", "correct"}:
+        return "yes"
+    return cleaned

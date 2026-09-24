@@ -256,9 +256,9 @@ def topbar_html() -> str:
         f'<p class="wl-subtitle">{html_lib.escape(PAGE_SUBTITLE)}</p>'
         "</div>"
         '<nav class="wl-nav" aria-label="Sitio">'
-        f'<a href="{PORTFOLIO_URL}">Portfolio</a>'
+        f'<a href="{PORTFOLIO_URL}">Portafolio</a>'
         f'<a href="{SOURCE_URL}">Código</a>'
-        f'<a href="{WRITEUP_URL}">Write-up</a>'
+        f'<a href="{WRITEUP_URL}">Nota</a>'
         "</nav>"
         "</header>"
     )
@@ -268,7 +268,7 @@ def footer_html(disclaimer: str) -> str:
     """Family footer: the portfolio line, then the site's own disclaimer."""
     return (
         '<footer class="wl-footer" id="observatory-footer">'
-        "<p>Parte del portfolio en "
+        "<p>Parte del portafolio en "
         f'<a href="{PORTFOLIO_URL}">jahnog.github.io</a> · '
         f'<a href="{SOURCE_URL}">Código</a></p>'
         f"<p>{html_lib.escape(disclaimer)}</p>"

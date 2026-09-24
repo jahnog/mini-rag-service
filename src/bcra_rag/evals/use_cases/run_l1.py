@@ -87,6 +87,11 @@ async def run_l1(
     judge_skip_reason: str | None = None,
     phoenix_project: str = "bcra-rag",
 ) -> dict[str, Any]:
+    """Score the gold set offline and write evals/l1.json. Not the chat request path.
+
+    Retrieval and generation are separate blocks. deterministic_only skips the
+    judge even when a key is set. A skipped judge is a reason, not a zero.
+    """
     rows = load_gold(gold_path)
     resolved_index, manifest = _resolve_index(index, manifest)
     resolved_tracer = tracer or NoOpTracer()

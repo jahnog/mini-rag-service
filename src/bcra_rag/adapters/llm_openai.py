@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
+from bcra_rag.domain.guardrails.copy import NO_CLAUSE
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
 from bcra_rag.ports.llm import LlmBadJson, OnThinking
 from bcra_rag.schemas import Citation, Finding, LlmDraft
@@ -38,9 +39,10 @@ SYSTEM_PROMPT = (
     "Sos el asistente del extracto no oficial CAMEX del BCRA. "
     "Respondé solo con un objeto JSON con las claves answer, finding y citations. "
     "citations es una lista de objetos {id, tipo, punto, snippet}. "
-    "id es el id de documento del dump (A8359 o texto_ordenado), nunca un id de chunk. "
+    "id es el identificador de documento del extracto (A8359 o texto_ordenado), "
+    "nunca un identificador de fragmento. "
     "tipo es TO para el texto ordenado y A para las Comunicaciones A. "
-    "snippet debe ser una copia textual de un fragmento del documento recuperado, "
+    "snippet es una copia textual de un fragmento del documento recuperado, "
     "sin parafrasear. "
     "finding es uno de: obligacion (la norma impone un deber: deberá, deben, queda obligado), "
     "prohibicion (la norma veda una conducta: no podrán, queda prohibido), "
@@ -48,7 +50,7 @@ SYSTEM_PROMPT = (
     "definicion (la norma define un término o alcance), "
     "procedimiento (la norma describe pasos, plazos o requisitos operativos), "
     "silencio (los documentos no responden la pregunta). "
-    "Respondé solo con los documentos recuperados; si la evidencia no alcanza, "
+    "Respondé solo con los documentos recuperados; si la evidencia no alcanza para responder, "
     "finding es silencio. "
     "Si la pregunta nombra una Comunicación que aparece en los documentos, "
     "finding no es silencio. "
@@ -59,7 +61,7 @@ SYSTEM_PROMPT = (
     'exportaciones. Fuente: texto_ordenado punto 3.8.5", "finding": "obligacion", '
     '"citations": [{"id": "texto_ordenado", "tipo": "TO", "punto": "3.8.5", '
     '"snippet": "Los residentes deberán liquidar el cobro de exportaciones."}]}. '
-    'Ejemplo sin evidencia: {"answer": "No hay una cláusula citada en el dump CAMEX.", '
+    'Ejemplo sin evidencia: {"answer": "' + NO_CLAUSE + '", '
     '"finding": "silencio", "citations": []}.'
 )
 
@@ -83,6 +85,11 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
 
 
 def parse_llm_draft(raw: str) -> LlmDraft:
+    """Turn the model text into an LlmDraft.
+
+    A missing or unknown finding becomes silencio. Unusable JSON raises
+    LlmBadJson.
+    """
     payload = _extract_json_object(raw)
     finding_raw = payload.get("finding")
     if finding_raw is None:
@@ -195,6 +202,10 @@ class LlmAdapter:
         on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
+        """Call the chat model. SYSTEM_PROMPT fixes the JSON shape and the six findings.
+
+        The prompt argument is only the user message built by _prompt.
+        """
         self.calls.append(prompt)
         client = self._client_or_create()
         enabled = self._settings.llm_enable_thinking if thinking is None else thinking

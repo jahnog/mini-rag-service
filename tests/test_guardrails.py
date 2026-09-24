@@ -743,14 +743,14 @@ def test_freeze_honesty_rewrites_vigente_hoy() -> None:
     )
     verdict = _run(FreezeHonestyRail(), ctx)
     assert verdict.verdict == "warn"
-    assert ctx.answer.endswith("Según el dump del 2026-09-01 (texto ordenado al A8307).")
+    assert ctx.answer.endswith("Según el extracto del 2026-09-01 (texto ordenado al A8307).")
 
 
 def test_freeze_honesty_passes_with_date_footer() -> None:
     ctx = _ctx(
         "q",
         answer=(
-            "Según el dump del 2026-09-01 (texto ordenado al A8307), "
+            "Según el extracto del 2026-09-01 (texto ordenado al A8307), "
             "los residentes deberán liquidar."
         ),
         last_refresh="2026-09-01T00:00:00+00:00",

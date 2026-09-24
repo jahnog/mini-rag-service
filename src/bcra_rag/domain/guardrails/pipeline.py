@@ -1,3 +1,14 @@
+"""Run the ordered guardrail checks for one turn.
+
+A rail is one check. run_named runs a named list in order. When the global
+flag and the rail are both enforced, the verdict stands and the patch is
+applied. When either is off, a block is rewritten to pass, would_block stays
+true, and the patch is not applied. would_block means this rail's own verdict
+was block, not that enforcement is currently off. normalize is always applied.
+The default short-circuit logs later rails as skipped after an enforced block
+and does not run them. Output calls this with short-circuit off.
+"""
+
 from __future__ import annotations
 
 import time
@@ -6,6 +17,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from typing import Any
 
+from bcra_rag.domain.guardrails.copy import detail_label
 from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.types import (
     ChunkAction,
@@ -150,7 +162,7 @@ class GuardrailPipeline:
             if rail is None:
                 continue
             if short_circuit and blocked_by is not None:
-                results.append(_skipped(rail, f"blocked by {blocked_by}"))
+                results.append(_skipped(rail, detail_label(f"blocked by {blocked_by}")))
                 continue
             raw = rail.run(ctx)
             result = _apply_enforce(raw, rail, self._global_enforce)
@@ -194,6 +206,7 @@ def _apply_patch(ctx: RailContext, patch: RailPatch | None) -> None:
 
 
 def _apply_enforce(result: RailResult, rail: Rail, global_enforce: bool) -> RailResult:
+    # Enforcement off rewrites block to pass and keeps would_block. The patch is not applied.
     enforced = bool(global_enforce and rail.enforce)
     would_block = result.verdict == "block" or result.would_block
     if enforced:
@@ -214,6 +227,8 @@ def _skipped(rail: Rail, reason: str) -> RailResult:
 
 
 class ChunkMappingRail:
+    """Keep, redact, or drop each retrieved passage. Dropping every passage is a block."""
+
     id: str
     stage: Stage = "retrieve"
     enforce: bool = True
@@ -242,13 +257,13 @@ class ChunkMappingRail:
             kept.append(item.chunk)
         if dropped and not kept:
             verdict: str = "block"
-            detail = f"dropped {dropped} of {scanned}"
+            detail = f"se descartaron {dropped} de {scanned}"
         elif dropped or redacted:
             verdict = "redact"
-            detail = f"scanned {scanned}; dropped {dropped}; redacted {redacted}"
+            detail = f"revisados {scanned}; descartados {dropped}; recortados {redacted}"
         else:
             verdict = "pass"
-            detail = f"scanned {scanned}"
+            detail = f"revisados {scanned}"
         return RailResult(
             rule=self.id,
             stage="retrieve",

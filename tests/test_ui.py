@@ -611,7 +611,7 @@ async def test_iter_turn_http_error_drops_thought() -> None:
     final_rows = yields[-1][0]
     assert len(final_rows) == 2
     assert "metadata" not in final_rows[1]
-    assert "DEMO_API_KEY" in final_rows[1]["content"]
+    assert "clave de demostración" in final_rows[1]["content"]
 
 
 @pytest.mark.asyncio
@@ -770,10 +770,10 @@ def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     assert "## Generación" in text
     assert "faithfulness: 0" not in lowered
     assert "## Generación (n=30)" in text
-    assert "latency_ms_p95: 137653 ms" in text
+    assert "latencia p95: 137653 ms" in text
     assert "137652.6405" not in text
-    assert "Juez: grok-4.3 · omitido (missing_extra)" in text
-    assert "citation_id_exact**: 0.233" in text
+    assert "Juez: grok-4.3 · omitido (falta la dependencia del juez)" in text
+    assert "coincidencia de cita**: 0.233" in text
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
 
@@ -799,8 +799,8 @@ def test_l1_markdown_skipped_generation_not_zero() -> None:
     )
     lowered = text.lower()
     assert "omitido" in lowered
-    assert "métrica principal **citation_id_exact**: 0" not in lowered
-    assert "métrica principal **citation_id_exact**: none" not in lowered
+    assert "métrica principal **coincidencia de cita**: 0" not in lowered
+    assert "métrica principal **coincidencia de cita**: none" not in lowered
     assert "faithfulness: 0" not in lowered
 
 
@@ -819,10 +819,10 @@ def test_l1_markdown_skipped_retrieval_not_zero() -> None:
         }
     )
     lowered = text.lower()
-    assert "hit@5: omitido" in lowered
+    assert "acierto@5: omitido" in lowered
     assert "mrr: omitido" in lowered
-    assert "hit@5: 0.0" not in lowered
-    assert "hit@5: none" not in lowered
+    assert "acierto@5: 0.0" not in lowered
+    assert "acierto@5: none" not in lowered
 
 
 def test_inspector_copy_id_and_trust() -> None:
@@ -864,12 +864,12 @@ def test_inspector_copy_id_and_trust() -> None:
     card_md = citation_card_markdown(inspector)
     assert "A8359" in card_md
     assert "bcra.gob.ar" in card_md
-    assert "copy-id" in card_md
+    assert "identificador" in card_md
     assert "bcra.gob.ar" in (inspector["url"] or "")
     trust = trust_payload(response)
     assert all(item["verdict"] == "pass" for item in trust)
     chips = trust_markdown(trust)
-    assert "scope" in chips
+    assert "alcance" in chips
     assert "pass" in chips
     assert 'class="obs-chip pass"' in chips
     assert "warn" in trust_markdown([{"rule": "x", "verdict": "warn", "detail": ""}])
@@ -907,7 +907,7 @@ def test_inspector_copy_id_and_trust() -> None:
     )
     assert EMPTY_CITATION_CARD == citation_card_markdown(None)
     assert "obs-empty" in trust_markdown(None)
-    assert "guardrails" in EMPTY_TRUST.lower()
+    assert "controles" in EMPTY_TRUST.lower()
     silencio = ChatResponse(
         answer="silencio last_refresh=x to_as_of=y",
         finding=Finding.SILENCIO,
@@ -990,7 +990,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     copy_boxes = [
         widget
         for widget in widgets
-        if type(widget).__name__ == "Textbox" and getattr(widget, "label", None) == "copy-id"
+        if type(widget).__name__ == "Textbox" and getattr(widget, "label", None) == "Identificador"
     ]
     assert copy_boxes
     assert "copy" in (copy_boxes[0].buttons or [])
@@ -1142,7 +1142,7 @@ def test_layout_toggle_visibility() -> None:
     assert AUTH_CLEAR in LAYOUT_HELP
     help_lines = [line.strip() for line in LAYOUT_HELP.splitlines() if line.strip()]
     assert len(help_lines) == 2
-    assert help_lines[0].startswith("Staff")
+    assert help_lines[0].startswith("Operador")
     assert help_lines[1].startswith("Usuario")
 
 
@@ -1259,7 +1259,7 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
     assert "Demasiados intentos" in last[0][-1]["content"]
     assert last[2] == prior.inspector
     assert "A8359" in last[8]
-    assert "scope" in last[9]
+    assert "alcance" in last[9]
 
 
 @pytest.mark.asyncio
@@ -1311,7 +1311,8 @@ def test_auth_status_smtp_ok_names_window() -> None:
         "Listo. Si pediste un código hace menos de 5 minutos, usá ese; si no, revisá tu correo."
     )
     assert "10 minutos" in auth_status_smtp_ok(600)
-    assert "1 minutos" in auth_status_smtp_ok(20)
+    assert "1 minuto" in auth_status_smtp_ok(20)
+    assert "1 minutos" not in auth_status_smtp_ok(20)
     assert "Código enviado" not in auth_request_js(auth_status_smtp_ok(300))
     assert "hace menos de 7 minutos" in auth_request_js(auth_status_smtp_ok(420))
 
@@ -1355,7 +1356,7 @@ async def test_iter_turn_phase_line_in_usuario_layout() -> None:
         )
     ]
     phases = [y[10]["value"] for y in yields]
-    assert "Buscando en el dump…" in phases
+    assert "Buscando en el extracto…" in phases
     assert "Redactando respuesta…" in phases
     assert yields[-1][10]["visible"] is False
     assert all("Buscando" not in str(row.get("content", "")) for row in yields[-1][0])

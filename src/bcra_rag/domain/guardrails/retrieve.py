@@ -19,6 +19,8 @@ ROLE_NOISE = re.compile(
 
 
 class ChunkHygieneRail(ChunkMappingRail):
+    """Strip role markers (SYSTEM:, chat tokens, HTML comments). Drop if nothing remains."""
+
     id = "chunk-hygiene"
     stage: Stage = "retrieve"
 
@@ -30,16 +32,18 @@ class ChunkHygieneRail(ChunkMappingRail):
         cleaned = ROLE_NOISE.sub("", chunk.text).strip()
         if cleaned != chunk.text:
             if not cleaned:
-                return ChunkResult("drop", chunk, "empty after strip")
+                return ChunkResult("drop", chunk, "vacío tras limpiar")
             return ChunkResult(
                 "redact",
                 Chunk(chunk_id=chunk.chunk_id, text=cleaned, metadata=chunk.metadata),
-                "stripped role tags",
+                "se quitaron marcas de rol",
             )
         return ChunkResult("keep", chunk)
 
 
 class ChunkInjectionRail(ChunkMappingRail):
+    """Drop a retrieved passage that itself matches the jailbreak regex."""
+
     id = "chunk-injection"
     stage: Stage = "retrieve"
 
@@ -56,6 +60,8 @@ class ChunkInjectionRail(ChunkMappingRail):
 
 
 class ContextBudgetRail:
+    """Keep passages until max_context_chars. Extra tail passages are a redact, not a block."""
+
     id = "context-budget"
     stage: Stage = "retrieve"
 
@@ -79,7 +85,7 @@ class ContextBudgetRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="redact",
-                detail=f"dropped {dropped} tail chunks",
+                detail=f"se descartaron {dropped} fragmentos del final",
                 enforced=self.enforce,
                 patch=RailPatch(hits=kept),
             )
@@ -87,7 +93,7 @@ class ContextBudgetRail:
             rule=self.id,
             stage=self.stage,
             verdict="pass",
-            detail=f"kept {len(kept)} chunks",
+            detail=f"se conservaron {len(kept)} fragmentos",
             enforced=self.enforce,
             patch=RailPatch(hits=kept),
         )

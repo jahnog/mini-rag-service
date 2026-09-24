@@ -22,6 +22,11 @@ def snippet_has_duty(text: str) -> bool:
 def demote_finding(
     finding: Finding, snippets: str, *, has_punto: bool = False
 ) -> Finding:
+    """Downgrade obligacion or prohibicion when the quotes lack duty language.
+
+    Obligacion with a punto becomes procedimiento. Otherwise the label becomes
+    definicion. Other findings, including silencio, stay as they are.
+    """
     if finding not in {Finding.OBLIGACION, Finding.PROHIBICION}:
         return finding
     if snippet_has_duty(snippets):

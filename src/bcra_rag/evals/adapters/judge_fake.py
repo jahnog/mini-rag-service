@@ -6,6 +6,8 @@ from bcra_rag.evals.domain.types import Score
 
 
 class FakeJudge:
+    """Fixed labels for unit tests. They never call a paid model."""
+
     def __init__(self, scores: Mapping[str, Score] | None = None) -> None:
         self.calls: list[tuple[str, Mapping[str, str]]] = []
         self._scores = dict(scores or {})

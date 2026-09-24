@@ -19,6 +19,17 @@ class IndexPort(Protocol):
         *,
         k: int = 5,
         filters: Mapping[str, object] | None = None,
-    ) -> list[Chunk]: ...
+    ) -> list[Chunk]:
+        """Return the k passages the adapter chose.
 
-    def get_section(self, doc_id: str, punto: str | None = None) -> str: ...
+        Chroma may fuse keyword and embedding rankings. This protocol only
+        promises a list of chunks.
+        """
+        ...
+
+    def get_section(self, doc_id: str, punto: str | None = None) -> str:
+        """Load one document, or one punto, from the index.
+
+        Used by named routing, the cross-reference hop, and the eval oracle.
+        """
+        ...

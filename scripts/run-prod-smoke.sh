@@ -21,7 +21,7 @@ if [ -z "${PROD_BASE_URL:-}" ]; then
   exit 2
 fi
 
-# Pytest Origin/Referer must match the public origin, not a laptop loopback origin.
+# Pytest Origin/Referer must match the public origin, not a local loopback origin.
 PROD_BASE_URL="${PROD_BASE_URL%/}"
 export PROD_BASE_URL
 export AUTH_PUBLIC_ORIGIN="$PROD_BASE_URL"

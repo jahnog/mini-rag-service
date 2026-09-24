@@ -1,4 +1,9 @@
-"""Small in-package BM25 index and reciprocal-rank fusion (no dependency)."""
+"""Keyword half of search: BM25 over the passages, with no extra dependency.
+
+tokenize drops a fixed Spanish stopword list and tokens shorter than two
+characters, and adds an a#### token for each comunicación number. IDF then
+down-weights terms that still appear in many passages.
+"""
 
 from __future__ import annotations
 
@@ -53,6 +58,11 @@ class Bm25Index:
 
 
 def rrf(rankings: Sequence[Sequence[str]], *, k: int = 60) -> list[tuple[str, float]]:
+    """Merge ranked lists by rank, 1 / (k + rank), not by raw score.
+
+    Embedding distance and a BM25 score are not on the same scale, so fusion
+    uses each item's place in the list.
+    """
     fused: dict[str, float] = {}
     order: list[str] = []
     for ranking in rankings:

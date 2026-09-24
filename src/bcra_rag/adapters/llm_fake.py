@@ -7,7 +7,7 @@ from bcra_rag.domain.urls import TO_DOC_ID
 from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 
-_CHUNK_ID = re.compile(r"\[chunk_id=([^\s\]]+)")
+_CHUNK_ID = re.compile(r"\[(?:chunk_id|documento)=([^\s\]]+)")
 
 
 class FakeLlm:
@@ -53,7 +53,7 @@ class FakeLlm:
 
 def _draft_for_retrieved(draft: LlmDraft, doc_id: str, prompt: str) -> LlmDraft:
     snippet = ""
-    token = f"chunk_id={doc_id}"
+    token = f"documento={doc_id}"
     for line in prompt.splitlines():
         if token in line and "] " in line:
             snippet = line.split("] ", 1)[1][:280]

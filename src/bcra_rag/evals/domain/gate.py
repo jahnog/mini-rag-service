@@ -1,4 +1,8 @@
-"""Threshold gate over a published L1 results document."""
+"""Threshold gate over a published L1 results document.
+
+Floors in evals/gate.toml fail the process when a published metric is below
+them. A skipped suite fails the gate unless the CLI allows skipped suites.
+"""
 
 from __future__ import annotations
 

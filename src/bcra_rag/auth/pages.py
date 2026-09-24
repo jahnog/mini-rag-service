@@ -81,7 +81,7 @@ def _shell(page: str, body: str) -> str:
       <h1 class="wl-title">{name}</h1>
     </div>
     <nav class="wl-nav" aria-label="Sitio">
-      <a href="{PORTFOLIO_URL}">Portfolio</a>
+      <a href="{PORTFOLIO_URL}">Portafolio</a>
       <a href="/">Asistente</a>
     </nav>
   </header>
@@ -89,7 +89,7 @@ def _shell(page: str, body: str) -> str:
 {body}
   </main>
   <footer class="wl-footer">
-    <p>Parte del portfolio en <a href="{PORTFOLIO_URL}">jahnog.github.io</a> · <a href="{SOURCE_URL}">Código</a></p>
+    <p>Parte del portafolio en <a href="{PORTFOLIO_URL}">jahnog.github.io</a> · <a href="{SOURCE_URL}">Código</a></p>
   </footer>
 </div>
 </body>

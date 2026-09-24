@@ -85,6 +85,8 @@ class _Rail:
 
 
 class LengthRail(_Rail):
+    """Block when the raw message is over the character cap, before search."""
+
     id = "length"
     stage: Stage = "input"
 
@@ -98,14 +100,16 @@ class LengthRail(_Rail):
                 rule=self.id,
                 stage=self.stage,
                 verdict="block",
-                detail="message too long",
+                detail="pregunta demasiado larga",
             )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="within cap"
+            rule=self.id, stage=self.stage, verdict="pass", detail="dentro del límite"
         )
 
 
 class NormalizeRail(_Rail):
+    """NFKC-fold the message and strip invisible characters. Always applied."""
+
     id = "normalize"
     stage: Stage = "input"
 
@@ -115,12 +119,17 @@ class NormalizeRail(_Rail):
             rule=self.id,
             stage=self.stage,
             verdict="pass",
-            detail="NFKC",
+            detail="texto normalizado",
             patch=RailPatch(raw=folded, text=folded),
         )
 
 
 class SecretsRail(_Rail):
+    """Block an API-key shape on the question or the answer. Does not rewrite it.
+
+    Trace scrubbing is redact_secrets, a different function.
+    """
+
     id = "secrets"
     stage: Stage = "input"
 
@@ -138,14 +147,20 @@ class SecretsRail(_Rail):
                 rule=self.id,
                 stage=self.stage,
                 verdict="block",
-                detail="secret_shape",
+                detail="contiene una clave",
             )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="no secrets"
+            rule=self.id, stage=self.stage, verdict="pass", detail="sin secretos"
         )
 
 
 class NoAdviceRail(_Rail):
+    """Block "should I buy dollars". Regulatory "shall" is not advice.
+
+    Reads the latest utterance, not the composed search query. On the answer,
+    the same phrase quoted from a passage retrieved this turn still passes.
+    """
+
     id = "no-advice"
     stage: Stage = "input"
 
@@ -160,24 +175,26 @@ class NoAdviceRail(_Rail):
         blob = ctx.answer if self._field == "answer" else ctx.raw
         if not is_advice(blob or ""):
             return RailResult(
-                rule=self.id, stage=self.stage, verdict="pass", detail="not advice"
+                rule=self.id, stage=self.stage, verdict="pass", detail="no es un consejo"
             )
         if self._field == "answer" and _advice_quoted(blob, ctx):
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
-                detail="advice quoted from this-turn hit",
+                detail="consejo citado del documento de esta consulta",
             )
         return RailResult(
             rule=self.id,
             stage=self.stage,
             verdict="block",
-            detail="investment advice is out of scope",
+            detail="un consejo de inversión está fuera del alcance",
         )
 
 
 class InjectionRail(_Rail):
+    """Block jailbreak phrasing via RegexBackend. Scores text, the composed query."""
+
     id = "injection"
     stage: Stage = "input"
 
@@ -200,6 +217,12 @@ class InjectionRail(_Rail):
 
 
 class ScopeRail(_Rail):
+    """Keep the latest utterance inside BCRA CAMEX. The word punto alone is not enough.
+
+    Denylist first, even if the utterance also has a CAMEX word. Then a CAMEX
+    hint. Then a follow-up prefix or a glued follow-up. Otherwise block.
+    """
+
     id = "scope"
     stage: Stage = "input"
 
@@ -210,24 +233,27 @@ class ScopeRail(_Rail):
                 rule=self.id,
                 stage=self.stage,
                 verdict="block",
-                detail="outside BCRA CAMEX / Argentine FX",
+                detail="fuera de la normativa cambiaria CAMEX del BCRA",
             )
         if CAMEX_HINTS.search(latest):
             return RailResult(
-                rule=self.id, stage=self.stage, verdict="pass", detail="in CAMEX scope"
+                rule=self.id,
+                stage=self.stage,
+                verdict="pass",
+                detail="dentro del alcance CAMEX",
             )
         if FOLLOW_UP.search(latest) or ctx.followup:
             return RailResult(
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
-                detail="in-session follow-up",
+                detail="seguimiento de la conversación",
             )
         return RailResult(
             rule=self.id,
             stage=self.stage,
             verdict="block",
-            detail="outside BCRA CAMEX / Argentine FX",
+            detail="fuera de la normativa cambiaria CAMEX del BCRA",
         )
 
 

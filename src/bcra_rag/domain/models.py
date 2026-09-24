@@ -17,6 +17,11 @@ class CatalogDocument:
 
 @dataclass(frozen=True)
 class Chunk:
+    """One passage stored in the index.
+
+    chunk_id is internal. Citations use metadata["doc_id"], the dump document.
+    """
+
     chunk_id: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)

@@ -17,6 +17,11 @@ def run_retrieval(
     tracer: Tracer,
     k: int = 5,
 ) -> list[RetrievalSample]:
+    """Score search with the same Router as chat.
+
+    Recorded ids are metadata["doc_id"]. A silencio route records none, so
+    hit@k is 1 only when gold also has no ids.
+    """
     router = Router(index, manifest)
     samples: list[RetrievalSample] = []
     for gold in rows:

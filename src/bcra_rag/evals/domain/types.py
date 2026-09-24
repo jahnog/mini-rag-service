@@ -1,3 +1,17 @@
+"""Shapes for the offline L1 suite. The chat page only reads the published file.
+
+Gold is evals/gold.jsonl: a question, the correct document ids, puntos, a
+finding, whether the question is answerable, and sometimes a reference answer.
+
+A retrieval sample is what search returned. A generation sample is what the
+model wrote given a context. context_source oracle is the labeled clause, so
+a bad search does not lower the generation score. retrieved uses the same
+run's hits.
+
+kind code is an exact comparison. kind llm asks a separate judge model. A
+missing score is a skip, not a zero.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

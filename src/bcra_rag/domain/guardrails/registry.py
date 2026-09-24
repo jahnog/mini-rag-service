@@ -148,6 +148,10 @@ def assemble_pipeline(
     settings: Settings,
     tracer: Tracer | None = None,
 ) -> GuardrailPipeline:
+    """One rail per enabled entry in guardrails/policy.yaml, wrapped for tracing.
+
+    An unknown rail id raises at startup.
+    """
     resolved = tracer or NoOpTracer()
     backend = build_injection_backend(policy)
     rails: list[Rail] = []

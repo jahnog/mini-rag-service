@@ -13,6 +13,12 @@ def _norm(text: str) -> str:
 
 
 class HitAtK:
+    """1 if any gold document id is in the top k, else 0.
+
+    A gold row with no ids (a silencio question) scores 1 only when the search
+    also returned nothing, and 0 when it returned anything.
+    """
+
     name = "hit_at_5"
     kind = "code"
 
@@ -31,6 +37,11 @@ class HitAtK:
 
 
 class PrecisionAtK:
+    """Fraction of the top k ids that are gold ids. Not judged context precision.
+
+    A gold row with no ids scores 1 only when the search returned nothing.
+    """
+
     name = "precision_at_5"
     kind = "code"
 
@@ -51,6 +62,11 @@ class PrecisionAtK:
 
 
 class Mrr:
+    """1 / rank of the first gold id (1, then 1/2, 1/3, …).
+
+    A gold row with no ids scores 1 only when the search returned nothing.
+    """
+
     name = "mrr"
     kind = "code"
 
@@ -69,6 +85,12 @@ class Mrr:
 
 
 class NdcgAtK:
+    """Ranking quality in [0, 1]. Each gold id counts once, at its first rank.
+
+    An earlier rank counts more: 1 / log2(rank + 1). A gold row with no ids
+    scores 1 only when the search returned nothing.
+    """
+
     name = "ndcg_at_5"
     kind = "code"
 
@@ -89,6 +111,7 @@ class NdcgAtK:
             if hit:
                 seen.add(item)
             rel.append(1.0 if hit else 0.0)
+        # i is zero-based, so log2(i + 2) is log2(rank + 1).
         dcg = sum(r / math.log2(i + 2) for i, r in enumerate(rel))
         ideal = [1.0] * min(self._k, len(set(gold)))
         idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))
@@ -97,6 +120,12 @@ class NdcgAtK:
 
 
 class CitationIdExact:
+    """1 when the cited document ids equal the gold ids, as sets.
+
+    Order and duplicates do not matter. This is the headline L1 metric. It
+    compares cited ids, not retrieved ids.
+    """
+
     name = "citation_id_exact"
     kind = "code"
 
@@ -107,6 +136,8 @@ class CitationIdExact:
 
 
 class CitationPuntoExact:
+    """1 when the cited puntos equal the gold puntos, as sets. No score if gold has none."""
+
     name = "citation_punto_exact"
     kind = "code"
 
@@ -120,6 +151,12 @@ class CitationPuntoExact:
 
 
 class CitationSnippetGrounded:
+    """Fraction of snippets that are a normalized substring of the given context.
+
+    No citations on a gold row with no ids scores 1. Citations with no context
+    score 0.
+    """
+
     name = "citation_snippet_grounded"
     kind = "code"
 
@@ -141,6 +178,8 @@ class CitationSnippetGrounded:
 
 
 class FindingExact:
+    """1 when the final finding label equals gold, after demote_finding."""
+
     name = "finding_exact"
     kind = "code"
 

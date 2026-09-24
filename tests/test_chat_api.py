@@ -264,7 +264,7 @@ def test_disclaimer_on_every_response(tmp_path: Path) -> None:
     client, _, _, _ = make_client(tmp_path)
     body = client.post("/chat", json={"message": "Qué es el MULC?"}).json()
     assert "no oficial" in body["disclaimer"].lower()
-    assert "last_refresh" in body["disclaimer"]
+    assert "fecha del extracto" in body["disclaimer"].lower()
     silencio = client.post("/chat", json={"message": "What's the weather in Madrid?"}).json()
     assert silencio["disclaimer"]
     assert silencio["finding"] == "silencio"

@@ -1,3 +1,8 @@
+"""Split one circular into the passages the index stores.
+
+A is a word window. B follows Sección, punto, and Anexo lines.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -53,6 +58,12 @@ def split_to_max_chars(text: str, max_chars: int) -> list[str]:
 
 
 class FixedChunker:
+    """Windows of `size` words, overlapping by `overlap`, then cut to max_chars.
+
+    Metadata chunker is A. A window does not record a punto. Ingest keeps the
+    default size 256 and overlap 64.
+    """
+
     def __init__(
         self, size: int = 256, overlap: int = 64, max_chars: int = 2048
     ) -> None:
@@ -92,6 +103,12 @@ class _Unit:
 
 
 class StructuredChunker:
+    """One unit per sección, punto, or anexo.
+
+    A unit under 80 words is merged only when it is a child punto of the
+    previous unit (3.1 into 3). Metadata chunker is B and includes punto.
+    """
+
     def __init__(self, max_chars: int = 2048) -> None:
         self.max_chars = max_chars
 
@@ -216,6 +233,12 @@ def _merge_small(units: list[_Unit], min_tokens: int = 80) -> list[_Unit]:
 
 
 def choose_chunker(kind: str, text: str) -> str:
+    """B for texto ordenado. A for kind event.
+
+    Otherwise B only when the whole extract starts with Sección, or the whole
+    extract is a single punto line. The pattern is not applied per line.
+    Anything else is A.
+    """
     if kind == "texto_ordenado":
         return "B"
     if kind == "event":

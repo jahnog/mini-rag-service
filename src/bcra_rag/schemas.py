@@ -7,6 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Finding(StrEnum):
+    """Six labels. Silencio means the documents do not answer.
+
+    The other five name the clause: duty, permission, prohibition, definition,
+    or procedure. demote_finding may still change obligacion or prohibicion
+    after the model answers.
+    """
+
     OBLIGACION = "obligacion"
     PERMISO = "permiso"
     PROHIBICION = "prohibicion"
@@ -16,6 +23,11 @@ class Finding(StrEnum):
 
 
 class Citation(BaseModel):
+    """A dump document id, not a chunk id, plus the quote taken from it.
+
+    id is A8359 or texto_ordenado. tipo is A or TO. punto is the numbered clause.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -27,6 +39,8 @@ class Citation(BaseModel):
 
 
 class GuardrailVerdict(BaseModel):
+    """One guardrail log row. Enforce and would_block follow GuardrailPipeline."""
+
     model_config = ConfigDict(extra="forbid")
 
     rule: str
@@ -45,6 +59,11 @@ class HitScore(BaseModel):
 
 
 class Sidecar(BaseModel):
+    """Hit ids, their fused scores, the share that were cited, and whether any citation remains.
+
+    The page does not render this as the answer.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     top_k: list[HitScore] = Field(default_factory=list)
@@ -77,7 +96,10 @@ class ChatClearRequest(BaseModel):
 
 
 class LlmDraft(BaseModel):
-    """Structured generation payload. Extra keys from the model are ignored."""
+    """The model's JSON before the output rails. Not the chat response.
+
+    Extra keys from the model are ignored.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -92,6 +114,8 @@ class LlmDraft(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    """Body the page renders. abstain is true exactly when finding is silencio."""
+
     model_config = ConfigDict(extra="forbid")
 
     answer: str

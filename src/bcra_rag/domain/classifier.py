@@ -28,12 +28,22 @@ _TO_AS_OF_PATTERNS = (
 
 
 class DocKind(StrEnum):
+    """comunicacion is a full circular. texto_ordenado is the consolidated text.
+
+    event is a reprint title: actualización del texto ordenado, hojas de
+    reemplazo, or replacement sheets.
+    """
+
     FULL = "comunicacion"
     EVENT = "event"
     TEXTO_ORDENADO = "texto_ordenado"
 
 
 def classify_title(title: str, *, is_texto_ordenado: bool = False) -> DocKind:
+    """Pick DocKind from the catalog title.
+
+    is_adecuacion is a separate title check and does not pick the chunker.
+    """
     if is_texto_ordenado:
         return DocKind.TEXTO_ORDENADO
     if REPRINT_RE.search(title):
@@ -46,6 +56,10 @@ def is_adecuacion(title: str) -> bool:
 
 
 def parse_to_as_of(text: str) -> str | None:
+    """Comunicación named as incorporated in the first 4000 characters.
+
+    That value is the freeze's to_as_of. It is not a search result.
+    """
     header = text[:4000]
     for pattern in _TO_AS_OF_PATTERNS:
         match = pattern.search(header)

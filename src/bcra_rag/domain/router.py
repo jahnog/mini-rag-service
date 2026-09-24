@@ -1,3 +1,5 @@
+"""Choose how a question is searched: one named circular, the frozen dump, or top-k."""
+
 from __future__ import annotations
 
 import re
@@ -43,6 +45,8 @@ RouteKind = Literal["named", "vigente", "similar"]
 
 @dataclass
 class RouteResult:
+    """Hits for one question. silencio means the model is not called."""
+
     query: str
     hits: list[Chunk] = field(default_factory=list)
     named_id: str | None = None
@@ -68,6 +72,21 @@ class Router:
         self._max_fetch = max_fetch
 
     def route(self, question: str, *, k: int, to_as_of: str | None) -> RouteResult:
+        """Pick a search strategy. This does not decide what is legally in force.
+
+        named: the question names one Comunicación in the manifest; get_section
+        loads it, and a punto when the question names one. A missing id is
+        silencio missing_document.
+
+        vigente: two searches, texto ordenado then later circulars, merged.
+        The dump is a frozen snapshot, not today's law.
+
+        similar: one ordinary top-k search.
+
+        After a non-silencio route, back matter is dropped and one hop may
+        get_section a comunicación a hit says to see. A cross-reference to an
+        id outside the dump can silencio with missing_xref.
+        """
         expanded = expand_aliases(question)
         named = exclusive_named_id(question)
         if named:

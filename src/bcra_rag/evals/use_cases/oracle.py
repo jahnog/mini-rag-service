@@ -8,6 +8,11 @@ from bcra_rag.settings import Settings
 
 
 def oracle_chunks(index: IndexPort, gold: GoldRow, settings: Settings) -> list[Chunk]:
+    """Load the labeled clause from the index so generation is scored without search.
+
+    For texto ordenado, the first gold punto selects the clause. Other ids load
+    the document body.
+    """
     if not gold.gold_ids:
         return []
     chunks: list[Chunk] = []
@@ -32,6 +37,11 @@ def oracle_chunks(index: IndexPort, gold: GoldRow, settings: Settings) -> list[C
 
 
 def usable_oracle(gold: GoldRow, chunks: list[Chunk]) -> bool:
+    """False when the question is not answerable, gold ids are empty, or the punto is missing.
+
+    A texto ordenado row whose gold punto did not produce a chunk with that
+    punto is not usable.
+    """
     if not gold.answerable or not gold.gold_ids or not chunks:
         return False
     for chunk in chunks:
