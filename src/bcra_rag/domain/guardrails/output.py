@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from bcra_rag.domain.freeze import freeze_footer, names_freeze
+from bcra_rag.domain.guardrails.copy import NO_CLAUSE
 from bcra_rag.domain.guardrails.types import RailContext, RailPatch, RailResult, Stage
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding
@@ -16,6 +17,8 @@ PROMPT_FINGERPRINTS = (
     "id is a dump document id (A8359 or texto_ordenado), never a chunk id.",
     "Respondé solo con un objeto JSON con las claves answer, finding y citations.",
     "id es el id de documento del dump (A8359 o texto_ordenado), nunca un id de chunk.",
+    "id es el identificador de documento del extracto (A8359 o texto_ordenado), "
+    "nunca un identificador de fragmento.",
 )
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 TOOL_SHAPE = re.compile(
@@ -51,7 +54,7 @@ class CiteOrAbstainRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
-                detail="silencio has no citations",
+                detail="silencio no lleva citas",
                 enforced=self.enforce,
                 patch=RailPatch(citations=[]),
             )
@@ -86,7 +89,7 @@ class CiteOrAbstainRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
-                detail="citations exist in this turn",
+                detail="hay citas de esta consulta",
                 enforced=self.enforce,
                 patch=RailPatch(citations=valid),
             )
@@ -94,12 +97,12 @@ class CiteOrAbstainRail:
             rule=self.id,
             stage=self.stage,
             verdict="block",
-            detail="no this-turn dump id or quote",
+            detail="no hay identificador ni cita de esta consulta",
             enforced=self.enforce,
             patch=RailPatch(
                 finding=Finding.SILENCIO,
                 citations=[],
-                answer="No hay una cláusula citada en el dump CAMEX.",
+                answer=NO_CLAUSE,
             ),
         )
 
@@ -123,7 +126,7 @@ class FreezeHonestyRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="pass",
-                detail="draft already names last_refresh and to_as_of",
+                detail="la respuesta ya nombra la fecha del extracto",
                 enforced=self.enforce,
             )
         if VIGENTE_CLAIM.search(ctx.answer):
@@ -132,7 +135,7 @@ class FreezeHonestyRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="warn",
-                detail="rewrote answer to name last_refresh and to_as_of",
+                detail="se reescribió la respuesta para nombrar la fecha del extracto",
                 enforced=self.enforce,
                 patch=RailPatch(answer=rewritten),
             )
@@ -140,7 +143,7 @@ class FreezeHonestyRail:
             rule=self.id,
             stage=self.stage,
             verdict="pass",
-            detail="no unqualified vigente claim",
+            detail="no aparece «vigente hoy» sin fecha",
             enforced=self.enforce,
         )
 
@@ -165,7 +168,7 @@ class PromptLeakRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="block",
-                detail="delimiter leaked",
+                detail="se filtró el delimitador",
                 enforced=self.enforce,
             )
         for finger in PROMPT_FINGERPRINTS:
@@ -174,11 +177,11 @@ class PromptLeakRail:
                     rule=self.id,
                     stage=self.stage,
                     verdict="block",
-                    detail="system prompt fingerprint",
+                    detail="se filtró una instrucción interna",
                     enforced=self.enforce,
                 )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="no leak"
+            rule=self.id, stage=self.stage, verdict="pass", detail="sin filtración"
         )
 
 
@@ -200,12 +203,12 @@ class UnsafeOutputRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="redact",
-                detail="stripped ansi or tool-shaped tags",
+                detail="se quitaron marcas de formato o de herramientas",
                 enforced=self.enforce,
                 patch=RailPatch(answer=cleaned),
             )
         return RailResult(
-            rule=self.id, stage=self.stage, verdict="pass", detail="clean"
+            rule=self.id, stage=self.stage, verdict="pass", detail="limpio"
         )
 
 
@@ -235,7 +238,7 @@ class MarkdownSanitizeRail:
                 rule=self.id,
                 stage=self.stage,
                 verdict="redact",
-                detail="sanitized markup",
+                detail="se limpió el marcado",
                 enforced=self.enforce,
                 patch=RailPatch(answer=cleaned, citations=citations),
             )
@@ -243,7 +246,7 @@ class MarkdownSanitizeRail:
             rule=self.id,
             stage=self.stage,
             verdict="pass",
-            detail="no markup",
+            detail="sin marcado",
             patch=RailPatch(citations=citations),
         )
 

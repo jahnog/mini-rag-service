@@ -42,5 +42,5 @@ class RegexBackend:
 
     def score(self, text: str) -> tuple[bool, str]:
         if INJECTION.search(text):
-            return True, "prompt injection"
-        return False, "no injection"
+            return True, "inyección de instrucciones"
+        return False, "sin inyección"

@@ -1223,7 +1223,7 @@ async def test_llm_bad_json_retries_without_thinking(tmp_path: Path) -> None:
     assert llm.thinking_args == [None, False]
     assert response.abstain_reason != "llm_bad_json"
     assert any(
-        g.rule == "generate" and "retry_no_thinking" in (g.detail or "")
+        g.rule == "generate" and "reintento sin razonamiento" in (g.detail or "")
         for g in response.guardrails
     )
 
@@ -1273,7 +1273,7 @@ async def test_answers_end_with_spanish_freeze_footer(tmp_path: Path) -> None:
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
         request_id="f",
     )
-    assert "Según el dump del 2026-09-01 (texto ordenado al A8307)." in response.answer
+    assert "Según el extracto del 2026-09-01 (texto ordenado al A8307)." in response.answer
     assert "last_refresh=" not in response.answer
     weather = await use_case.run(
         ChatRequest(message="What's the weather in Madrid?"), request_id="w"
@@ -1327,6 +1327,10 @@ async def test_prior_exchange_reaches_prompt_as_context(tmp_path: Path) -> None:
     assert "Usuario: qué se exige para liquidar exportaciones" in prompt
     assert "Asistente: Los residentes deberán liquidar" in prompt
     assert "Pregunta:\nqué se exige para liquidar exportaciones\n¿cuánto plazo?" in prompt
+    assert "Extracto: actualización=" in prompt
+    assert "[documento=" in prompt
+    assert "chunk_id=" not in prompt
+    assert "Dump:" not in prompt
 
 
 @pytest.mark.asyncio

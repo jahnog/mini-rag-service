@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -10,25 +11,29 @@ from bcra_rag.evals.settings import EvalSettings
 _PROMPTS = {
     "faithfulness": (
         "¿Cada afirmación de la respuesta está respaldada por el contexto? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Contexto:\n{context}\nRespuesta:\n{answer}"
     ),
     "answer_relevancy": (
         "¿La respuesta aborda la pregunta? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Pregunta:\n{question}\nRespuesta:\n{answer}"
     ),
     "context_precision": (
         "¿Este fragmento sirve para responder la pregunta? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Pregunta:\n{question}\nFragmento:\n{chunk}"
     ),
     "context_recall": (
         "¿Esta oración está respaldada por el contexto? "
-        'Responde JSON {{"label": "yes" o "no"}}.\n'
+        'Respondé solo con un JSON {"label": "sí"} o {"label": "no"}.\n'
         "Oración:\n{sentence}\nContexto:\n{context}"
     ),
 }
+_POSITIVE_LABEL = re.compile(
+    r"\b(sí|si|yes|faithful|unfaithful|relevant|irrelevant|correct)\b",
+    re.IGNORECASE,
+)
 
 
 class PhoenixJudge:
@@ -92,11 +97,19 @@ def _label(raw: str) -> str:
     try:
         payload = json.loads(text)
         if isinstance(payload, dict) and payload.get("label"):
-            return str(payload["label"]).strip().lower()
+            return _normalize(str(payload["label"]))
     except json.JSONDecodeError:
         pass
-    lowered = text.lower()
-    for token in ("yes", "no", "faithful", "unfaithful", "relevant", "irrelevant"):
-        if token in lowered:
-            return token
+    match = _POSITIVE_LABEL.search(text)
+    if match is not None:
+        return _normalize(match.group(1))
+    if re.search(r"\bno\b", text, re.IGNORECASE):
+        return "no"
     return "no"
+
+
+def _normalize(token: str) -> str:
+    cleaned = token.strip().lower()
+    if cleaned in {"sí", "si"}:
+        return "yes"
+    return cleaned

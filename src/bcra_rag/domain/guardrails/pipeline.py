@@ -17,6 +17,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from typing import Any
 
+from bcra_rag.domain.guardrails.copy import detail_label
 from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.types import (
     ChunkAction,
@@ -161,7 +162,7 @@ class GuardrailPipeline:
             if rail is None:
                 continue
             if short_circuit and blocked_by is not None:
-                results.append(_skipped(rail, f"blocked by {blocked_by}"))
+                results.append(_skipped(rail, detail_label(f"blocked by {blocked_by}")))
                 continue
             raw = rail.run(ctx)
             result = _apply_enforce(raw, rail, self._global_enforce)
@@ -256,13 +257,13 @@ class ChunkMappingRail:
             kept.append(item.chunk)
         if dropped and not kept:
             verdict: str = "block"
-            detail = f"dropped {dropped} of {scanned}"
+            detail = f"se descartaron {dropped} de {scanned}"
         elif dropped or redacted:
             verdict = "redact"
-            detail = f"scanned {scanned}; dropped {dropped}; redacted {redacted}"
+            detail = f"revisados {scanned}; descartados {dropped}; recortados {redacted}"
         else:
             verdict = "pass"
-            detail = f"scanned {scanned}"
+            detail = f"revisados {scanned}"
         return RailResult(
             rule=self.id,
             stage="retrieve",

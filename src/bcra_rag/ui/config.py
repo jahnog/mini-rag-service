@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from bcra_rag.domain.disclaimer import DISCLAIMER_TEXT
 from bcra_rag.domain.freeze import dump_date as dump_date
+from bcra_rag.domain.guardrails.copy import rule_label, stage_label, verdict_label
 from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
 from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
 from bcra_rag.domain.l1_results import load_l1 as load_l1
@@ -16,29 +17,29 @@ from bcra_rag.schemas import ChatResponse, HealthResponse
 from bcra_rag.settings import Settings
 
 CANNED_PROMPTS: tuple[str, ...] = (
-    "Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
-    "Qué se exige hoy para liquidar el cobro de exportaciones",
-    "Sigue vigente la Comunicación A de 2001-2002 sobre el cepo como regla actual?",
-    "Qué dice la Comunicación A 9999?",
+    "¿Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
+    "¿Qué se exige hoy para liquidar el cobro de exportaciones?",
+    "¿Sigue vigente la Comunicación A de 2001-2002 sobre el cepo como regla actual?",
+    "¿Qué dice la Comunicación A 9999?",
 )
 
 L1_ACCORDION_OPEN_DEFAULT = False
 EMPTY_CITATION_CARD = "Todavía no hay citas en esta consulta."
-EMPTY_TRUST = '<p class="obs-empty">Sin guardrails todavía.</p>'
+EMPTY_TRUST = '<p class="obs-empty">Sin controles todavía.</p>'
 PENDING_CITATION_CARD = "Buscando citas…"
-PENDING_TRUST = '<p class="obs-empty">Guardrails en curso…</p>'
+PENDING_TRUST = '<p class="obs-empty">Controles en curso…</p>'
 TURN_FAILED_NOTICE = "Error interno al responder. Probá de nuevo."
 CITATIONS_KICKER = "Citas"
-GUARDRAILS_KICKER = "Guardrails"
+GUARDRAILS_KICKER = "Controles"
 _TRUST_VERDICTS = frozenset({"pass", "warn", "block", "redact", "skipped"})
 
-LAYOUT_STAFF = "Staff (IA)"
+LAYOUT_STAFF = "Operador (IA)"
 LAYOUT_USER = "Usuario"
 LAYOUT_STAFF_CLASS = "layout-staff"
 LAYOUT_USER_CLASS = "layout-user"
 LAYOUT_HELP = (
-    "Staff (IA) muestra el inspector de citas, el log de guardrails, "
-    "Calidad L1 y las fechas del dump.\n\n"
+    "Operador (IA) muestra el inspector de citas, el registro de controles, "
+    "Calidad L1 y las fechas del extracto.\n\n"
     "Usuario deja solo la pregunta, la respuesta, Enviar, Limpiar y los ejemplos."
 )
 AUTH_KICKER = "Ingreso"
@@ -56,17 +57,18 @@ AUTH_STATUS_SENDING = "Enviando…"
 
 def auth_status_smtp_ok(ttl_s: int) -> str:
     minutes = max(1, round(ttl_s / 60))
+    unit = "minuto" if minutes == 1 else "minutos"
     return (
         "Listo. Si pediste un código hace menos de "
-        f"{minutes} minutos, usá ese; si no, revisá tu correo."
+        f"{minutes} {unit}, usá ese; si no, revisá tu correo."
     )
 
 
 AUTH_STATUS_SMTP_OK = auth_status_smtp_ok(300)
 AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
-AUTH_STATUS_SMTP_PROBLEM = "Problemas enviando el código"
+AUTH_STATUS_SMTP_PROBLEM = "Hubo un problema al enviar el código."
 AUTH_STATUS_FLASH_MS = 2000
-AUTH_NOTICE = "Tenés que ingresar con tu email."
+AUTH_NOTICE = "Tenés que ingresar con tu correo."
 
 
 def freeze_chips_html(health: HealthResponse) -> str:
@@ -77,10 +79,11 @@ def freeze_chips_html(health: HealthResponse) -> str:
     n_docs = html.escape(str(health.n_docs))
     return (
         '<div class="obs-chips">'
-        f'<span class="obs-chip" title="Texto ordenado vigente al {to_as_of}">TO {to_as_of}</span>'
-        f'<span class="obs-chip" title="Última actualización del corpus: {iso}">Dump {date}</span>'
+        f'<span class="obs-chip" title="Texto ordenado según {to_as_of}">TO {to_as_of}</span>'
+        f'<span class="obs-chip" title="Última actualización del corpus: {iso}">'
+        f"Extracto {date}</span>"
         f'<span class="obs-chip" title="Última Comunicación A ingerida">Última A {last_a}</span>'
-        f'<span class="obs-chip" title="Documentos en el índice">{n_docs} docs</span>'
+        f'<span class="obs-chip" title="Documentos en el índice">{n_docs} documentos</span>'
         "</div>"
     )
 
@@ -111,7 +114,7 @@ def http_turn_notice(status: int, detail: str | None = None) -> str:
     if status == 401:
         if detail == "authentication required":
             return AUTH_NOTICE
-        return "Se requiere DEMO_API_KEY."
+        return "Se requiere la clave de demostración."
     if status == 429:
         return "Demasiados intentos. Probá más tarde."
     return "Solicitud rechazada."
@@ -153,14 +156,16 @@ def l1_markdown(data: dict[str, Any]) -> str:
         label = (
             "**Números de muestra, no publicados** — no son una corrida de operador.\n\n"
         )
-    headline = data.get("headline_metric", "citation_id_exact")
+    headline = _metric_label(str(data.get("headline_metric", "citation_id_exact")))
     raw_chunking = data.get("chunking")
     chunking: dict[str, Any] = raw_chunking if isinstance(raw_chunking, dict) else {}
     a_score = chunking.get("A", data.get("A", "—"))
     b_score = chunking.get("B", data.get("B", "—"))
     b_docs = chunking.get("b_documents") or data.get("b_documents") or []
     slices = data.get("slices") or {}
-    slice_lines = "\n".join(f"- {key}: {value}" for key, value in slices.items())
+    slice_lines = "\n".join(
+        f"- {_slice_label(str(key))}: {value}" for key, value in slices.items()
+    )
     raw_retrieval = data.get("retrieval")
     raw_generation = data.get("generation")
     retrieval: dict[str, Any] = raw_retrieval if isinstance(raw_retrieval, dict) else {}
@@ -176,13 +181,13 @@ def l1_markdown(data: dict[str, Any]) -> str:
     return (
         f"{label}"
         f"Métrica principal **{headline}**: {citation_shown}\n\n"
-        f"hit@5: {hit_shown} · MRR: {mrr_shown}\n\n"
+        f"acierto@5: {hit_shown} · MRR: {mrr_shown}\n\n"
         f"{retrieval_block}\n\n"
         f"{generation_block}\n\n"
         f"{judge_line + chr(10) + chr(10) if judge_line else ''}"
-        f"Chunking A vs B: A {a_score} · B {b_score}\n\n"
+        f"Fragmentos A vs B: A {a_score} · B {b_score}\n\n"
         f"Documentos de la estrategia B: {', '.join(str(x) for x in b_docs) or '(ninguno)'}\n\n"
-        f"Cortes:\n{slice_lines or '- (ninguno)'}"
+        f"Grupos:\n{slice_lines or '- (ninguno)'}"
     )
 
 
@@ -195,11 +200,58 @@ def _skipped_or_value(value: object, skipped: bool) -> str:
 
 
 _LATENCY_KEYS = frozenset({"latency_ms_p50", "latency_ms_p95"})
+_METRIC_LABELS = {
+    "citation_id_exact": "coincidencia de cita",
+    "hit_at_5": "acierto@5",
+    "precision_at_5": "precisión@5",
+    "mrr": "MRR",
+    "ndcg_at_5": "NDCG@5",
+    "latency_ms_p50": "latencia p50",
+    "latency_ms_p95": "latencia p95",
+    "n_context_recall": "juicios de exhaustividad",
+    "citation_punto_exact": "punto exacto",
+    "citation_snippet_grounded": "fragmento anclado",
+    "finding_exact": "hallazgo exacto",
+    "context_source": "fuente del contexto",
+    "faithfulness": "fidelidad",
+    "answer_relevancy": "relevancia",
+    "context_precision": "precisión de contexto",
+    "context_recall": "exhaustividad del contexto",
+}
+_SLICE_LABELS = {
+    "cross-ref": "referencia cruzada",
+    "english": "inglés",
+    "post-to": "posterior al texto ordenado",
+    "superseded": "reemplazada",
+}
+_SKIP_LABELS = {
+    "missing_extra": "falta la dependencia del juez",
+    "not_requested": "no se pidió",
+    "no_llm": "sin modelo",
+    "no_judge": "sin juez",
+    "deterministic_only": "solo métricas deterministas",
+    "retrieved_context_requires_retrieval": "hace falta la búsqueda",
+}
+_CONTEXT_SOURCES = {"oracle": "oráculo", "retrieved": "recuperado"}
+
+
+def _metric_label(key: str) -> str:
+    return _METRIC_LABELS.get(key, key)
+
+
+def _slice_label(key: str) -> str:
+    return _SLICE_LABELS.get(key, key)
+
+
+def _skip_label(reason: str) -> str:
+    return _SKIP_LABELS.get(reason, reason)
 
 
 def _fmt_metric(key: str, value: object) -> str:
     if value is None:
         return "omitido"
+    if key == "context_source" and isinstance(value, str):
+        return _CONTEXT_SOURCES.get(value, value)
     if isinstance(value, bool):
         return "sí" if value else "no"
     if key in _LATENCY_KEYS and isinstance(value, int | float):
@@ -214,7 +266,8 @@ def _judge_markdown(raw: object) -> str:
         return ""
     model = str(raw.get("model") or "—")
     if raw.get("skipped"):
-        return f"Juez: {model} · omitido ({raw.get('skip_reason') or 'omitido'})"
+        reason = _skip_label(str(raw.get("skip_reason") or "omitido"))
+        return f"Juez: {model} · omitido ({reason})"
     return f"Juez: {model} · {int(raw.get('calls') or 0)} llamadas"
 
 
@@ -223,7 +276,7 @@ def _suite_markdown(title: str, block: dict[str, Any]) -> str:
     if not block:
         return f"## {title}\n\n(sin datos)"
     if block.get("skipped"):
-        reason = block.get("skip_reason") or "omitido"
+        reason = _skip_label(str(block.get("skip_reason") or "omitido"))
         return f"## {title}\n\nomitido ({reason})"
     n = block.get("n")
     heading = f"## {title} (n={n})" if n is not None else f"## {title}"
@@ -232,7 +285,7 @@ def _suite_markdown(title: str, block: dict[str, Any]) -> str:
     for key, value in block.items():
         if key in skip:
             continue
-        lines.append(f"- {key}: {_fmt_metric(key, value)}")
+        lines.append(f"- {_metric_label(str(key))}: {_fmt_metric(key, value)}")
     return "\n".join(lines)
 
 
@@ -241,7 +294,7 @@ def footer_text(last_refresh: str | None) -> str:
         return DISCLAIMER_TEXT
     return (
         "Extracto no oficial. No es el BCRA, no es asesoramiento legal ni de inversión. "
-        f"Fecha de dump {dump_date(last_refresh)}."
+        f"Fecha del extracto: {dump_date(last_refresh)}."
     )
 
 
@@ -252,7 +305,7 @@ _THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
 THOUGHT_PUBLISH_S = 0.5
 # retrieve = search, generate = model draft, verify = the output rails.
 PHASE_COPY = {
-    "retrieve": "Buscando en el dump…",
+    "retrieve": "Buscando en el extracto…",
     "generate": "Redactando respuesta…",
     "verify": "Verificando citas…",
 }
@@ -367,7 +420,7 @@ def citation_card_markdown(card: dict[str, Any] | None) -> str:
     return (
         f"**{card.get('id')}** · fecha {fecha} · punto {punto}\n\n"
         f"{snippet}\n\n"
-        f"copy-id `{copy_id}`\n\n"
+        f"identificador `{copy_id}`\n\n"
         f"{url}"
     )
 
@@ -433,14 +486,17 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         stage = str(item.get("stage") or "")
         if stage and stage != current:
             current = stage
-            parts.append(f'<div class="obs-trust-stage">{html.escape(stage)}</div>')
-        rule = html.escape(str(item.get("rule") or ""))
-        verdict = html.escape(str(item.get("verdict") or ""))
+            parts.append(
+                f'<div class="obs-trust-stage">{html.escape(stage_label(stage))}</div>'
+            )
+        rule = str(item.get("rule") or "")
+        verdict = str(item.get("verdict") or "")
         detail = html.escape(str(item.get("detail") or "").strip())
         cls = verdict if verdict in _TRUST_VERDICTS else "skipped"
+        shown = html.escape(f"{verdict_label(verdict)} {rule_label(rule)}")
         row = (
             '<div class="obs-trust-row">'
-            f'<span class="obs-chip {cls}">{verdict} {rule}</span>'
+            f'<span class="obs-chip {cls}">{shown}</span>'
         )
         if detail:
             row += f'<span class="obs-trust-detail">{detail}</span>'
