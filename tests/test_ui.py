@@ -218,6 +218,8 @@ def test_observatory_css_tokens() -> None:
     assert "#examples-kicker" in css
     assert "#observatory-actions" not in css
     assert "#observatory-side .gr-accordion" in css
+    side_rules = re.findall(r"#observatory-side\s*\{([^}]*)\}", css)
+    assert any("flex-wrap: nowrap" in block for block in side_rules)
     assert "svelte-" not in css.split(".thought-group")[1][:400]
 
 

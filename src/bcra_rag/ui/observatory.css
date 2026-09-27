@@ -138,6 +138,12 @@ gradio-app {
   min-width: 0 !important;
 }
 
+/* Gradio's row sets flex-wrap: wrap on this column. With the desktop
+   max-height, that wrap lays the rail out in extra columns. */
+#observatory-side {
+  flex-wrap: nowrap !important;
+}
+
 /* ---------- Sign-in card ---------- */
 
 #auth-login-fields,
