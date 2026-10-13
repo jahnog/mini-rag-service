@@ -1,3 +1,5 @@
+"""First load of the CAMEX dump into the local index. Not part of a chat turn."""
+
 from __future__ import annotations
 
 import asyncio

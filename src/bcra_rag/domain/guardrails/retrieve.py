@@ -1,3 +1,5 @@
+"""Checks on the passages search returned. The ordered list is guardrails/policy.yaml."""
+
 from __future__ import annotations
 
 import re

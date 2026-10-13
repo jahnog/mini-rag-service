@@ -240,6 +240,8 @@ class AnswerQuery:
             to_as_of=to_as_of,
         )
 
+        # Input checks, and /clear. An enforced block or a cleared session
+        # returns silencio and does not search or call the model.
         if CLEAR_RE.match(request.message or ""):
             self._sessions.clear(session_id)
             ctx.finding = Finding.SILENCIO
@@ -321,6 +323,9 @@ class AnswerQuery:
                 user_message=request.message,
             )
 
+        # Index not ready skips the model before any search. Otherwise pick a
+        # route and load or search. A nearest passage is a candidate, not yet
+        # an answer.
         if not health.index_ready:
             ctx.finding = Finding.SILENCIO
             ctx.answer = "El índice no está listo."
@@ -369,6 +374,8 @@ class AnswerQuery:
         if routed.kind == "named":
             ctx.section_chars = len(routed.hits[0].text) if routed.hits else 0
 
+        # Empty route or no hits: silencio, and the model is not called.
+        # Index-not-ready, above, is the same kind of skip for a different reason.
         if routed.silencio or not routed.hits:
             reason = routed.silencio_reason or "empty_hits"
             ctx.finding = Finding.SILENCIO
@@ -403,6 +410,7 @@ class AnswerQuery:
             )
             return response
 
+        # Retrieve checks can drop every passage. If they do, the model is not called.
         ctx.hits = list(routed.hits)
         self._last_context = "\n\n".join(chunk.text for chunk in ctx.hits)
         _safe_record_retriever(
@@ -431,6 +439,8 @@ class AnswerQuery:
                 sidecar=_sidecar(routed.hits, []),
             )
 
+        # The model drafts from these passages only. Output checks then accept,
+        # adjust, or hide that draft.
         generated = await generate_from_context(
             self._llm,
             pipe,

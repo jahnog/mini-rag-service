@@ -1,3 +1,12 @@
+"""Chat model behind an OpenAI-compatible HTTP endpoint.
+
+SYSTEM_PROMPT is the standing instruction: reply with JSON (answer, finding,
+citations) and use only the pasted passages. The prompt argument is the user
+message built by answer_query._prompt, which carries those passages. Thinking
+tokens, when the server emits them, are a side trace. The page decides
+whether to ask for them.
+"""
+
 from __future__ import annotations
 
 import json

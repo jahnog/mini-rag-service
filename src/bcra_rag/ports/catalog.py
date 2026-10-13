@@ -1,3 +1,5 @@
+"""Which CAMEX PDFs exist on the BCRA site. Used by the ingest job, not by chat."""
+
 from __future__ import annotations
 
 from typing import Protocol

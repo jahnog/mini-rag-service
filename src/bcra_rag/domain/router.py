@@ -74,9 +74,10 @@ class Router:
     def route(self, question: str, *, k: int, to_as_of: str | None) -> RouteResult:
         """Pick a search strategy. This does not decide what is legally in force.
 
-        named: the question names one Comunicación in the manifest; get_section
-        loads it, and a punto when the question names one. A missing id is
-        silencio missing_document.
+        named: one Comunicación in the manifest is loaded with get_section,
+        and a punto when the question names one. A vigente comparison (two
+        ids, "vs", or "regla vigente") stays a search instead. A missing id
+        is silencio missing_document.
 
         vigente: two searches, texto ordenado then later circulars, merged.
         The dump is a frozen snapshot, not today's law.

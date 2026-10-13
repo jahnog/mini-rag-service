@@ -1,3 +1,5 @@
+"""Short chat memory for follow-up questions. Not the vector index."""
+
 from __future__ import annotations
 
 from typing import Protocol

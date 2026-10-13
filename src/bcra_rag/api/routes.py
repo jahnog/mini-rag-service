@@ -1,3 +1,10 @@
+"""HTTP surface on the same process as the page.
+
+GET /health reports whether the local index is loaded. GET /l1 reads the
+stored eval file and does not score a question. POST /chat and
+POST /chat/clear go through handle.py. The Gradio page is mounted here too.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

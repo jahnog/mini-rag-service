@@ -1,3 +1,10 @@
+"""Gate in front of one chat turn.
+
+Requires the email session cookie, then the optional demo key, the rate
+limit, and the daily turn caps. The session id is bound to the mailbox, so
+one person's history is not another's. AnswerQuery runs only after that.
+"""
+
 from __future__ import annotations
 
 import hashlib

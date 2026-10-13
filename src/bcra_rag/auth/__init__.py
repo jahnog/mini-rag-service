@@ -1,3 +1,9 @@
+"""Email login in front of chat. This module does not search or call the model.
+
+A one-time code is mailed, then a signed session cookie is set. Chat and the
+page refuse a turn without that cookie.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

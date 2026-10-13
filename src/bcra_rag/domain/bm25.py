@@ -1,5 +1,9 @@
 """Keyword half of search: BM25 over the passages, with no extra dependency.
 
+BM25 ranks a passage higher when the question's distinctive words appear in
+it, which catches a circular number or a rare legal term that a meaning
+vector can miss.
+
 tokenize drops a fixed Spanish stopword list and tokens shorter than two
 characters, and adds an a#### token for each comunicación number. IDF then
 down-weights terms that still appear in many passages.
