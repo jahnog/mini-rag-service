@@ -1,3 +1,13 @@
+"""Wire the web process and the offline ingest job.
+
+build_app is what uvicorn serves: the local index, the chat model, in-memory
+chat history, the guardrail checks, email login, and one FastAPI app that
+also mounts the page. build_ingest is the download job, not a request.
+
+Ports are the interfaces. Chroma, pdftotext, and the HTTP chat client are the
+adapters behind them. Tests pass fakes into build_app.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,8 @@
+"""Process entry for uvicorn.
+
+Configures the chat log, then exposes the FastAPI app from get_app().
+"""
+
 from bcra_rag.composition import get_app
 from bcra_rag.logconfig import configure_logging
 from bcra_rag.settings import Settings

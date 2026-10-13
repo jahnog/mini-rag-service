@@ -1,3 +1,12 @@
+"""Local Chroma store of CAMEX passages (collection bcra_camex).
+
+Upsert turns each passage into numbers and saves them. Search turns the
+question into numbers the same way. The keyword index is an in-memory cache
+of those stored texts, refreshed when the collection count or the manifest
+time changes. It is not a second database. The nearest passages are
+candidates, not yet an answer.
+"""
+
 from __future__ import annotations
 
 import threading

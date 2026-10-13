@@ -1,3 +1,10 @@
+"""Process-local chat memory.
+
+Keeps the last six messages for about an hour, then drops them. A restart
+drops them too. This is not the Chroma index, and it is not the transcript
+drawn in the browser.
+"""
+
 from __future__ import annotations
 
 import time

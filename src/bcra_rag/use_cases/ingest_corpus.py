@@ -1,3 +1,9 @@
+"""Fill the local index. This does not run when someone asks a question.
+
+Downloads BCRA CAMEX PDFs only, extracts the text, splits each document into
+passages, and stores them. Chat later searches that store.
+"""
+
 from __future__ import annotations
 
 import hashlib

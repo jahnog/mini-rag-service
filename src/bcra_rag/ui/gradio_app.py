@@ -1,7 +1,15 @@
 """Browser UI for one CAMEX chat turn, the same answer path as POST /chat.
 
-Staff (IA) shows the side column: citations, the guardrail log, and Calidad L1.
-Usuario hides it. Calidad L1 is the eval file read while these blocks are built.
+The chat box calls handle_turn. Login is an emailed one-time code or link.
+Operador (IA) shows citations, the guardrail log, and the stored Calidad L1
+numbers. Usuario hides that column. The phase labels (retrieve, generate,
+verify) are progress text, not extra models.
+
+The bubbles on the page are not what a follow-up searches. That memory is
+the session store. Usuario turns the model's thinking trace off unless
+LLM_THINKING_USER_LAYOUT is set; the trace is not the answer. Calidad L1 is
+a file from an offline run. An optional per-turn judge (CHAT_TURN_EVALS, off
+by default) can score a finished answer and does not change it.
 """
 
 from __future__ import annotations
@@ -488,6 +496,8 @@ def build_blocks(
     auth: AuthModule,
     turn_evaluator: TurnEvaluator | None = None,
 ) -> gr.Blocks:
+    """Build the widgets and wire submit to handle_turn, the same path as POST /chat."""
+
     health = dump_health(settings, index)
     resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
     l1_path = Path(settings.evals_dir) / L1_FILENAME

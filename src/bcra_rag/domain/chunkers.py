@@ -1,6 +1,10 @@
 """Split one circular into the passages the index stores.
 
-A is a word window. B follows Sección, punto, and Anexo lines.
+A chunk is the unit that is later turned into numbers and searched. B follows
+Sección, punto, and Anexo headings: the texto ordenado, and a circular whose
+extract starts with a Sección or a single punto. A is a word window: reprints,
+and everything else. The size cap is embedding_max_chars, so the embedding
+server can accept the passage. It is not the clip applied later in the prompt.
 """
 
 from __future__ import annotations

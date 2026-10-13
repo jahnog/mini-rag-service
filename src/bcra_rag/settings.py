@@ -6,6 +6,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Two models, and three different size caps.
+
+    EMBEDDING_* turns each stored passage into numbers so search can compare
+    meaning. LLM_* is the chat model that writes the answer. They are not
+    interchangeable. data/ holds the downloaded PDFs, the extracted text, and
+    the Chroma index. Switching the embedding model means deleting data/index
+    and ingesting again.
+
+    embedding_max_chars limits a passage when it is stored.
+    max_context_chars limits how much retrieved text survives into the prompt.
+    context_chunk_chars clips each passage inside that prompt and inside a
+    named-document load.
+    """
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,3 +1,8 @@
+"""Append new Comunicaciones A, and replace the texto ordenado when its file changed.
+
+Refuses to start unless a full ingest has already finished. Not part of a chat turn.
+"""
+
 from __future__ import annotations
 
 import asyncio

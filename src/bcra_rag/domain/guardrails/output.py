@@ -1,3 +1,8 @@
+"""Checks on the model's draft before the page shows it.
+
+The ordered list is guardrails/policy.yaml.
+"""
+
 from __future__ import annotations
 
 import re

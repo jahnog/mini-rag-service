@@ -1,3 +1,10 @@
+"""Label a catalog title before it is stored.
+
+comunicacion is one circular. texto_ordenado is the consolidated text. event
+is a reprint (actualización del texto ordenado, hojas de reemplazo). A
+"vigente" search uses the first two kinds only.
+"""
+
 from __future__ import annotations
 
 import re

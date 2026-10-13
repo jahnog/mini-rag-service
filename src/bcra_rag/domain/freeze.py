@@ -1,4 +1,7 @@
-"""Dump freeze wording shared by the answer path, the freeze-honesty rail and the UI."""
+"""Dump freeze wording shared by the answer path, the freeze-honesty rail and the UI.
+
+The footer dates the answer to the last downloaded dump, not to today's BCRA site.
+"""
 
 from __future__ import annotations
 

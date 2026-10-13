@@ -1,3 +1,5 @@
+"""Question checks, before any search. The ordered list is guardrails/policy.yaml."""
+
 from __future__ import annotations
 
 import re
