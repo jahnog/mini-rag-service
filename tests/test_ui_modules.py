@@ -85,7 +85,6 @@ async def test_turn_service_forwards_the_same_collaborators_for_chat_and_clear()
         limiter=MagicMock(),
         turn_caps=MagicMock(),
         auth=auth,
-        turn_evaluator=MagicMock(),
     )
     browser_request = SimpleNamespace()
     with (
@@ -115,7 +114,6 @@ async def test_turn_service_forwards_the_same_collaborators_for_chat_and_clear()
         "limiter",
         "turn_caps",
         "auth",
-        "turn_evaluator",
     ):
         assert chat_call[name] is clear_call[name] is getattr(service, name)
     assert chat_call["message"] == "hola"

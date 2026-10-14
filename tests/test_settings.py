@@ -15,27 +15,6 @@ def test_extra_env_keys_do_not_break_load(monkeypatch, tmp_path: Path) -> None:
     assert settings.dump_dir == tmp_path / "bcra" / "current"
     assert settings.index_dir == tmp_path / "index"
 
-def test_eval_settings_are_not_on_chat_settings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from bcra_rag.evals.settings import EvalSettings
-
-    monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
-    settings = Settings(data_dir=tmp_path)
-    assert not hasattr(settings, "judge_model")
-    assert not hasattr(settings, "phoenix_api_key")
-    eval_settings = EvalSettings(_env_file=None)
-    assert eval_settings.judge_model == "grok-4.3"
-    assert eval_settings.judge_reasoning_effort == "none"
-    assert eval_settings.phoenix_api_key == ""
-
-
-def test_eval_settings_load_phoenix_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    from bcra_rag.evals.settings import EvalSettings
-
-    monkeypatch.setenv("PHOENIX_API_KEY", "pk-test")
-    eval_settings = EvalSettings(_env_file=None)
-    assert eval_settings.phoenix_api_key == "pk-test"
 
 
 def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -62,7 +41,6 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.rate_limit_window_s == 60
     assert settings.chat_turns_per_email_day == 30
     assert settings.chat_turns_per_process_day == 100
-    assert settings.chat_turn_evals is False
     assert settings.demo_api_key == ""
     assert settings.llm_base_url.startswith("https://")
     assert settings.evals_dir == Path("evals")
@@ -72,8 +50,6 @@ def test_chat_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert settings.embedding_max_chars == 2048
     assert settings.llm_enable_thinking is True
     assert settings.llm_timeout_s == 60.0
-    assert settings.matomo_url == ""
-    assert settings.matomo_site_id == ""
     assert settings.llm_temperature == 0.1
     assert settings.llm_max_tokens == 1500
     assert settings.llm_seed is None

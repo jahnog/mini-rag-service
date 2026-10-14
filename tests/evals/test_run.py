@@ -8,8 +8,6 @@ import pytest
 from bcra_rag.adapters.index_fake import FakeIndex
 from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.composition import default_pipeline
-from bcra_rag.evals.adapters.judge_fake import FakeJudge
-from bcra_rag.evals.adapters.sink_noop import NoOpEvalSink
 from bcra_rag.evals.domain.gold import load_gold
 from bcra_rag.evals.use_cases.oracle import oracle_chunks
 from bcra_rag.evals.use_cases.run_l1 import L1_SCHEMA_KEYS, run_l1
@@ -72,7 +70,6 @@ async def test_run_l1_dry_run_schema(tmp_path: Path) -> None:
         index=FakeIndex(),
         unpublished=True,
         suites="retrieval",
-        deterministic_only=True,
     )
     assert out.is_file()
     data = json.loads(out.read_text(encoding="utf-8"))
@@ -83,8 +80,6 @@ async def test_run_l1_dry_run_schema(tmp_path: Path) -> None:
     assert data["unpublished"] is True
     assert data["retrieval"]["skipped"] is False
     assert data["generation"]["skipped"] is True
-    assert data["judge"]["skipped"] is True
-    assert data["phoenix"]["exported"] is False
     assert data["citation_id_exact"] is None
     assert payload["n"] == 50
 
@@ -99,7 +94,6 @@ async def test_retrieval_does_not_call_llm(tmp_path: Path) -> None:
         index=FakeIndex(),
         llm=llm,
         suites="retrieval",
-        deterministic_only=True,
     )
     assert llm.calls == []
 
@@ -118,8 +112,6 @@ async def test_oracle_generation_does_not_search(tmp_path: Path) -> None:
         unpublished=False,
         suites="generation",
         generation_context="oracle",
-        deterministic_only=True,
-        judge=FakeJudge(),
     )
     assert index.search_calls == []
     assert payload["generation"]["skipped"] is False
@@ -142,13 +134,12 @@ async def test_a3500_oracle_uses_extract(tmp_path: Path) -> None:
 
 
 def test_retrieval_silencio_and_vigente() -> None:
-    from bcra_rag.domain.guardrails.pipeline import NoOpTracer
     from bcra_rag.evals.use_cases.run_l1 import _demo_manifest, _seed_demo_index
 
     index = FakeIndex()
     _seed_demo_index(index)
     rows = load_gold(GOLD)
-    samples = run_retrieval(rows, index, _demo_manifest(), tracer=NoOpTracer())
+    samples = run_retrieval(rows, index, _demo_manifest())
     by_id = {sample.gold.id: sample for sample in samples}
     assert by_id["g13"].retrieved_ids == [] or by_id["g13"].silencio
     vigente = by_id["g05"]
@@ -156,7 +147,7 @@ def test_retrieval_silencio_and_vigente() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a9999_skips_judged_generation(tmp_path: Path) -> None:
+async def test_a9999_is_silencio_without_search(tmp_path: Path) -> None:
     from bcra_rag.evals.use_cases.run_generation import run_generation
     from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
 
@@ -173,7 +164,6 @@ async def test_a9999_skips_judged_generation(tmp_path: Path) -> None:
         context_source="oracle",
     )
     assert samples[0].finding is Finding.SILENCIO
-    assert samples[0].usable_context is False
     assert index.search_calls == []
 
 
@@ -190,7 +180,6 @@ async def test_l1_run_appends_published_metrics(tmp_path: Path) -> None:
         index=FakeIndex(),
         unpublished=True,
         suites="retrieval",
-        deterministic_only=True,
     )
     first = _l1_events(log_file.read_text(encoding="utf-8"))
     assert first
@@ -205,7 +194,6 @@ async def test_l1_run_appends_published_metrics(tmp_path: Path) -> None:
         index=FakeIndex(),
         unpublished=False,
         suites="retrieval",
-        deterministic_only=True,
     )
     later = _l1_events(log_file.read_text(encoding="utf-8"))
     assert later[-1]["unpublished"] is False
@@ -221,31 +209,10 @@ def test_shipped_l1_fixture_is_operator_run() -> None:
         assert key in data
     assert data["retrieval"]["skipped"] is False
     assert data["generation"]["skipped"] is False
-    assert data["judge"]["skipped"] is True
     assert isinstance(data["citation_id_exact"], int | float)
     assert 0.0 <= data["citation_id_exact"] <= 1.0
     assert data["generation"]["n"] > 0
     assert data["retrieval"]["n"] > 0
-
-
-@pytest.mark.asyncio
-async def test_sink_failure_still_writes(tmp_path: Path) -> None:
-    class Boom(NoOpEvalSink):
-        def record(self, report, *, retrieval, generation) -> None:  # type: ignore[no-untyped-def]
-            raise RuntimeError("collector down")
-
-    out = tmp_path / "l1.json"
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=out,
-        settings=Settings(data_dir=tmp_path),
-        index=FakeIndex(),
-        sink=Boom(),
-        suites="retrieval",
-        deterministic_only=True,
-    )
-    assert out.is_file()
-    assert data["phoenix"]["exported"] is False
 
 
 def _l1_events(text: str) -> list[dict[str, object]]:
@@ -260,36 +227,6 @@ def _l1_events(text: str) -> list[dict[str, object]]:
         if isinstance(data, dict) and data.get("event") == "l1_run":
             events.append(data)
     return events
-
-
-class _StubIndex:
-    def __init__(self, text: str = "", boom: bool = False) -> None:
-        self.text = text
-        self.boom = boom
-        self.search_calls: list[str] = []
-
-    def upsert(self, doc_id: str, chunks: object) -> None:
-        del doc_id, chunks
-
-    def has_document(self, doc_id: str) -> bool:
-        del doc_id
-        return False
-
-    def delete_document(self, doc_id: str) -> None:
-        del doc_id
-
-    def search(self, query: str, *, k: int = 5, filters: object = None) -> list[object]:
-        del k, filters
-        self.search_calls.append(query)
-        return []
-
-    def get_section(self, doc_id: str, punto: str | None = None) -> str:
-        del punto
-        if self.boom:
-            raise RuntimeError("no section")
-        if doc_id == "texto_ordenado":
-            return self.text
-        return ""
 
 
 class _FixedCiteLlm:
@@ -308,201 +245,6 @@ class _FixedCiteLlm:
         )
 
 
-class _YesSink:
-    def record(self, report: object, *, retrieval: object, generation: object) -> bool:
-        del report, retrieval, generation
-        return True
-
-
-@pytest.mark.asyncio
-async def test_run_l1_exported_true_when_sink_returns_true(tmp_path: Path) -> None:
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=FakeIndex(),
-        sink=_YesSink(),
-        suites="retrieval",
-        deterministic_only=True,
-    )
-    assert data["phoenix"]["exported"] is True
-
-
-@pytest.mark.asyncio
-async def test_payload_project_comes_from_settings(tmp_path: Path) -> None:
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=FakeIndex(),
-        suites="retrieval",
-        deterministic_only=True,
-        phoenix_project="other-project",
-    )
-    assert data["phoenix"]["project"] == "other-project"
-
-
-@pytest.mark.asyncio
-async def test_missing_extra_skips_judge_with_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from bcra_rag.evals.composition import build_evals
-    from bcra_rag.evals.settings import EvalSettings
-
-    monkeypatch.setattr("bcra_rag.evals.composition.find_spec", lambda _name: None)
-    app = build_evals(
-        Settings(data_dir=tmp_path),
-        EvalSettings(_env_file=None, judge_api_key="secret", llm_api_key=""),
-        index=FakeIndex(),
-        llm=FakeLlm(),
-    )
-    assert app.judge is None
-    assert app.judge_skip_reason == "missing_extra"
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=FakeIndex(),
-        judge=app.judge,
-        judge_skip_reason=app.judge_skip_reason,
-        suites="retrieval",
-        deterministic_only=False,
-    )
-    assert data["judge"]["skipped"] is True
-    assert data["judge"]["skip_reason"] == "missing_extra"
-    assert "hit_at_5" in data["retrieval"]
-    assert "context_precision" not in data["retrieval"]
-    assert data["retrieval"].get("context_precision") is None
-
-
-def test_no_key_skip_reason_is_no_judge(tmp_path: Path) -> None:
-    from bcra_rag.evals.composition import build_evals
-    from bcra_rag.evals.settings import EvalSettings
-
-    app = build_evals(
-        Settings(data_dir=tmp_path),
-        EvalSettings(_env_file=None, judge_api_key="", llm_api_key=""),
-        index=FakeIndex(),
-        llm=FakeLlm(),
-    )
-    assert app.judge is None
-    assert app.judge_skip_reason == "no_judge"
-
-
-@pytest.mark.asyncio
-async def test_run_l1_copies_judge_usage(tmp_path: Path) -> None:
-    judge = FakeJudge()
-    judge._model = "grok-test"  # type: ignore[attr-defined]
-    judge.tokens_in = 4
-    judge.tokens_out = 6
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=FakeIndex(),
-        judge=judge,
-        suites="retrieval",
-        deterministic_only=False,
-    )
-    assert data["judge"]["model"] == "grok-test"
-    assert data["judge"]["calls"] == len(judge.calls)
-    assert data["judge"]["tokens_in"] == 4
-    assert data["judge"]["tokens_out"] == 6
-
-
-@pytest.mark.asyncio
-async def test_to_without_punto_skips_judged_generation(tmp_path: Path) -> None:
-    from bcra_rag.evals.domain.metrics import AnswerRelevancy, Faithfulness
-    from bcra_rag.evals.use_cases.run_generation import run_generation
-    from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
-
-    index = FakeIndex()
-    _seed_demo_index(index)
-    settings = Settings(data_dir=tmp_path)
-    rows = [row for row in load_gold(GOLD) if row.id == "g03"]
-    samples = await run_generation(
-        rows,
-        settings=settings,
-        index=index,
-        llm=FakeLlm(),
-        pipeline=default_pipeline(settings),
-        context_source="oracle",
-    )
-    assert samples[0].usable_context is False
-    assert Faithfulness(FakeJudge()).score(samples[0]) is None
-    assert AnswerRelevancy(FakeJudge()).score(samples[0]) is None
-
-
-@pytest.mark.asyncio
-async def test_com_a_without_punto_is_usable(tmp_path: Path) -> None:
-    from bcra_rag.evals.use_cases.run_generation import run_generation
-    from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
-
-    index = FakeIndex()
-    _seed_demo_index(index)
-    settings = Settings(data_dir=tmp_path)
-    rows = [row for row in load_gold(GOLD) if row.id == "g26"]
-    samples = await run_generation(
-        rows,
-        settings=settings,
-        index=index,
-        llm=FakeLlm(),
-        pipeline=default_pipeline(settings),
-        context_source="oracle",
-    )
-    assert samples[0].usable_context is True
-    assert "Tipo de cambio de referencia 2002" in samples[0].context[0].text
-
-
-@pytest.mark.asyncio
-async def test_to_with_punto_is_usable(tmp_path: Path) -> None:
-    from bcra_rag.evals.use_cases.run_generation import run_generation
-    from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
-
-    index = FakeIndex()
-    _seed_demo_index(index)
-    settings = Settings(data_dir=tmp_path)
-    rows = [row for row in load_gold(GOLD) if row.id == "g05"]
-    samples = await run_generation(
-        rows,
-        settings=settings,
-        index=index,
-        llm=FakeLlm(),
-        pipeline=default_pipeline(settings),
-        context_source="oracle",
-    )
-    assert samples[0].usable_context is True
-
-
-@pytest.mark.asyncio
-async def test_mixed_to_and_com_a_without_punto_is_usable(tmp_path: Path) -> None:
-    from bcra_rag.evals.domain.types import GoldRow
-    from bcra_rag.evals.use_cases.run_generation import run_generation
-    from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
-
-    index = FakeIndex()
-    _seed_demo_index(index)
-    settings = Settings(data_dir=tmp_path)
-    gold = GoldRow(
-        id="mix",
-        question="tipo de cambio",
-        gold_ids=["texto_ordenado", "A8359"],
-        gold_puntos=[],
-        finding="definicion",
-        answerable=True,
-        bucket="post-to",
-    )
-    samples = await run_generation(
-        [gold],
-        settings=settings,
-        index=index,
-        llm=FakeLlm(),
-        pipeline=default_pipeline(settings),
-        context_source="oracle",
-    )
-    assert samples[0].usable_context is True
-
-
 @pytest.mark.asyncio
 async def test_retrieval_only_null_headline_citation(tmp_path: Path) -> None:
     data = await run_l1(
@@ -511,7 +253,6 @@ async def test_retrieval_only_null_headline_citation(tmp_path: Path) -> None:
         settings=Settings(data_dir=tmp_path),
         index=FakeIndex(),
         suites="retrieval",
-        deterministic_only=True,
     )
     assert data["generation"]["skipped"] is True
     assert data["citation_id_exact"] is None
@@ -530,7 +271,6 @@ async def test_generation_only_null_retrieval_aliases(tmp_path: Path) -> None:
         pipeline=default_pipeline(settings),
         suites="generation",
         generation_context="oracle",
-        deterministic_only=True,
         unpublished=False,
     )
     assert data["retrieval"]["skipped"] is True
@@ -540,58 +280,7 @@ async def test_generation_only_null_retrieval_aliases(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chunking_uses_get_section_not_fakeindex_docs(tmp_path: Path) -> None:
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=_StubIndex("3.8.5 Los residentes deberán liquidar el cobro de exportaciones."),
-        suites="retrieval",
-        deterministic_only=True,
-    )
-    assert data["chunking"]["A"] > 0
-    assert data["chunking"]["B"] > 0
-    assert "texto_ordenado" in data["chunking"]["b_documents"]
-
-
-@pytest.mark.asyncio
-async def test_chunking_empty_when_get_section_raises(tmp_path: Path) -> None:
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=_StubIndex(boom=True),
-        suites="retrieval",
-        deterministic_only=True,
-    )
-    assert (tmp_path / "l1.json").is_file()
-    assert data["chunking"]["A"] == 0
-    assert data["chunking"]["B"] == 0
-    assert data["chunking"]["b_documents"] == []
-
-
-@pytest.mark.asyncio
-async def test_seeded_fakeindex_still_reports_to(tmp_path: Path) -> None:
-    from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
-
-    index = FakeIndex()
-    _seed_demo_index(index)
-    data = await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=Settings(data_dir=tmp_path),
-        index=index,
-        suites="retrieval",
-        deterministic_only=True,
-    )
-    assert "texto_ordenado" in data["chunking"]["b_documents"]
-    assert data["chunking"]["A"] > 0
-    assert data["chunking"]["B"] > 0
-
-
-@pytest.mark.asyncio
 async def test_retrieved_context_reuses_same_run_hits(tmp_path: Path) -> None:
-    from bcra_rag.domain.guardrails.pipeline import NoOpTracer
     from bcra_rag.evals.use_cases.run_generation import run_generation
     from bcra_rag.evals.use_cases.run_l1 import _demo_manifest, _seed_demo_index
 
@@ -599,7 +288,7 @@ async def test_retrieved_context_reuses_same_run_hits(tmp_path: Path) -> None:
     _seed_demo_index(index)
     settings = Settings(data_dir=tmp_path)
     rows = load_gold(GOLD)
-    retrieval = run_retrieval(rows, index, _demo_manifest(), tracer=NoOpTracer())
+    retrieval = run_retrieval(rows, index, _demo_manifest())
     after_retrieval = list(index.search_calls)
     samples = await run_generation(
         rows,
@@ -635,7 +324,6 @@ async def test_headline_citation_id_is_model_cites(tmp_path: Path) -> None:
         pipeline=default_pipeline(settings),
         suites="both",
         unpublished=False,
-        deterministic_only=True,
     )
     assert data["citation_id_exact"] == data["generation"]["citation_id_exact"]
     assert data["hit_at_5"] == data["retrieval"]["hit_at_5"]
@@ -643,7 +331,7 @@ async def test_headline_citation_id_is_model_cites(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_precision_at_5_distinct_from_context_precision(tmp_path: Path) -> None:
+async def test_retrieval_block_publishes_precision_at_5(tmp_path: Path) -> None:
     from bcra_rag.evals.use_cases.run_l1 import _seed_demo_index
 
     index = FakeIndex()
@@ -653,30 +341,6 @@ async def test_precision_at_5_distinct_from_context_precision(tmp_path: Path) ->
         output_path=tmp_path / "l1.json",
         settings=Settings(data_dir=tmp_path),
         index=index,
-        judge=FakeJudge(),
         suites="retrieval",
-        deterministic_only=False,
     )
     assert "precision_at_5" in data["retrieval"]
-    assert "context_precision" in data["retrieval"]
-
-
-@pytest.mark.asyncio
-async def test_oracle_generation_emits_no_retriever_span(tmp_path: Path) -> None:
-    from tests.evals.test_tracer import RecordingTracer
-
-    settings = Settings(data_dir=tmp_path)
-    tracer = RecordingTracer()
-    await run_l1(
-        gold_path=GOLD,
-        output_path=tmp_path / "l1.json",
-        settings=settings,
-        index=FakeIndex(),
-        llm=FakeLlm(),
-        pipeline=default_pipeline(settings),
-        tracer=tracer,
-        suites="generation",
-        generation_context="oracle",
-        deterministic_only=True,
-    )
-    assert tracer.retriever_calls == []

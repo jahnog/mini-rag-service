@@ -2,47 +2,12 @@
 
 ## Purpose
 
-Exercise the public origin on a daily schedule and notify operators about every completed run — success, failure, or schedule-bound cutoff — without mailing skipped overlaps or hand-invoked runs.
+Exercise the already-running public origin over HTTP on operator demand.
 
 ## Requirements
 
-### Requirement: Daily production smoke mails on every completed run
-When the daily production-smoke schedule finishes a run against the public origin, it SHALL send mail to the configured notify address, or to the live mailbox when that notify address is unset. That mail SHALL be sent when the run succeeds and when the run fails, including when the run is cut off by the schedule bound. The subject SHALL distinguish success, failure, and a run cut off by that bound. A skipped overlapping run that did not start MUST NOT send that mail. The production-smoke command invoked by hand MUST NOT send that mail. The schedule’s own unix-user mail MUST remain disabled.
-
-#### Scenario: Successful daily run mails
-- **GIVEN** the daily production-smoke schedule finished a run
-- **AND** that run succeeded
-- **WHEN** notify mail is sent
-- **THEN** the configured notify address (or the live mailbox) receives one message
-- **AND** the subject names success
-
-#### Scenario: Failed daily run mails
-- **GIVEN** the daily production-smoke schedule finished a run
-- **AND** that run failed
-- **WHEN** notify mail is sent
-- **THEN** the configured notify address (or the live mailbox) receives one message
-- **AND** the subject names failure
-
-#### Scenario: Bound-cut daily run mails
-- **GIVEN** the daily production-smoke schedule started a run
-- **AND** the schedule bound cut the run off
-- **WHEN** notify mail is sent
-- **THEN** the configured notify address (or the live mailbox) receives one message
-- **AND** the subject names that the run was cut off
-
-#### Scenario: Overlapping skip does not mail
-- **GIVEN** a daily production-smoke run is already in progress
-- **WHEN** the schedule ticks again
-- **THEN** the overlapping start is skipped
-- **AND** no notify mail is sent for that skip
-
-#### Scenario: Hand-invoked production smoke does not mail
-- **GIVEN** the operator invoked the production-smoke command by hand
-- **WHEN** that command finishes
-- **THEN** the daily notify mail is not sent
-
 ### Requirement: Production smoke is opt-in against a running process
-The project SHALL provide a production-smoke command, separate from the default test command, that exercises the already-running serving process at a configured public origin over the network. That command MUST NOT start the serving process. When the operator has not invoked the production-smoke command, those scenarios MUST NOT run. When the operator has invoked it and the serving process is not reachable, the request origin does not match the public origin, mail retrieval is not configured, or the collector endpoint or project is not configured, the command SHALL fail (not skip). Live local-acceptance tests and live BCRA catalog download tests remain different commands. The production-smoke command MUST NOT execute those other suites, and those other suites MUST NOT execute production smoke.
+The project SHALL provide a production-smoke command, separate from the default test command, that exercises the already-running serving process at a configured public origin over the network. That command MUST NOT start the serving process. When the operator has not invoked the production-smoke command, those scenarios MUST NOT run. When the operator has invoked it and the serving process is not reachable, the request origin does not match the public origin or mail retrieval is not configured, the command SHALL fail (not skip). Live local-acceptance tests and live BCRA catalog download tests remain different commands. The production-smoke command MUST NOT execute those other suites, and those other suites MUST NOT execute production smoke.
 
 #### Scenario: Default tests stay fake
 - **GIVEN** the repository default test command
@@ -127,35 +92,15 @@ With a valid session, `POST /chat` SHALL return the structured contract: answer,
 - **THEN** the finding is silencio
 - **AND** the scope rule is block
 
-### Requirement: Collector receives the smoke turns
-After the named Comunicación A 3500 turn and the weather turn, the production-smoke suite SHALL observe matching traces on the configured collector project. A `chat.turn` trace for the Comunicación A 3500 question SHALL include that question text and a retrieve child. A `chat.turn` trace for the weather question SHALL include that question text and a scope child. When the collector endpoint or project is unset, or no matching trace appears within a short bound, the command SHALL fail (not skip). Default automated tests MUST NOT require a live collector.
-
-#### Scenario: Relevant turn is traced
-- **GIVEN** the production-smoke suite posted what Comunicación A 3500 says
-- **WHEN** it reads the configured collector project
-- **THEN** a `chat.turn` trace exists whose input contains that question
-- **AND** that trace includes a retrieve child
-
-#### Scenario: Out-of-scope turn is traced
-- **GIVEN** the production-smoke suite posted a weather question
-- **WHEN** it reads the configured collector project
-- **THEN** a `chat.turn` trace exists whose input contains that question
-- **AND** that trace includes a scope child
-
-#### Scenario: Missing collector fails the smoke command
-- **GIVEN** the operator invoked the production-smoke command
-- **AND** no collector endpoint or project is configured
-- **THEN** the command fails
-
 ### Requirement: Published L1 document is served
-The production-smoke command SHALL request `GET /l1` from the running public process and SHALL fail (not skip) when the response is not HTTP 200, when it lacks `retrieval`, `generation`, `judge`, or `n`, or when `unpublished` or `sample` is true. It MUST NOT run L1.
+The production-smoke command SHALL request `GET /l1` from the running public process and SHALL fail (not skip) when the response is not HTTP 200, when it lacks `retrieval`, `generation`, or `n`, or when `unpublished` or `sample` is true. It MUST NOT run L1.
 
 #### Scenario: Host serves a published run
 - **GIVEN** the operator invoked the production-smoke command
 - **WHEN** the client requests `GET /l1`
 - **THEN** the response is HTTP 200
 - **AND** `unpublished` and `sample` are false
-- **AND** `retrieval`, `generation`, `judge`, and `n` are present
+- **AND** `retrieval`, `generation`, and `n` are present
 
 #### Scenario: Host has only the stub
 - **GIVEN** the public process has no results document

@@ -123,7 +123,7 @@ class ChromaIndex:
                 return self._lexicon_index
             try:
                 got = collection.get(include=["documents", "metadatas"])
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - chroma raises many types; search falls back
                 log.warning("index_lexicon_unavailable", error=str(exc))
                 return None
             rows: dict[str, tuple[str, dict[str, Any]]] = {}

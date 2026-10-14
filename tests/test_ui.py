@@ -72,7 +72,6 @@ from bcra_rag.ui.theme import (
     OG_IMAGE_HREF,
     PAGE_DESCRIPTION,
     PAGE_TITLE,
-    matomo_snippet,
     observatory_css_path,
     observatory_css_paths,
     observatory_favicon_path,
@@ -227,8 +226,6 @@ def test_observatory_theme_helpers() -> None:
     assert weblab.is_file()
     assert observatory_css_paths() == [weblab, path]
     head = observatory_head()
-    assert "_paq" not in head
-    assert "matomo.js" not in head
     assert f"<title>{PAGE_TITLE}</title>" in head
     assert PAGE_TITLE == "BCRA Mini-RAG"
     assert 'name="description"' in head
@@ -281,61 +278,6 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["js"] == observatory_js()
     assert kwargs["favicon_path"] == str(observatory_favicon_path())
     api.add_middleware.assert_called()
-
-
-def test_matomo_snippet_omits_invalid_or_blank() -> None:
-    assert matomo_snippet("", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/", "") == ""
-    assert matomo_snippet("http://tracker.example/matomo/", "42") == ""
-    assert matomo_snippet('https://tracker.example/matomo/"', "42") == ""
-    assert matomo_snippet("https://user:pass@tracker.example/matomo/", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/?x=1", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/", "ab") == ""
-    assert matomo_snippet("javascript:alert(1)", "42") == ""
-    assert "matomo.js" not in observatory_head(
-        matomo_url="https://tracker.example/matomo/", matomo_site_id="nope"
-    )
-
-
-def test_matomo_snippet_cookieless_loopback_gate() -> None:
-    snippet = matomo_snippet("https://tracker.example/matomo", "42")
-    assert "disableCookies" in snippet
-    assert "setDoNotTrack" in snippet
-    assert "https://tracker.example/matomo/matomo.php" in snippet
-    assert "https://tracker.example/matomo/matomo.js" in snippet
-    assert '"42"' in snippet
-    assert "localhost" in snippet
-    assert "127.0.0.1" in snippet
-    assert "matomo=1" in snippet
-    assert "@" not in snippet
-    assert "Pregunt" not in snippet
-    head = observatory_head(
-        matomo_url="https://tracker.example/matomo/", matomo_site_id="42"
-    )
-    assert snippet in head
-    assert f"<title>{PAGE_TITLE}</title>" in head
-
-
-def test_mount_ui_passes_matomo_head(tmp_path: Path) -> None:
-    from unittest.mock import MagicMock, patch
-
-    from bcra_rag.settings import Settings
-
-    settings = Settings(
-        data_dir=tmp_path,
-        matomo_url="https://tracker.example/matomo/",
-        matomo_site_id="42",
-        _env_file=None,
-    )
-    api = MagicMock()
-    blocks = MagicMock()
-    with patch("bcra_rag.ui.mount.gr.mount_gradio_app") as mount:
-        mount.return_value = api
-        mount_observatory_ui(api, blocks, settings)
-    kwargs = mount.call_args.kwargs
-    assert kwargs["head"] == observatory_head(
-        matomo_url=settings.matomo_url, matomo_site_id=settings.matomo_site_id
-    )
 
 
 def test_rewrite_gradio_html_rewrites_cards_and_spares_internals() -> None:
@@ -762,24 +704,16 @@ def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     lowered = text.lower()
     assert "números de muestra" not in lowered
     assert "citation_id_exact" in text or "citation-id" in lowered or "métrica principal" in lowered
-    assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
     assert "## Recuperación" in text
     assert "## Generación" in text
-    assert "faithfulness: 0" not in lowered
     assert "## Generación (n=30)" in text
     assert "latencia p95: 137653 ms" in text
     assert "137652.6405" not in text
-    assert "Juez: grok-4.3 · omitido (falta la dependencia del juez)" in text
     assert "coincidencia de cita**: 0.233" in text
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
-
-
-def test_l1_markdown_judge_ran_line() -> None:
-    text = l1_markdown({"judge": {"model": "m", "skipped": False, "calls": 12}})
-    assert "Juez: m · 12 llamadas" in text
 
 
 def test_l1_markdown_skipped_generation_not_zero() -> None:
@@ -793,14 +727,12 @@ def test_l1_markdown_skipped_generation_not_zero() -> None:
             "mrr": 0.5,
             "retrieval": {"skipped": False, "hit_at_5": 0.8, "n": 30},
             "generation": {"skipped": True, "skip_reason": "not_requested", "n": 0},
-            "chunking": {"A": 1, "B": 2, "b_documents": ["texto_ordenado"]},
         }
     )
     lowered = text.lower()
     assert "omitido" in lowered
     assert "métrica principal **coincidencia de cita**: 0" not in lowered
     assert "métrica principal **coincidencia de cita**: none" not in lowered
-    assert "faithfulness: 0" not in lowered
 
 
 def test_l1_markdown_skipped_retrieval_not_zero() -> None:
@@ -814,7 +746,6 @@ def test_l1_markdown_skipped_retrieval_not_zero() -> None:
             "mrr": None,
             "retrieval": {"skipped": True, "skip_reason": "not_requested", "n": 0},
             "generation": {"skipped": False, "citation_id_exact": 0.4, "n": 30},
-            "chunking": {"A": 1, "B": 1, "b_documents": ["texto_ordenado"]},
         }
     )
     lowered = text.lower()

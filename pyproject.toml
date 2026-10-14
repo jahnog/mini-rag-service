@@ -35,15 +35,6 @@ packages = ["src/bcra_rag"]
 "src/bcra_rag/ui/js/auth_logout.js" = "bcra_rag/ui/js/auth_logout.js"
 "src/bcra_rag/guardrails/policy.yaml" = "bcra_rag/guardrails/policy.yaml"
 
-[project.optional-dependencies]
-# Do not add the PyPI package named `phoenix` (2013 Habbo MUS client).
-otel = [
-  "arize-phoenix-otel",
-  "openinference-instrumentation-openai",
-  "arize-phoenix-client",
-]
-phoenix-evals = ["arize-phoenix-evals", "arize-phoenix-client"]
-
 [dependency-groups]
 dev = [
   "mypy>=1.0.0",
@@ -76,11 +67,50 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = [
+  "E", "F", "I", "UP",
+  # Simplicity gates (see AGENTS.md "Simplicity").
+  "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+  "BLE", "S110", "SIM", "ARG", "ANN401", "PGH003",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-statements = 40
+max-branches = 10
+max-returns = 5
 
 [tool.ruff.lint.per-file-ignores]
+# Tests, scripts and evals are not held to the simplicity gates.
+"tests/**" = ["C901", "PLR", "BLE", "S110", "SIM", "ARG", "ANN401", "PGH003"]
+"scripts/**" = ["C901", "PLR", "BLE", "S110", "SIM", "ARG", "ANN401", "PGH003"]
+"evals/**" = ["C901", "PLR", "BLE", "S110", "SIM", "ARG", "ANN401", "PGH003"]
+# Ratchet: existing offenders only. Remove an entry when its file is fixed; never add one.
+"src/bcra_rag/adapters/catalog_bcra.py" = ["PLR0911"]
+"src/bcra_rag/adapters/embeddings.py" = ["ANN401", "PLR0913"]
+"src/bcra_rag/adapters/index_chroma.py" = ["ANN401", "C901", "PLR0911", "PLR0912", "PLR0915"]
+"src/bcra_rag/adapters/llm_openai.py" = ["ANN401", "C901"]
+"src/bcra_rag/api/handle.py" = ["PLR0913"]
+"src/bcra_rag/api/routes.py" = ["PLR0913"]
+"src/bcra_rag/auth/cookies.py" = ["PLR0911"]
 "src/bcra_rag/auth/mail_copy.py" = ["E501"]
 "src/bcra_rag/auth/pages.py" = ["E501"]
+"src/bcra_rag/auth/routes.py" = ["C901", "PLR0913", "PLR0915"]
+"src/bcra_rag/composition.py" = ["PLR0913"]
+"src/bcra_rag/domain/meta_filters.py" = ["PLR0911"]
+"src/bcra_rag/domain/router.py" = ["PLR0911"]
+"src/bcra_rag/evals/use_cases/run_generation.py" = ["PLR0913"]
+"src/bcra_rag/evals/use_cases/run_l1.py" = ["ANN401", "PLR0913"]
+"src/bcra_rag/ui/config.py" = ["PLR0911"]
+"src/bcra_rag/ui/gradio_app.py" = ["PLR0913"]
+"src/bcra_rag/ui/inspector_state.py" = ["ANN401"]
+"src/bcra_rag/ui/mount.py" = ["ANN401"]
+"src/bcra_rag/ui/turn_service.py" = ["PLR0913"]
+"src/bcra_rag/ui/turn_stream.py" = ["PLR0913"]
+"src/bcra_rag/use_cases/ingest_corpus.py" = ["PLR0913"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -94,10 +124,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["gradio.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["phoenix.*", "openinference.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

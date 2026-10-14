@@ -5,12 +5,12 @@ import time
 from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext
 from bcra_rag.domain.health import dump_health
 from bcra_rag.evals.domain.types import GenerationSample, GoldRow, RetrievalSample
-from bcra_rag.evals.use_cases.oracle import oracle_chunks, usable_oracle
+from bcra_rag.evals.use_cases.oracle import oracle_chunks
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.schemas import Finding
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import generate_from_context
+from bcra_rag.use_cases.generate import GenerateOptions, generate_from_context
 
 
 async def run_generation(
@@ -36,10 +36,8 @@ async def run_generation(
         if context_source == "retrieved":
             prior = by_id.get(gold.id)
             context = list(prior.hits) if prior else []
-            usable = bool(context)
         else:
             context = oracle_chunks(index, gold, settings)
-            usable = usable_oracle(gold, context)
         ctx = RailContext(
             raw=gold.question,
             text=gold.question,
@@ -53,7 +51,7 @@ async def run_generation(
             pipeline,
             ctx,
             gold.question,
-            timeout_s=settings.llm_timeout_s,
+            GenerateOptions(timeout_s=settings.llm_timeout_s),
         )
         latency_ms = (time.perf_counter() - started) * 1000
         finding = ctx.finding if isinstance(ctx.finding, Finding) else Finding.SILENCIO
@@ -66,7 +64,6 @@ async def run_generation(
                 citations=list(ctx.citations),
                 finding=finding,
                 latency_ms=latency_ms,
-                usable_context=usable,
             )
         )
     return samples

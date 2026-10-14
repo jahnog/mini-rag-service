@@ -20,7 +20,6 @@ class HitAtK:
     """
 
     name = "hit_at_5"
-    kind = "code"
 
     def __init__(self, k: int = 5) -> None:
         self._k = k
@@ -37,13 +36,12 @@ class HitAtK:
 
 
 class PrecisionAtK:
-    """Fraction of the top k ids that are gold ids. Not judged context precision.
+    """Fraction of the top k ids that are gold ids.
 
     A gold row with no ids scores 1 only when the search returned nothing.
     """
 
     name = "precision_at_5"
-    kind = "code"
 
     def __init__(self, k: int = 5) -> None:
         self._k = k
@@ -68,7 +66,6 @@ class Mrr:
     """
 
     name = "mrr"
-    kind = "code"
 
     def score(self, sample: RetrievalSample) -> Score:
         gold = sample.gold.gold_ids
@@ -92,7 +89,6 @@ class NdcgAtK:
     """
 
     name = "ndcg_at_5"
-    kind = "code"
 
     def __init__(self, k: int = 5) -> None:
         self._k = k
@@ -127,7 +123,6 @@ class CitationIdExact:
     """
 
     name = "citation_id_exact"
-    kind = "code"
 
     def score(self, sample: GenerationSample) -> Score:
         cited = [item.id for item in sample.citations]
@@ -139,7 +134,6 @@ class CitationPuntoExact:
     """1 when the cited puntos equal the gold puntos, as sets. No score if gold has none."""
 
     name = "citation_punto_exact"
-    kind = "code"
 
     def score(self, sample: GenerationSample) -> Score | None:
         gold = sample.gold.gold_puntos
@@ -158,7 +152,6 @@ class CitationSnippetGrounded:
     """
 
     name = "citation_snippet_grounded"
-    kind = "code"
 
     def score(self, sample: GenerationSample) -> Score:
         context = _norm("\n".join(chunk.text for chunk in sample.context))
@@ -181,7 +174,6 @@ class FindingExact:
     """1 when the final finding label equals gold, after demote_finding."""
 
     name = "finding_exact"
-    kind = "code"
 
     def score(self, sample: GenerationSample) -> Score:
         value = 1.0 if sample.finding.value == sample.gold.finding else 0.0

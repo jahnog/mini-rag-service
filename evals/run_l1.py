@@ -32,15 +32,9 @@ def main() -> None:
             llm=app.llm,
             pipeline=app.pipeline,
             manifest=Manifest.load(settings.manifest_path) if ready else None,
-            judge=None if args.deterministic_only else app.judge,
-            judge_skip_reason=app.judge_skip_reason,
-            sink=app.sink,
-            tracer=app.tracer,
-            phoenix_project=app.eval_settings.phoenix_project_name,
             unpublished=not ready,
             suites=args.suites,
             generation_context=args.generation_context,
-            deterministic_only=args.deterministic_only,
         )
     )
     if args.gate:
@@ -71,11 +65,6 @@ def _parse() -> argparse.Namespace:
         "--generation-context",
         choices=("oracle", "retrieved"),
         default="oracle",
-    )
-    parser.add_argument(
-        "--deterministic-only",
-        action="store_true",
-        help="Skip the judge language model",
     )
     parser.add_argument(
         "--gate",

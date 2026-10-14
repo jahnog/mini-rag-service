@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Retrieve the right CAMEX clause or document for a question: named Comunicación lookup, vigente routing to current law plus later patches, and measured chunking A versus B.
+Retrieve the right CAMEX clause or document for a question: named Comunicación lookup, vigente routing to current law plus later patches.
 
 ## Requirements
 

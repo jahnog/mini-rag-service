@@ -38,24 +38,13 @@ def test_readme_operator_bullets() -> None:
     assert "--run-prod-smoke" in readme
     assert "-m prod_smoke" in readme
     assert "./scripts/run-prod-smoke.sh" in readme
-    assert "run-prod-smoke-cron.sh" in readme
-    assert "10:11" in readme
-    assert "PROD_SMOKE_NOTIFY_TO" in readme
     assert "PROD_BASE_URL" in readme
-    assert "PROD_PHOENIX_PROJECT_NAME" in readme
-    assert "PROD_PHOENIX_COLLECTOR_ENDPOINT" in readme
-    assert "MATOMO_URL" in readme
-    assert "MATOMO_SITE_ID" in readme
     assert "playwright install chromium" in readme
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme
     assert "--pdb" in readme
-    assert "DATA_DIR/logs/ingest.log" in readme
-    assert "data/logs/ingest.log" in readme
     assert "DATA_DIR/logs/chat.log" in readme
     assert "data/logs/chat.log" in readme
-    assert "DATA_DIR/logs/traces.jsonl" in readme
-    assert "data/logs/traces.jsonl" in readme
     assert "DATA_DIR/logs/l1.log" in readme
     assert "data/logs/l1.log" in readme
     assert "evals/l1.json" in readme
@@ -85,19 +74,12 @@ def test_readme_operator_bullets() -> None:
     assert "sessions do not survive" in readme
     assert "API starts again on L1 failure" in readme
     assert "banner follows the stored file" in readme
-    assert "missing_extra" in readme
     assert "no cron L1" in readme
     assert "### Evals" in readme
-    assert "JUDGE_MODEL" in readme
-    assert "JUDGE_API_KEY" in readme
     assert "bcra_rag.evals" in readme
-    assert "--deterministic-only" in readme
     assert "--retrieval-only" in readme
     assert "--generation-only" in readme
     assert "--generation-context" in readme
-    assert "phoenix-evals" in readme
-    assert "PHOENIX_API_KEY" in readme
-    assert "CHAT_TURN_EVALS" in readme
     assert "uvicorn" in readme
     assert "unpublished" in readme.lower() or "sample" in readme.lower()
     assert "deleting `data/`" in readme
@@ -163,7 +145,6 @@ def test_agents_commands_list() -> None:
         "python -m bcra_rag.jobs.ingest",
         "python -m bcra_rag.jobs.refresh",
         "evals/run_l1.py",
-        "--deterministic-only",
         "--retrieval-only",
         "--generation-only",
         "--cov=src",

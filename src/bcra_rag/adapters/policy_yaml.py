@@ -92,7 +92,7 @@ def _inline_map(body: str) -> dict[str, Any]:
     return out
 
 
-def _scalar(value: str) -> Any:
+def _scalar(value: str) -> bool | int | str:
     if value.lower() == "true":
         return True
     if value.lower() == "false":

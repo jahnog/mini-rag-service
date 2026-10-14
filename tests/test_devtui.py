@@ -52,7 +52,6 @@ def test_real_catalog_parses_and_matches_allowlist(devtui: Any) -> None:
         "refresh",
         "coverage",
         "l1",
-        "l1-deterministic",
         "l1-retrieval",
         "l1-generation",
         "l1-host",

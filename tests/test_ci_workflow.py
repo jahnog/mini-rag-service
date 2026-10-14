@@ -1,8 +1,5 @@
 import tomllib
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
@@ -22,14 +19,6 @@ def test_ci_workflow_has_no_live_bcra_or_embeddings() -> None:
     assert "--cov=src" in text
 
 
-def test_coverage_gate_invariants() -> None:
-    config = (ROOT / "openspec" / "config.yaml").read_text(encoding="utf-8")
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "src coverage MUST be >= 80%" in config
-    assert "fix until green" in config
-    assert "fail_under = 80" in pyproject
-
-
 def test_chromadb_floor_and_unpatched_advisory_ignores() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     required = pyproject["project"]["dependencies"]
@@ -39,26 +28,3 @@ def test_chromadb_floor_and_unpatched_advisory_ignores() -> None:
     assert "GHSA-36p7-vc44-83pf" in audit
     assert "GHSA-2wm9-hf6c-p5cr" in audit
     assert "GHSA-xph7-9rjv-w5fr" in audit
-
-
-def test_pypi_phoenix_package_is_not_a_dependency() -> None:
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
-    required = pyproject["project"]["dependencies"]
-    extras = pyproject["project"]["optional-dependencies"]
-    assert not any(_dist_name(item) == "phoenix" for item in required)
-    assert not any(
-        _dist_name(item) == "phoenix" for pkgs in extras.values() for item in pkgs
-    )
-    assert "phoenix" not in {pkg["name"] for pkg in lock.get("package", [])}
-
-
-def test_pypi_phoenix_distribution_is_not_installed() -> None:
-    with pytest.raises(PackageNotFoundError):
-        version("phoenix")
-
-
-def _dist_name(requirement: str) -> str:
-    for separator in ("[", ">", "<", "=", ";", " "):
-        requirement = requirement.split(separator, 1)[0]
-    return requirement.strip()

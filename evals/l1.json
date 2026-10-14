@@ -29,21 +29,6 @@
     "latency_ms_p95": 137652.6405,
     "n": 30
   },
-  "judge": {
-    "model": "grok-4.3",
-    "skipped": true,
-    "skip_reason": "missing_extra",
-    "calls": 0,
-    "tokens_in": 0,
-    "tokens_out": 0
-  },
-  "chunking": {
-    "A": 2,
-    "B": 39,
-    "b_documents": [
-      "texto_ordenado"
-    ]
-  },
   "slices": {
     "cross-ref": 0.6667,
     "definicion": 0.25,
@@ -54,11 +39,6 @@
     "silencio": 1.0,
     "superseded": 0.0,
     "vigente": 0.0
-  },
-  "phoenix": {
-    "exported": false,
-    "project": "bcra-rag-dev",
-    "evals_project": null
   },
   "n": 30
 }

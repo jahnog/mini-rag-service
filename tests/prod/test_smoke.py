@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
-import httpx
 import pytest
 
 from tests.features.live.http_client import raise_for_limiter
@@ -23,7 +22,6 @@ from tests.prod.http_client import (
     request_new_login_mail,
     smoke_email,
 )
-from tests.prod.phoenix import require_phoenix_env, wait_for_turn_with_child
 
 pytestmark = pytest.mark.prod_smoke
 
@@ -110,30 +108,6 @@ def prod_chats(prod_otp_session: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def prod_traces(prod_chats: dict[str, Any]) -> dict[str, Any]:
-    host, project = require_phoenix_env()
-    t0 = prod_chats["t0"]
-    with httpx.Client(timeout=10.0) as http:
-        named_span = wait_for_turn_with_child(
-            host,
-            project,
-            question=A3500,
-            start_time=t0,
-            child_name="retrieve",
-            client=http,
-        )
-        weather_span = wait_for_turn_with_child(
-            host,
-            project,
-            question=WEATHER,
-            start_time=t0,
-            child_name="scope",
-            client=http,
-        )
-    return {"named": named_span, "weather": weather_span}
-
-
-@pytest.fixture(scope="session")
 def prod_link_session(
     prod_otp_session: dict[str, Any],
     prod_imap_mailbox: ImapMailbox,
@@ -166,7 +140,7 @@ def test_health_is_ready(prod_health: dict[str, Any]) -> None:
     assert prod_health["index_ready"] is True
 
 
-L1_KEYS = ("retrieval", "generation", "judge", "n")
+L1_KEYS = ("retrieval", "generation", "n")
 
 
 def test_l1_document_is_served(prod_health: dict[str, Any]) -> None:
@@ -229,17 +203,6 @@ def test_weather_is_out_of_scope(prod_chats: dict[str, Any]) -> None:
     assert body["finding"] == "silencio"
     match = next(item for item in body["guardrails"] if item["rule"] == "scope")
     assert match["verdict"] == "block"
-
-
-def test_collector_received_turns(prod_traces: dict[str, Any]) -> None:
-    assert prod_traces["named"]["name"] == "chat.turn"
-    assert A3500 in str(
-        (prod_traces["named"].get("attributes") or {}).get("input.value")
-    )
-    assert prod_traces["weather"]["name"] == "chat.turn"
-    assert WEATHER in str(
-        (prod_traces["weather"].get("attributes") or {}).get("input.value")
-    )
 
 
 def test_login_link_confirms(prod_link_session: dict[str, Any]) -> None:

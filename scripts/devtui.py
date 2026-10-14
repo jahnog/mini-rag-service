@@ -98,7 +98,6 @@ ALLOWED_RUNNABLE: frozenset[tuple[str, ...]] = frozenset(
         ("uv", "run", "python", "-m", "bcra_rag.jobs.ingest"),
         ("uv", "run", "python", "-m", "bcra_rag.jobs.refresh"),
         ("uv", "run", "python", "evals/run_l1.py"),
-        ("uv", "run", "python", "evals/run_l1.py", "--deterministic-only"),
         ("uv", "run", "python", "evals/run_l1.py", "--retrieval-only"),
         ("uv", "run", "python", "evals/run_l1.py", "--generation-only"),
         ("uv", "run", "python", "evals/run_l1.py", "--gate"),

@@ -11,13 +11,13 @@ from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule
 from bcra_rag.domain.guardrails import GuardrailPipeline
-from bcra_rag.domain.turn_eval import TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatResponse
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import OnPhase, new_request_id
+from bcra_rag.use_cases.answer_query import new_request_id
+from bcra_rag.use_cases.generate import OnPhase
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,6 @@ class TurnService:
     limiter: RateLimiter
     turn_caps: TurnCaps
     auth: AuthModule
-    turn_evaluator: TurnEvaluator
 
     async def run_chat_turn(
         self,
@@ -69,7 +68,6 @@ class TurnService:
             ),
             demo_key=demo_key,
             on_thinking=on_thinking,
-            turn_evaluator=self.turn_evaluator,
             thinking=thinking,
             on_phase=on_phase,
         )

@@ -100,10 +100,10 @@ The project SHALL provide a test command that runs unit and acceptance tests wit
 - **AND** live mail, a browser, and a running serving process are not required
 
 #### Scenario: Developer .env does not change unit-test outcomes
-- **GIVEN** a repository `.env` that sets `MATOMO_URL`, `DEFAULT_K`, and `LLM_ENABLE_THINKING`
+- **GIVEN** a repository `.env` that sets `DEFAULT_K` and `LLM_ENABLE_THINKING`
 - **AND** the default test command runs the live/prod helper unit tests before the settings tests
 - **WHEN** the settings defaults test constructs `Settings(_env_file=None)`
-- **THEN** `matomo_url` is empty, `default_k` is 5, and `llm_enable_thinking` is true
+- **THEN** `default_k` is 5 and `llm_enable_thinking` is true
 
 #### Scenario: Live acceptance is not the default
 - **GIVEN** the repository default test command
@@ -130,7 +130,7 @@ Refresh, chat, and operator L1 on the dump host SHALL read the same dump and ind
 - **THEN** L1 reads that same dump and index
 
 ### Requirement: Operator dump-host L1
-An operator MAY run L1 on the dump host against the same dump and index that chat uses. That command MUST accept the same suite choices as the laptop operator command (retrieval only, generation only, both, and skip the judge). It MUST NOT start the assistant interface.
+An operator MAY run L1 on the dump host against the same dump and index that chat uses. That command MUST accept the same suite choices as the laptop operator command (retrieval only, generation only, and both). It MUST NOT start the assistant interface.
 
 #### Scenario: Dump-host L1 uses the host dump
 - **GIVEN** ingest wrote documents on the host dump
@@ -174,99 +174,22 @@ Dump-host L1 MUST stop the serving process for the duration of the run. In-proce
 - **WHEN** the operator inspects the host
 - **THEN** the serving process is running
 
-### Requirement: Optional trace collector
-The serving process MAY export per-turn traces to a collector endpoint when that endpoint is configured. When the endpoint is set, the process MAY also send a configured API key with those exports. An unset key SHALL still export to an unauthenticated collector. Export MUST fail open: a collector error, including an authentication failure, MUST NOT fail chat. When the endpoint is unset, the process SHALL still answer. When the endpoint is set, retrieval steps MAY be exported as retriever spans that include retrieved document identifiers and truncated document text. Default automated tests MUST NOT require a live collector or a real collector key. Hostnames MUST NOT be hardcoded; the collector URL is configuration.
-
-#### Scenario: Unset collector still answers
-- **GIVEN** no collector endpoint is configured
-- **WHEN** the user asks an in-corpus question
-- **THEN** a structured chat response is still returned
-
-#### Scenario: Retriever spans on chat
-- **GIVEN** a collector endpoint is configured
-- **WHEN** the user asks what is required today to liquidate
-- **THEN** a retriever span MAY be exported for that turn
-- **AND** chat still returns a structured response if export fails
-
-#### Scenario: Named Com. A still answers when collector auth fails
-- **GIVEN** a collector endpoint is configured
-- **AND** the collector rejects the request as unauthenticated
-- **WHEN** the user asks what Comunicación A 3500 says
-- **THEN** a structured chat response is still returned
-
-#### Scenario: Unset key still answers with a collector
-- **GIVEN** a collector endpoint is configured
-- **AND** no collector API key is configured
-- **WHEN** the user asks a vigente question
-- **THEN** a structured chat response is still returned
-
-#### Scenario: Clear still works when the collector has a key
-- **GIVEN** a collector endpoint is configured
-- **AND** a collector API key is configured
-- **WHEN** the user sends `/clear`
-- **THEN** the acknowledgement has no retrieved citations
-- **AND** the language model is not called
-
 ### Requirement: Chat process does not load eval scoring
-The serving process SHALL answer chat without loading evaluation scoring or the judge. Optional retriever spans on chat MUST NOT pull in the evaluation operator. Default automated tests MUST NOT require the judge extra for chat.
+The serving process SHALL answer chat without loading evaluation scoring.
 
-#### Scenario: Chat without judge extra
-- **GIVEN** the judge extra is not installed
+#### Scenario: Chat without eval scoring
+- **GIVEN** the evaluation command is not running
 - **WHEN** the user asks a named Comunicación A that is in the dump
 - **THEN** a structured chat response is still returned
-
-### Requirement: Namespaced eval annotations
-When a collector endpoint is configured, an operator L1 run MAY attach scores as annotations on exported spans. Annotation names SHALL be prefixed with the suite (`retrieval.` or `generation.`). A collector error MUST NOT fail the static L1 write. When the endpoint is unset, L1 SHALL still write the static results document. Default automated tests MUST NOT require a live collector.
-
-#### Scenario: Unset collector still writes L1
-- **GIVEN** no collector endpoint is configured
-- **WHEN** an operator L1 run completes
-- **THEN** the static results document is written
-- **AND** the run is not treated as failed
-
-#### Scenario: Collector error does not wipe results
-- **GIVEN** a collector endpoint is configured
-- **AND** the collector rejects annotations
-- **WHEN** an operator L1 run finishes scoring
-- **THEN** the static results document still contains the scores
-
-#### Scenario: Annotations are namespaced
-- **GIVEN** a collector endpoint is configured
-- **AND** both suites ran
-- **WHEN** annotations are exported
-- **THEN** retrieval scores use a `retrieval.` prefix
-- **AND** generation scores use a `generation.` prefix
 
 ### Requirement: Oracle generation does not search
-When generation is scored with oracle context, the serving index MUST NOT be searched for those gold questions. Retriever spans MUST NOT be emitted for that oracle generation. Chat turns that retrieve as usual MAY still export retriever spans when the collector is set.
+When generation is scored with oracle context, the serving index MUST NOT be searched for those gold questions.
 
-#### Scenario: Oracle generation has no retriever span
-- **GIVEN** a collector endpoint is configured
-- **AND** generation context is oracle
+#### Scenario: Oracle generation does not search
+- **GIVEN** generation context is oracle
 - **WHEN** L1 scores a gold question
-- **THEN** no retriever search span is exported for that generation
+- **THEN** the index is not searched for that question
 - **AND** a structured generation result is still produced
-
-#### Scenario: Chat retrieve still fail-open
-- **GIVEN** a collector endpoint is configured
-- **WHEN** the user asks a named Comunicación A that is in the dump
-- **THEN** a structured chat response is still returned even if span export fails
-
-### Requirement: Local traces alongside optional collector
-The serving process MAY export per-turn traces to a collector endpoint when that endpoint is configured. Export MUST fail open: a collector error MUST NOT fail chat. Whether or not that endpoint is set, the process SHALL also write compact per-span records to a dump-host traces file. A failure to write that file MUST NOT fail chat. Default automated tests MUST NOT require a live collector.
-
-#### Scenario: Unset collector still answers and still writes local traces
-- **GIVEN** no collector endpoint is configured
-- **WHEN** the user asks an in-corpus question
-- **THEN** a structured chat response is still returned
-- **AND** the dump-host traces file includes a `chat.turn` record
-
-#### Scenario: Collector error still answers
-- **GIVEN** a collector endpoint is configured
-- **AND** export to that collector fails
-- **WHEN** the user asks an in-corpus question
-- **THEN** a structured chat response is still returned
-- **AND** the dump-host traces file still includes a `chat.turn` record
 
 ### Requirement: Language-model timeout
 The system SHALL bound a language-model call with a configured timeout (default 60 seconds). That bound SHALL be wall-clock for the whole call, including while a streaming thinking trace is still arriving and including any retry. On timeout the turn SHALL be silencio with abstain reason `llm_timeout`, citations SHALL be empty, the answer SHALL be a Spanish sentence saying the model took too long, and the serving process SHALL still return a structured chat response. The system MUST NOT invent CAMEX text from a partial stream.
@@ -413,12 +336,3 @@ The serving process SHALL execute the dump-health check and the routing/retrieva
 - **GIVEN** a cached health document for the current manifest
 - **WHEN** the manifest file is rewritten with a new `last_refresh`
 - **THEN** the next health document reports the new `last_refresh`
-
-### Requirement: Per-turn judge runs after the response
-When per-turn evaluation is enabled, the serving process SHALL return the chat response as soon as the answer is final and SHALL score faithfulness and answer relevancy in a background task. The `chat.turn` trace span SHALL stay open until scoring ends so the scores attach to that span, and the `chat_turn_eval` log line SHALL still be written. A scoring failure MUST NOT affect the already-returned response. Turns that did not call the language model SHALL NOT be scored.
-
-#### Scenario: Response does not wait for the judge
-- **GIVEN** per-turn evaluation is enabled with a judge that takes 2 seconds
-- **WHEN** an in-corpus question is answered
-- **THEN** the response returns before the judge finishes
-- **AND** after the judge finishes the `chat.turn` span carries `eval.faithfulness` and `eval.answer_relevancy`

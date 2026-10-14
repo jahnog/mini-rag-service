@@ -184,9 +184,8 @@ def auth_chrome(authenticated: bool, email: str | None = None) -> tuple[Any, Any
 def l1_markdown(data: dict[str, Any]) -> str:
     """Reprint the last offline L1 file. The headline is citation-id exact match.
 
-    ``omitido`` means that suite or the judge did not run, not that the score
-    is zero. Chunking A and B are how many chunks each splitter produces for
-    texto ordenado, not a quality score.
+    ``omitido`` means that suite did not run, not that the score
+    is zero.
     """
     label = ""
     if is_sample_l1(data):
@@ -194,11 +193,6 @@ def l1_markdown(data: dict[str, Any]) -> str:
             "**Números de muestra, no publicados** — no son una corrida de operador.\n\n"
         )
     headline = _metric_label(str(data.get("headline_metric", "citation_id_exact")))
-    raw_chunking = data.get("chunking")
-    chunking: dict[str, Any] = raw_chunking if isinstance(raw_chunking, dict) else {}
-    a_score = chunking.get("A", data.get("A", "—"))
-    b_score = chunking.get("B", data.get("B", "—"))
-    b_docs = chunking.get("b_documents") or data.get("b_documents") or []
     slices = data.get("slices") or {}
     slice_lines = "\n".join(
         f"- {_slice_label(str(key))}: {value}" for key, value in slices.items()
@@ -209,7 +203,6 @@ def l1_markdown(data: dict[str, Any]) -> str:
     generation: dict[str, Any] = raw_generation if isinstance(raw_generation, dict) else {}
     retrieval_block = _suite_markdown("Recuperación", retrieval)
     generation_block = _suite_markdown("Generación", generation)
-    judge_line = _judge_markdown(data.get("judge"))
     citation_shown = _skipped_or_value(
         data.get("citation_id_exact"), bool(generation.get("skipped"))
     )
@@ -221,9 +214,6 @@ def l1_markdown(data: dict[str, Any]) -> str:
         f"acierto@5: {hit_shown} · MRR: {mrr_shown}\n\n"
         f"{retrieval_block}\n\n"
         f"{generation_block}\n\n"
-        f"{judge_line + chr(10) + chr(10) if judge_line else ''}"
-        f"Fragmentos A vs B: A {a_score} · B {b_score}\n\n"
-        f"Documentos de la estrategia B: {', '.join(str(x) for x in b_docs) or '(ninguno)'}\n\n"
         f"Grupos:\n{slice_lines or '- (ninguno)'}"
     )
 
@@ -245,15 +235,10 @@ _METRIC_LABELS = {
     "ndcg_at_5": "NDCG@5",
     "latency_ms_p50": "latencia p50",
     "latency_ms_p95": "latencia p95",
-    "n_context_recall": "juicios de exhaustividad",
     "citation_punto_exact": "punto exacto",
     "citation_snippet_grounded": "fragmento anclado",
     "finding_exact": "hallazgo exacto",
     "context_source": "fuente del contexto",
-    "faithfulness": "fidelidad",
-    "answer_relevancy": "relevancia",
-    "context_precision": "precisión de contexto",
-    "context_recall": "exhaustividad del contexto",
 }
 _SLICE_LABELS = {
     "cross-ref": "referencia cruzada",
@@ -262,11 +247,8 @@ _SLICE_LABELS = {
     "superseded": "reemplazada",
 }
 _SKIP_LABELS = {
-    "missing_extra": "falta la dependencia del juez",
     "not_requested": "no se pidió",
     "no_llm": "sin modelo",
-    "no_judge": "sin juez",
-    "deterministic_only": "solo métricas deterministas",
     "retrieved_context_requires_retrieval": "hace falta la búsqueda",
 }
 _CONTEXT_SOURCES = {"oracle": "oráculo", "retrieved": "recuperado"}
@@ -296,16 +278,6 @@ def _fmt_metric(key: str, value: object) -> str:
     if isinstance(value, float):
         return f"{value:.3f}"
     return str(value)
-
-
-def _judge_markdown(raw: object) -> str:
-    if not isinstance(raw, dict):
-        return ""
-    model = str(raw.get("model") or "—")
-    if raw.get("skipped"):
-        reason = _skip_label(str(raw.get("skip_reason") or "omitido"))
-        return f"Juez: {model} · omitido ({reason})"
-    return f"Juez: {model} · {int(raw.get('calls') or 0)} llamadas"
 
 
 def _suite_markdown(title: str, block: dict[str, Any]) -> str:

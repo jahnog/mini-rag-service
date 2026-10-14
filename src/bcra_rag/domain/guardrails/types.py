@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -69,6 +69,11 @@ class RailResult:
         )
 
 
+def first_block(results: Sequence[RailResult]) -> RailResult | None:
+    """The first rail whose block stands (an unenforced block is only a warning)."""
+    return next((r for r in results if r.enforced and r.verdict == "block"), None)
+
+
 @dataclass
 class ChunkResult:
     action: ChunkAction
@@ -114,25 +119,3 @@ class Rail(Protocol):
     enforce: bool
 
     def run(self, ctx: RailContext) -> RailResult: ...
-
-
-class InjectionBackend(Protocol):
-    def score(self, text: str) -> tuple[bool, str]: ...
-
-
-class Tracer(Protocol):
-    def span(self, name: str, layer: str) -> Any: ...
-
-    def record_retriever(
-        self,
-        query: str,
-        hits: Sequence[Chunk],
-        *,
-        route: str = "",
-        silencio_reason: str | None = None,
-        span: Any = None,
-    ) -> None: ...
-
-    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None: ...
-
-    def record_scores(self, span: Any, scores: Mapping[str, float]) -> None: ...

@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import gradio as gr
+from fastapi import FastAPI
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from bcra_rag.settings import Settings
 from bcra_rag.ui.theme import (
     observatory_apple_icon_path,
     observatory_css_paths,
@@ -54,9 +54,7 @@ class RewriteGradioHtml(BaseHTTPMiddleware):
         )
 
 
-def mount_observatory_ui(
-    api: Any, blocks: gr.Blocks, settings: Settings | None = None
-) -> Any:
+def mount_observatory_ui(api: FastAPI, blocks: gr.Blocks) -> FastAPI:
     """Mount the Gradio UI on the API app with its static asset routes and HTML middleware."""
 
     def serve_social_preview_image() -> FileResponse:
@@ -75,8 +73,6 @@ def mount_observatory_ui(
         """Serve the shared family stylesheet."""
         return FileResponse(weblab_css_path(), media_type="text/css")
 
-    matomo_url = settings.matomo_url if settings is not None else ""
-    matomo_site_id = settings.matomo_site_id if settings is not None else ""
     api.add_api_route(
         "/og.png", serve_social_preview_image, methods=["GET"], include_in_schema=False
     )
@@ -93,15 +89,13 @@ def mount_observatory_ui(
         "/weblab.css", serve_family_stylesheet, methods=["GET"], include_in_schema=False
     )
     api.add_middleware(RewriteGradioHtml)
-    mounted: Any = gr.mount_gradio_app(
+    mounted: FastAPI = gr.mount_gradio_app(
         api,
         blocks,
         path="/",
         theme=observatory_theme(),
         css_paths=observatory_css_paths(),
-        head=observatory_head(
-            matomo_url=matomo_url, matomo_site_id=matomo_site_id
-        ),
+        head=observatory_head(),
         js=observatory_js(),
         footer_links=[],
         run_history=False,

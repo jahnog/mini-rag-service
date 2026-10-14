@@ -34,10 +34,10 @@ def test_committed_document_passes_default_floors() -> None:
 def test_skipped_suite_fails_unless_allowed() -> None:
     payload = {
         "retrieval": {"skipped": False, "hit_at_5": 0.9},
-        "generation": {"skipped": True, "skip_reason": "missing_extra"},
+        "generation": {"skipped": True, "skip_reason": "no_llm"},
     }
     assert evaluate_gate(payload, {"finding_exact": 0.1}) == [
-        "finding_exact: generation skipped (missing_extra)"
+        "finding_exact: generation skipped (no_llm)"
     ]
     assert evaluate_gate(payload, {"finding_exact": 0.1}, allow_skipped=True) == []
     assert evaluate_gate(payload, {"hit_at_5": 0.95}) == ["hit_at_5: 0.9 < 0.95"]

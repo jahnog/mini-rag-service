@@ -53,14 +53,6 @@ def test_operator_script_does_not_boot_gradio() -> None:
     assert "l1.log" in text
 
 
-def test_answer_query_does_not_import_otel_adapter() -> None:
-    assert "bcra_rag.adapters.otel" not in _source("use_cases/answer_query.py")
-
-
-def test_judge_phoenix_module_does_not_import_phoenix_evals() -> None:
-    assert "phoenix.evals" not in _source("evals/adapters/judge_phoenix.py")
-
-
 def test_no_http_eval_route(tmp_path: Path) -> None:
     from bcra_rag.adapters.index_fake import FakeIndex
     from bcra_rag.adapters.llm_fake import FakeLlm

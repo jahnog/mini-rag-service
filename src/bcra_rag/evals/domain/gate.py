@@ -17,14 +17,10 @@ _OWNER: dict[str, str] = {
     "precision_at_5": "retrieval",
     "mrr": "retrieval",
     "ndcg_at_5": "retrieval",
-    "context_precision": "retrieval",
-    "context_recall": "retrieval",
     "citation_id_exact": "generation",
     "citation_punto_exact": "generation",
     "citation_snippet_grounded": "generation",
     "finding_exact": "generation",
-    "faithfulness": "generation",
-    "answer_relevancy": "generation",
 }
 
 

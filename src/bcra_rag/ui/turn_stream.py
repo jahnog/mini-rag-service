@@ -35,7 +35,7 @@ from bcra_rag.ui.inspector_state import (
     PreviousInspectorState,
     phase_label_update,
 )
-from bcra_rag.use_cases.answer_query import OnPhase
+from bcra_rag.use_cases.generate import OnPhase
 
 _logger = structlog.get_logger("bcra_rag.observatory")
 
@@ -108,7 +108,7 @@ class TurnProgressTracker:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             # Errors are handed to the streaming loop, which decides how to render them.
             self.turn_outcome = error
         finally:

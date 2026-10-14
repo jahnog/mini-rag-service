@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 from dataclasses import dataclass
-from typing import Any
 from uuid import uuid4
 
 import structlog
@@ -21,13 +20,13 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.auth.ip import client_ip
 from bcra_rag.domain.guardrails import GuardrailPipeline
-from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatFilters, ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import AnswerQuery, OnPhase
+from bcra_rag.use_cases.answer_query import AnswerQuery
+from bcra_rag.use_cases.generate import OnPhase
 
 _log = structlog.get_logger("bcra_rag.chat")
 
@@ -45,7 +44,7 @@ def prepare_turn(
     limiter: RateLimiter,
     turn_caps: TurnCaps,
     auth: AuthModule,
-    request: Any,
+    request: object,
     message: str,
     session_id: str | None,
     k: int | None,
@@ -88,19 +87,11 @@ async def run_prepared_turn(
     filters: ChatFilters | None,
     request_id: str,
     on_thinking: OnThinking | None = None,
-    turn_evaluator: TurnEvaluator | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
     turn_caps: TurnCaps | None = None,
 ) -> ChatResponse:
-    use_case = AnswerQuery(
-        settings,
-        index,
-        llm,
-        sessions,
-        pipeline,
-        evaluator=turn_evaluator or NoOpTurnEvaluator(),
-    )
+    use_case = AnswerQuery(settings, index, llm, sessions, pipeline)
     response = await use_case.run(
         ChatRequest(
             message=message, session_id=prepared.scoped_id, k=k, filters=filters
@@ -132,7 +123,7 @@ async def handle_turn(
     limiter: RateLimiter,
     turn_caps: TurnCaps,
     auth: AuthModule,
-    request: Any,
+    request: object,
     message: str,
     session_id: str | None,
     k: int | None,
@@ -141,7 +132,6 @@ async def handle_turn(
     client_id: str,
     demo_key: str | None,
     on_thinking: OnThinking | None = None,
-    turn_evaluator: TurnEvaluator | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
 ) -> ChatResponse:
@@ -169,7 +159,6 @@ async def handle_turn(
         filters=filters,
         request_id=request_id,
         on_thinking=on_thinking,
-        turn_evaluator=turn_evaluator,
         thinking=thinking,
         on_phase=on_phase,
         turn_caps=turn_caps,
@@ -186,15 +175,15 @@ def _scoped_session_id(email: str, public_id: str, secret: str) -> str:
     return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
 
 
-def client_id_for(request: Any, *, trusted_proxy: bool = False) -> str:
+def client_id_for(request: object, *, trusted_proxy: bool = False) -> str:
     return client_ip(request, trusted_proxy=trusted_proxy)
 
 
-def demo_key_for(request: Any) -> str | None:
+def demo_key_for(request: object) -> str | None:
     return _header(request, "x-demo-key") or _bearer(request)
 
 
-def _header(request: Any, name: str) -> str | None:
+def _header(request: object, name: str) -> str | None:
     headers = getattr(request, "headers", None)
     if headers is None:
         return None
@@ -205,7 +194,7 @@ def _header(request: Any, name: str) -> str | None:
     return None
 
 
-def _bearer(request: Any) -> str | None:
+def _bearer(request: object) -> str | None:
     header = _header(request, "authorization") or ""
     if header.lower().startswith("bearer "):
         return header[7:].strip()

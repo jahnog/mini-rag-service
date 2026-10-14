@@ -91,7 +91,7 @@ class Router:
         expanded = expand_aliases(question)
         named = exclusive_named_id(question)
         if named:
-            result = self._named_fetch(named, question, k)
+            result = self._named_fetch(named, question)
         elif _has_vigente_intent(expanded):
             result = self._vigente(expanded, k, to_as_of)
         else:
@@ -102,7 +102,7 @@ class Router:
         result = self._xref_hop(result, question)
         return result
 
-    def _named_fetch(self, comm_id: str, question: str, k: int) -> RouteResult:
+    def _named_fetch(self, comm_id: str, question: str) -> RouteResult:
         if comm_id not in self._manifest.documents:
             return RouteResult(
                 query=question,

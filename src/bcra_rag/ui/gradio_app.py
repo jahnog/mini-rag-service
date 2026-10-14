@@ -8,8 +8,7 @@ verify) are progress text, not extra models.
 The bubbles on the page are not what a follow-up searches. That memory is
 the session store. Usuario turns the model's thinking trace off unless
 LLM_THINKING_USER_LAYOUT is set; the trace is not the answer. Calidad L1 is
-a file from an offline run. An optional per-turn judge (CHAT_TURN_EVALS, off
-by default) can score a finished answer and does not change it.
+a file from an offline run.
 
 `build_observatory_blocks` builds the page in three steps: lay out the
 widgets, create the event handlers, and wire the handlers to the widgets.
@@ -32,7 +31,6 @@ from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.l1_results import L1_FILENAME
-from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
@@ -99,7 +97,7 @@ from bcra_rag.ui.inspector_state import (
 from bcra_rag.ui.theme import PAGE_TITLE, footer_html, topbar_html
 from bcra_rag.ui.turn_service import TurnService
 from bcra_rag.ui.turn_stream import stream_turn_updates
-from bcra_rag.use_cases.answer_query import OnPhase
+from bcra_rag.use_cases.generate import OnPhase
 
 # ---------------------------------------------------------------------------
 # Widgets
@@ -676,7 +674,6 @@ def build_observatory_blocks(
     limiter: RateLimiter,
     turn_caps: TurnCaps,
     auth: AuthModule,
-    turn_evaluator: TurnEvaluator | None = None,
 ) -> gr.Blocks:
     """Build the widgets and wire submit to handle_turn, the same path as POST /chat."""
     health = dump_health(settings, index)
@@ -690,7 +687,6 @@ def build_observatory_blocks(
         limiter=limiter,
         turn_caps=turn_caps,
         auth=auth,
-        turn_evaluator=turn_evaluator or NoOpTurnEvaluator(),
     )
     handlers = _make_page_handlers(service, auth, settings)
 
