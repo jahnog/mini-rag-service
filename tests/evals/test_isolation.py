@@ -17,6 +17,11 @@ def test_chat_sources_do_not_import_evals_vertical() -> None:
         "api/app.py",
         "api/handle.py",
         "ui/gradio_app.py",
+        "ui/auth_js.py",
+        "ui/inspector_state.py",
+        "ui/mount.py",
+        "ui/turn_service.py",
+        "ui/turn_stream.py",
         "use_cases/answer_query.py",
     ):
         text = _source(relative)

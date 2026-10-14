@@ -70,6 +70,43 @@ AUTH_STATUS_SMTP_PROBLEM = "Hubo un problema al enviar el código."
 AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu correo."
 
+# Messages shown by the login JavaScript (ui/js/auth_*.js).
+AUTH_STATUS_TOO_MANY_ATTEMPTS = "Demasiados intentos. Probá más tarde."
+AUTH_STATUS_INVALID_ORIGIN = "Origen inválido."
+AUTH_STATUS_INVALID_EMAIL = "Correo inválido."
+AUTH_STATUS_SIGNED_IN = "Sesión iniciada."
+AUTH_STATUS_CODE_REJECTED = "Código inválido o vencido."
+AUTH_STATUS_VERIFY_FAILED = "No se pudo verificar."
+AUTH_STATUS_SIGNED_OUT = "Sesión cerrada."
+
+ABSTAIN_BANNER_TEXT = "Silencio: no hay una cláusula que responda esto."
+
+# Labels and placeholders used when building the page layout.
+EMAIL_PLACEHOLDER = "nombre@dominio.com"
+CODE_PLACEHOLDER = "6 dígitos"
+LAYOUT_CHOICE_LABEL = "Vista"
+CHAT_LABEL = "Conversación"
+CHAT_PLACEHOLDER = "La conversación aparece acá."
+QUESTION_LABEL = "Pregunta"
+QUESTION_PLACEHOLDER = "Preguntá por una cláusula CAMEX…"
+SEND_BUTTON_LABEL = "Enviar"
+DEMO_KEY_LABEL = "Clave de demostración"
+CITATION_CHOICE_LABEL = "Citas"
+CITATION_ID_LABEL = "Identificador"
+L1_ACCORDION_LABEL = "Calidad L1"
+INSPECTOR_JSON_LABEL = "Inspector de citas"
+GUARDRAILS_JSON_LABEL = "Panel de guardrails"
+
+# Public Gradio endpoint names. Kept stable so renaming a handler function
+# does not change the URLs the browser calls.
+API_NAME_SUBMIT_QUESTION = "_turn"
+API_NAME_CLEAR_CONVERSATION = "_clear"
+API_NAME_SHOW_SELECTED_CITATION = "_select_card"
+API_NAME_APPLY_SELECTED_LAYOUT = "_layout"
+API_NAME_INITIALIZE_PAGE = "_hydrate"
+API_NAME_REFRESH_AFTER_LOGIN = "_after_auth"
+API_NAME_RESET_AFTER_LOGOUT = "_after_logout"
+
 
 def freeze_chips_html(health: HealthResponse) -> str:
     iso = html.escape(health.last_refresh or "")

@@ -146,9 +146,10 @@ def create_fastapi(
             turn_evaluator=resolved_evaluator,
         )
 
-    from bcra_rag.ui.gradio_app import build_blocks, mount_ui
+    from bcra_rag.ui.gradio_app import build_observatory_blocks
+    from bcra_rag.ui.mount import mount_observatory_ui
 
-    blocks = build_blocks(
+    blocks = build_observatory_blocks(
         settings=settings,
         index=index,
         llm=llm,
@@ -159,7 +160,7 @@ def create_fastapi(
         auth=resolved_auth,
         turn_evaluator=resolved_evaluator,
     )
-    return cast(FastAPI, mount_ui(api, blocks, settings))
+    return cast(FastAPI, mount_observatory_ui(api, blocks, settings))
 
 
 def _new_request_id() -> str:
