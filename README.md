@@ -131,9 +131,7 @@ uv run pytest --run-live-server -m live_server -q
 ```
 <!-- /commands:test-live-server -->
 
-Production HTTP smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` exports `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`; it does not spawn uvicorn. It needs IMAP (`LIVE_IMAP_*`), `PROD_PHOENIX_PROJECT_NAME`, and a collector endpoint (`PROD_PHOENIX_COLLECTOR_ENDPOINT`, falling back to `PHOENIX_COLLECTOR_ENDPOINT`) that receives the public process's OTLP traces — not a local development Phoenix. Chat generation uses the process's `LLM_*`. Default pytest skips these.
-
-`scripts/run-prod-smoke-cron.sh` wraps that run for a daily cron on an operator machine; the shipped `scripts/prod-smoke.crontab` schedules it at 10:11 local time. When the run finishes it emails `PROD_SMOKE_NOTIFY_TO` (falling back to `LIVE_EMAIL`) via `AUTH_SMTP_*` with OK, FAILED, or TIMED OUT. It is not a dump-host timer and not CI.
+Production HTTP smoke attaches to an already-running public origin (`PROD_BASE_URL`). `./scripts/run-prod-smoke.sh` exports `AUTH_PUBLIC_ORIGIN` from `PROD_BASE_URL` and runs `uv run pytest --run-prod-smoke -m prod_smoke -q`; it does not spawn uvicorn. It needs IMAP (`LIVE_IMAP_*`). Chat generation uses the process's `LLM_*`. Default pytest skips these.
 
 <!-- commands:test-prod-smoke -->
 ```bash
@@ -151,19 +149,13 @@ uv run pytest --pdb
 ```
 <!-- /commands:debug -->
 
-**Logs.** Job logs are JSON (structlog) on stdout and appended to `DATA_DIR/logs/ingest.log` (default `data/logs/ingest.log`). Chat turns append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). Compact per-span records append to `DATA_DIR/logs/traces.jsonl` (default `data/logs/traces.jsonl`) whether or not a collector is configured; a write failure never fails a chat turn. Each `chat_turn` line logs `retrieve_ms`, `llm_ms`, `ttft_ms`, and `thinking_chars`.
+**Logs.** Job logs are JSON (structlog) on stdout only. Chat turns also append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). Each `chat_turn` line logs `retrieve_ms`, `llm_ms`, `ttft_ms`, and `thinking_chars`.
 
 **Thinking and generation.** A local llama.cpp server (for example Qwen3.6-35B-A3B) uses the same `LLM_BASE_URL` / `LLM_MODEL` and a dummy `LLM_API_KEY`. With a llama.cpp backend, thinking is on by default (`LLM_ENABLE_THINKING=true`) and arrives as a provider trace (`reasoning_content` or `<think>` tags); set `LLM_ENABLE_THINKING=false` to disable it. `api.x.ai` never receives that extra body. Controls: `LLM_TEMPERATURE` (0.1), `LLM_MAX_TOKENS` (1500; with thinking on, llama.cpp counts reasoning tokens inside this bound, so raise it or set `LLM_REASONING_BUDGET`), `LLM_SEED` (unset), `LLM_REASONING_BUDGET` (0 = provider default; llama.cpp only), `LLM_THINKING_USER_LAYOUT` (false: Usuario turns run without thinking). A timed-out call becomes `abstain_reason=llm_timeout`; an unreadable body retries once without thinking, then yields `llm_bad_json`.
 
 **Timeouts.** `LLM_TIMEOUT_S` is wall-clock for the whole language-model call, including a streamed thinking trace (default 60). It must be below the reverse-proxy wait; a thinking-on named Com. A question often needs more than 60. If a host overlay raises it to 600, the production-smoke HTTP client wait (`CHAT_TIMEOUT_S`) must be above that. `POST /chat` writes JSON-whitespace keepalives so a reverse proxy keeps seeing bytes while the call is in progress (the observatory websocket already streams thinking).
 
 **Retrieval.** `CONTEXT_CHUNK_CHARS` (3000) caps each prompt chunk and a fetched named section; re-ingest once to add chunk ordinals (older indexes fall back to punto order). Retrieval fuses dense and BM25 lexical hits (`RETRIEVAL_HYBRID`, true; `RETRIEVAL_CANDIDATES`, 20 per side). `RETRIEVAL_MIN_SCORE` (0 = off) turns a best cosine similarity under the floor into a silencio with `empty_hits`; it only applies to cosine collections. `INDEX_SPACE` (cosine) applies to a new collection only — to switch an existing index, stop the service, delete `data/index`, and re-ingest.
-
-**Traces (Phoenix).** Optional per-turn traces: set `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` (process environment or the project `.env`) and run a sibling Phoenix process (`uvx --from arize-phoenix phoenix serve` with `PHOENIX_HOST=127.0.0.1` and `PHOENIX_WORKING_DIR=$PWD/data/phoenix`). From another host, point `PHOENIX_COLLECTOR_ENDPOINT` at that collector's URL; set `PHOENIX_API_KEY` when the collector requires auth (a local `uvx` serve needs none). Install the tracing extra with `uv sync --extra otel`; it includes the Phoenix REST client so an L1 run can attach `retrieval.*` / `generation.*` scores. Chat still answers if the collector is unset or down. Each turn is one `chat.turn` tree (guardrails, retrieve, generate); LLM usage is stored on it as `metadata.prompt_tokens` / `metadata.completion_tokens` when the provider sends it (`stream_options.include_usage`). The tracer posts OTLP to `/v1/traces` even if the env URL is only the Phoenix host. Pytest never reads the `.env` collector URL.
-
-**Page views (Matomo).** Optional observatory page-view tracking: set `MATOMO_URL` (an `https` tracker origin ending in `/`) and `MATOMO_SITE_ID`. Unset or invalid values send nothing; loopback hosts skip the tracker unless `?matomo=1`. The tracker is cookieless, honours Do Not Track, and never sends the mailbox or the question text.
-
-**Per-turn evals.** `CHAT_TURN_EVALS=true` plus `JUDGE_API_KEY` (falls back to `LLM_API_KEY`) scores faithfulness and answer relevancy after each turn with two extra judge calls. Default off; do not enable it against a local llama.cpp unless you accept the latency. Scores land as Phoenix span attributes (`eval.faithfulness`, `eval.answer_relevancy`) and a `chat_turn_eval` log line, not in the chat HTTP body.
 
 ### Ingest data
 
@@ -182,7 +174,7 @@ The ingest notes file records the 1990–97 gap in tagged CAMEX Comunicaciones A
 
 ### Evals
 
-Offline L1 is an operator command (not CI) in the `bcra_rag.evals` vertical. Chat never loads eval scoring or the judge; the *Calidad L1* panel in the UI only reads the last stored result.
+Offline L1 is an operator command (not CI) in the `bcra_rag.evals` vertical. Chat never loads eval scoring; the *Calidad L1* panel in the UI only reads the last stored result.
 
 **Local run.** With `.env` in place, ingest first so the index is ready (`GET /health`). Without ingest the CLI scores a seeded `FakeIndex` and writes an `unpublished` / `sample` result — not corpus quality. Gold is `evals/gold.jsonl` (50 questions). A run overwrites `evals/l1.json` and appends the same published metrics to `DATA_DIR/logs/l1.log` (default `data/logs/l1.log`). The committed `evals/l1.json` is the last operator run on the published corpus (published together with the corpus by `scripts/publish-data.sh`); a fresh host is seeded with it and then keeps its own runs. `ndcg_at_5` in the committed file predates the NDCG bound fix and can exceed 1 until the next operator run.
 
@@ -190,14 +182,13 @@ Offline L1 is an operator command (not CI) in the `bcra_rag.evals` vertical. Cha
 
 Retrieval does not call the chat model. Generation needs `LLM_API_KEY` (the same OpenAI-compatible `LLM_*` as chat) and defaults to `--generation-context=oracle` (gold corpus text, no search). `--generation-context=retrieved` uses hits from the retrieval suite in the **same** run; do not combine it with `--generation-only`. `--retrieval-only` and `--generation-only` are mutually exclusive.
 
-Judged metrics (faithfulness, answer relevancy, context precision, context recall) need `JUDGE_API_KEY` (falls back to `LLM_API_KEY`), `JUDGE_MODEL` (default `grok-4.3`), `JUDGE_BASE_URL` (default `https://api.x.ai/v1`), `JUDGE_REASONING_EFFORT=none`, and `uv sync --extra phoenix-evals`. Without the extra (`skip_reason` `missing_extra`) or the key, those values are skipped with a reason rather than shown as 0; hit@5, precision@5, MRR, citation-id exact, and finding exact still publish. `--deterministic-only` skips the judge even when a key is set. The dump-host helper does not install the judged extra.
+Every L1 metric is a code comparison (hit@5, precision@5, MRR, NDCG@5, citation-id, citation-punto, citation-snippet grounded, finding exact); there is no judge model.
 
-Optional eval traces and annotations use the same collector as chat (`PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_API_KEY`) plus `uv sync --extra otel --extra phoenix-evals`; an unset or down collector still writes `evals/l1.json`. Unit tests for the vertical live under `tests/evals`, use fakes, and never call a paid API. `--gate` compares the published metrics with the floors in `evals/gate.toml` and exits non-zero on a regression (a skipped suite fails unless `--gate-allow-skipped`); update the floors when you publish a new `evals/l1.json`.
+Unit tests for the vertical live under `tests/evals`, use fakes, and never call a paid API. `--gate` compares the published metrics with the floors in `evals/gate.toml` and exits non-zero on a regression (a skipped suite fails unless `--gate-allow-skipped`); update the floors when you publish a new `evals/l1.json`.
 
 <!-- commands:evals -->
 ```bash
 uv run python evals/run_l1.py
-uv run python evals/run_l1.py --deterministic-only
 uv run python evals/run_l1.py --retrieval-only
 uv run python evals/run_l1.py --generation-only
 uv run python evals/run_l1.py --gate

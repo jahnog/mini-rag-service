@@ -10,7 +10,7 @@ from bcra_rag.composition import default_pipeline
 from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.answer_query import generate_from_context
+from bcra_rag.use_cases.generate import GenerateOptions, generate_from_context
 
 
 class _RecordingIndex(FakeIndex):
@@ -34,7 +34,7 @@ async def test_generate_from_context_does_not_search(tmp_path: Path) -> None:
         default_pipeline(settings),
         ctx,
         "Qué dice la Comunicación A 3500?",
-        timeout_s=settings.llm_timeout_s,
+        GenerateOptions(timeout_s=settings.llm_timeout_s),
     )
     assert result.draft is not None
     assert index.search_calls == []

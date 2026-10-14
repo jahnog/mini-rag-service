@@ -67,7 +67,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         from tests.features.live.http_client import require_imap_env
         from tests.features.live.mailbox import MailboxError
         from tests.prod.http_client import ProdHttpError, require_prod_ready
-        from tests.prod.phoenix import PhoenixError, require_phoenix_env
 
         try:
             require_prod_ready()
@@ -76,10 +75,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         try:
             require_imap_env()
         except MailboxError as exc:
-            raise pytest.UsageError(str(exc)) from exc
-        try:
-            require_phoenix_env()
-        except PhoenixError as exc:
             raise pytest.UsageError(str(exc)) from exc
 
 

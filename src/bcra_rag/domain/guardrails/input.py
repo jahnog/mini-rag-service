@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from bcra_rag.domain.guardrails.injection import injection_check
 from bcra_rag.domain.guardrails.types import (
-    InjectionBackend,
     RailContext,
     RailPatch,
     RailResult,
@@ -74,11 +74,7 @@ def redact_secrets(text: str) -> str:
 
 
 def is_advice(text: str) -> bool:
-    if not ADVICE_CUES.search(text or ""):
-        return False
-    if DEONTIC_VETO.search(text or ""):
-        return False
-    return True
+    return bool(ADVICE_CUES.search(text or "")) and not DEONTIC_VETO.search(text or "")
 
 
 class _Rail:
@@ -195,17 +191,13 @@ class NoAdviceRail(_Rail):
 
 
 class InjectionRail(_Rail):
-    """Block jailbreak phrasing via RegexBackend. Scores text, the composed query."""
+    """Block jailbreak phrasing. Scores text, the composed query."""
 
     id = "injection"
     stage: Stage = "input"
 
-    def __init__(self, backend: InjectionBackend, *, enforce: bool = True) -> None:
-        super().__init__(enforce=enforce)
-        self._backend = backend
-
     def run(self, ctx: RailContext) -> RailResult:
-        hit, detail = self._backend.score(ctx.text)
+        hit, detail = injection_check(ctx.text)
         if hit:
             return RailResult(
                 rule=self.id,
@@ -264,10 +256,5 @@ def _advice_quoted(blob: str, ctx: RailContext) -> bool:
     if match is None:
         return False
     span = match.group(0).lower()
-    for chunk in ctx.hits:
-        if span in (chunk.text or "").lower():
-            return True
-    for citation in ctx.citations:
-        if span in (citation.snippet or "").lower():
-            return True
-    return False
+    quoted = [chunk.text for chunk in ctx.hits] + [item.snippet for item in ctx.citations]
+    return any(span in (text or "").lower() for text in quoted)

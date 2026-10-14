@@ -17,6 +17,11 @@ def test_chat_sources_do_not_import_evals_vertical() -> None:
         "api/app.py",
         "api/handle.py",
         "ui/gradio_app.py",
+        "ui/auth_js.py",
+        "ui/inspector_state.py",
+        "ui/mount.py",
+        "ui/turn_service.py",
+        "ui/turn_stream.py",
         "use_cases/answer_query.py",
     ):
         text = _source(relative)
@@ -46,14 +51,6 @@ def test_operator_script_does_not_boot_gradio() -> None:
     assert "build_evals" in text
     assert "configure_logging" in text
     assert "l1.log" in text
-
-
-def test_answer_query_does_not_import_otel_adapter() -> None:
-    assert "bcra_rag.adapters.otel" not in _source("use_cases/answer_query.py")
-
-
-def test_judge_phoenix_module_does_not_import_phoenix_evals() -> None:
-    assert "phoenix.evals" not in _source("evals/adapters/judge_phoenix.py")
 
 
 def test_no_http_eval_route(tmp_path: Path) -> None:

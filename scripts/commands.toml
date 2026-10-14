@@ -160,7 +160,7 @@ id = "prod-smoke"
 group = "Test"
 block = "test-prod-smoke"
 title = "Production smoke tests"
-summary = "HTTP against public origin; needs IMAP + collector."
+summary = "HTTP against public origin; needs IMAP."
 argv = ["./scripts/run-prod-smoke.sh"]
 confirm = true
 
@@ -198,15 +198,6 @@ block = "evals"
 title = "L1 eval"
 summary = "Offline L1 (not CI). Published index if ingest is ready; otherwise FakeIndex + unpublished."
 argv = ["uv", "run", "python", "evals/run_l1.py"]
-confirm = true
-
-[[command]]
-id = "l1-deterministic"
-group = "Evals"
-block = "evals"
-title = "L1 deterministic"
-summary = "Code metrics only; skip the judge language model."
-argv = ["uv", "run", "python", "evals/run_l1.py", "--deterministic-only"]
 confirm = true
 
 [[command]]

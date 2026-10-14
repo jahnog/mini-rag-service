@@ -7,7 +7,6 @@ from bcra_rag.domain.aliases import expand_aliases
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import Router
-from bcra_rag.use_cases.rebuild_ab import rebuild_structured_slice
 
 
 def _manifest(tmp_path: Path, documents: dict[str, dict[str, object]]) -> Manifest:
@@ -337,23 +336,6 @@ def test_vigente_comparison_is_not_named_fetch(tmp_path: Path) -> None:
     assert result.kind == "vigente"
     ids = {str(c.metadata.get("doc_id")) for c in result.hits}
     assert "texto_ordenado" in ids or "A8359" in ids
-
-
-def test_rebuild_ab_and_serving_chunker_metadata() -> None:
-    extracts = {
-        "texto_ordenado": (
-            "Sección 1.\n1. Los residentes deberán liquidar.\n",
-            {"doc_kind": "texto_ordenado"},
-        )
-    }
-    b_chunks = rebuild_structured_slice(extracts, strategy="B")
-    a_chunks = rebuild_structured_slice(extracts, strategy="A")
-    assert b_chunks
-    assert all(c.metadata["chunker"] == "B" for c in b_chunks)
-    assert all(c.metadata["chunker"] == "A" for c in a_chunks)
-    serving = FakeIndex()
-    serving.upsert("texto_ordenado", b_chunks)
-    assert serving.docs["texto_ordenado"][0].metadata["chunker"] == "B"
 
 
 def test_named_section_carries_url_title_and_punto(tmp_path: Path) -> None:

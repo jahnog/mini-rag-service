@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from bcra_rag.auth.settings import AuthSettings
 
@@ -22,7 +21,7 @@ def origin_matches(expected: str, incoming: str) -> bool:
     return _port(want) == _port(got)
 
 
-def cookie_secure(request: Any, settings: AuthSettings) -> bool:
+def cookie_secure(request: object, settings: AuthSettings) -> bool:
     public = settings.public_origin.strip()
     if _scheme(public) == "https":
         return True
@@ -43,7 +42,7 @@ def _scheme(value: str) -> str:
     return (urlparse(value).scheme or "").lower()
 
 
-def _port(parsed: Any) -> int | None:
+def _port(parsed: ParseResult) -> int | None:
     port = getattr(parsed, "port", None)
     if port is not None:
         return int(port)
@@ -55,7 +54,7 @@ def _port(parsed: Any) -> int | None:
     return None
 
 
-def _header(request: Any, name: str) -> str | None:
+def _header(request: object, name: str) -> str | None:
     headers = getattr(request, "headers", None)
     if headers is None:
         return None

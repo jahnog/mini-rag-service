@@ -12,7 +12,7 @@ from bcra_rag.use_cases.ingest_corpus import IngestCorpus
 
 async def _run() -> int:
     app = build_ingest()
-    configure_logging(log_file=app.settings.data_dir / "logs" / "ingest.log")
+    configure_logging()
     fetcher = PoliteFetcher(app.settings)
     await IngestCorpus(
         app.settings, app.catalog, app.extractor, app.index, fetcher

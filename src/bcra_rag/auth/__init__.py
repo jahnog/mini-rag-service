@@ -7,7 +7,8 @@ page refuse a turn without that cookie.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+
+from fastapi import FastAPI
 
 from bcra_rag.auth.errors import AuthRejected, AuthUnavailable
 from bcra_rag.auth.fake import FakeMailer
@@ -37,14 +38,14 @@ def build_auth(
     return AuthModule(settings=resolved, service=service, mailer=resolved_mailer)
 
 
-def mount_auth(api: Any, auth: AuthModule) -> None:
+def mount_auth(api: FastAPI, auth: AuthModule) -> None:
     from bcra_rag.auth.routes import build_router
 
     api.state.auth = auth
     api.include_router(build_router(auth))
 
 
-def email_from_request(auth: AuthModule, request: Any) -> str | None:
+def email_from_request(auth: AuthModule, request: object) -> str | None:
     cookies = getattr(request, "cookies", None)
     value = None
     if cookies is not None:

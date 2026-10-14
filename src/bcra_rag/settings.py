@@ -72,16 +72,11 @@ class Settings(BaseSettings):
     rate_limit_window_s: int = Field(default=60, ge=1)
     chat_turns_per_email_day: int = Field(default=30, ge=1)
     chat_turns_per_process_day: int = Field(default=100, ge=1)
-    chat_turn_evals: bool = False  # live judge switch, not the offline L1 suite
 
     # Corpus ingest
     download_concurrency: int = Field(default=3, ge=2, le=4)
     download_delay_s: float = Field(default=0.2, ge=0.0)
     user_agent: str = "BCRAMiniRag/0.1 (CAMEX corpus ingest)"
-
-    # Optional observatory page-view tracker (unset sends nothing)
-    matomo_url: str = ""
-    matomo_site_id: str = ""
 
     @property
     def dump_dir(self) -> Path:

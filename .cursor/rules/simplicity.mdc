@@ -1,0 +1,14 @@
+---
+description: Keep code small and simple in this repo
+alwaysApply: true
+---
+
+Full rules: `AGENTS.md` ("Simplicity"). Summary:
+
+- Smallest change that satisfies the task. No new file, class, Protocol, setting, or flag unless needed.
+- Only the five ports in `src/bcra_rag/ports/`. Prefer plain functions and dataclasses.
+- Function <= 40 statements, <= 10 branches, <= 5 params; file <= 400 lines.
+- No `except Exception`, no swallowed errors, no `Any`/`getattr`/`type: ignore` shortcuts.
+- Delete obsolete code. No shims, no speculative config.
+- Tests: one per behaviour, reuse fakes; no layout or copy-text tests.
+- If a task seems to need an abstraction, ask first.

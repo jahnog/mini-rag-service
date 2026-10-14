@@ -34,21 +34,3 @@ def oracle_chunks(index: IndexPort, gold: GoldRow, settings: Settings) -> list[C
         if remaining <= 0:
             break
     return chunks
-
-
-def usable_oracle(gold: GoldRow, chunks: list[Chunk]) -> bool:
-    """False when the question is not answerable, gold ids are empty, or the punto is missing.
-
-    A texto ordenado row whose gold punto did not produce a chunk with that
-    punto is not usable.
-    """
-    if not gold.answerable or not gold.gold_ids or not chunks:
-        return False
-    for chunk in chunks:
-        doc_id = str(chunk.metadata.get("doc_id") or "")
-        if doc_id != TO_DOC_ID:
-            return True
-        punto = str(chunk.metadata.get("punto") or "")
-        if gold.gold_puntos and punto:
-            return True
-    return False

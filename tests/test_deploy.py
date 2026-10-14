@@ -216,7 +216,6 @@ def test_remote_env_seed_uses_loopback_embeddings_and_grok() -> None:
     assert "LLM_BASE_URL=https://api.x.ai/v1" in text
     assert "LLM_MODEL=grok-4-1-fast" in text
     assert "DATA_DIR=data" in text
-    assert "PHOENIX_PROJECT_NAME=bcra-rag-prod" in text
     assert "export" not in text
     lines = {
         line.split("=", 1)[0]: line.split("=", 1)[1]
@@ -224,27 +223,7 @@ def test_remote_env_seed_uses_loopback_embeddings_and_grok() -> None:
         if line and not line.startswith("#") and "=" in line
     }
     assert lines["LLM_API_KEY"] == ""
-    assert lines["PHOENIX_API_KEY"] == ""
 
-
-def test_remote_env_seed_comments_judge_keys() -> None:
-    text = _read("env.remote.example")
-    assert "export" not in text
-    for key in (
-        "JUDGE_MODEL",
-        "JUDGE_BASE_URL",
-        "JUDGE_API_KEY",
-        "JUDGE_REASONING_EFFORT",
-    ):
-        assert key in text
-        assigned = [
-            line
-            for line in text.splitlines()
-            if line and not line.startswith("#") and line.startswith(f"{key}=")
-        ]
-        assert assigned == [] or all(
-            line.split("=", 1)[1] == "" for line in assigned
-        )
 
 
 def test_local_env_example_has_no_real_hosts() -> None:

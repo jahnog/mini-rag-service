@@ -34,16 +34,15 @@ The system SHALL ship a Spanish-first gold file of 30–50 questions (MAY cap at
 - **AND** the reference answer names the same gold ids
 
 ### Requirement: Published metrics
-An L1 run SHALL publish two independent blocks. The retrieval block SHALL include at least: hit@5, precision@5, MRR, NDCG@5, retrieve latency p50 and p95, and (when the judge ran) context precision and context recall. NDCG@5 SHALL be bounded to the closed interval [0, 1]: each gold document id contributes relevance once, at its first rank among the top 5 retrieved ids, even when several retrieved chunks belong to that document. The generation block SHALL include at least: faithfulness and answer relevancy (when the judge ran), citation-id exact match, citation-punto exact when gold puntos exist, citation-snippet grounded (each cited snippet is a substring of the stuffed context), finding exact, generate latency p50 and p95, and the context source (`oracle` or `retrieved`). Citation-id exact SHALL be the headline metric and SHALL compare dump ids the model cited, not retrieved ids. Precision@5 SHALL be gold dump-id overlap in the top 5 retrieved documents and MUST NOT be the same number as context precision (judged chunk relevance). The run SHALL also publish chunking A versus B on the structured slice and a slice table (definición, obligación, silencio, cross-ref, superseded, post-TO patch) whose values are generation citation-id exact when generation ran, otherwise retrieval hit@5. Nested blocks are canonical; flat copies of citation-id exact, hit@5, and MRR MAY exist for older screens. The published document MUST NOT contain a `ragas` key.
+An L1 run SHALL publish two independent blocks. The retrieval block SHALL include at least: hit@5, precision@5, MRR, NDCG@5, retrieve latency p50 and p95. NDCG@5 SHALL be bounded to the closed interval [0, 1]: each gold document id contributes relevance once, at its first rank among the top 5 retrieved ids, even when several retrieved chunks belong to that document. The generation block SHALL include at least: citation-id exact match, citation-punto exact when gold puntos exist, citation-snippet grounded (each cited snippet is a substring of the stuffed context), finding exact, generate latency p50 and p95, and the context source (`oracle` or `retrieved`). Citation-id exact SHALL be the headline metric and SHALL compare dump ids the model cited, not retrieved ids. Precision@5 SHALL be gold dump-id overlap in the top 5 retrieved documents. The run SHALL also publish a slice table (definición, obligación, silencio, cross-ref, superseded, post-TO patch) whose values are generation citation-id exact when generation ran, otherwise retrieval hit@5. Nested blocks are canonical; flat copies of citation-id exact, hit@5, and MRR MAY exist for older screens. The published document MUST NOT contain a `ragas` key.
 
 #### Scenario: Published results exist after L1
 - **GIVEN** an L1 run has completed both suites
 - **WHEN** an operator reads the published results
 - **THEN** citation-id exact is presented as the headline number
 - **AND** it equals the generation block’s citation-id exact
-- **AND** hit@5 and A vs B appear with the slice table
+- **AND** hit@5 appears with the slice table
 - **AND** the retrieval and generation blocks are both present
-- **AND** the text states which documents strategy B covered
 
 #### Scenario: Repeated chunks of one gold document do not inflate NDCG
 - **GIVEN** a gold row whose only gold id is `texto_ordenado`
@@ -56,12 +55,6 @@ An L1 run SHALL publish two independent blocks. The retrieval block SHALL includ
 - **AND** the top 5 retrieved ids are `A8359, A3500, A3500, A3500, A3500`
 - **WHEN** NDCG@5 is scored
 - **THEN** the value equals 1 / log2(3), about 0.631, and never exceeds 1
-
-#### Scenario: Precision@5 is not context precision
-- **GIVEN** a completed retrieval suite with the judge
-- **WHEN** an operator reads precision@5 and context precision
-- **THEN** both numbers are present
-- **AND** they are distinct fields
 
 #### Scenario: Citation-id uses model cites
 - **GIVEN** retrieval returned gold dump ids
@@ -97,12 +90,10 @@ An L1 run SHALL evaluate retrieval and generation independently. Retrieval metri
 - **AND** the retrieval block is skipped with a reason
 - **AND** the index was not searched for those gold questions
 
-#### Scenario: Silencio gold does not zero judged generation
+#### Scenario: Silencio gold is scored by finding
 - **GIVEN** a gold row for Comunicación A 9999 with empty gold citations and finding silencio
 - **WHEN** generation is scored
 - **THEN** finding exact and citation-id exact are scored
-- **AND** faithfulness and answer relevancy are skipped for that row
-- **AND** those skipped judged metrics are not treated as 0
 
 #### Scenario: Named Com. A uses oracle clause not live search
 - **GIVEN** a gold row whose gold ids include Comunicación A 3500
@@ -118,7 +109,7 @@ An L1 run SHALL evaluate retrieval and generation independently. Retrieval metri
 - **AND** no generated answer is required
 
 ### Requirement: Oracle generation context
-Default generation context SHALL be oracle gold dump text: for each gold id, the dump section for that id, using gold puntos when present (puntos apply to the texto ordenado; Comunicaciones A use the document extract). Concatenated oracle context MUST NOT exceed the configured maximum context size. When a row has gold ids but no punto and no usable clause, judged faithfulness and answer relevancy for that row MUST be skipped. Generation with retrieved context MAY be selected by the operator and MUST use hits already produced by a retrieval suite in the same run, not a second search.
+Default generation context SHALL be oracle gold dump text: for each gold id, the dump section for that id, using gold puntos when present (puntos apply to the texto ordenado; Comunicaciones A use the document extract). Concatenated oracle context MUST NOT exceed the configured maximum context size. Generation with retrieved context MAY be selected by the operator and MUST use hits already produced by a retrieval suite in the same run, not a second search.
 
 #### Scenario: Oracle uses TO punto
 - **GIVEN** a gold row with gold id texto_ordenado and gold punto 3.8.5
@@ -140,24 +131,16 @@ Default generation context SHALL be oracle gold dump text: for each gold id, the
 - **THEN** those hits are the stuffed context
 - **AND** generation does not search again
 
-### Requirement: Judged metrics may be skipped
-Faithfulness, answer relevancy, context precision, and context recall SHALL be computed by a judge language model when the operator environment provides a judge key and the optional eval extra. When that extra or key is missing, those judged values MUST be omitted with a skip reason. Code metrics (hit@5, precision@5, MRR, citation-id exact, citation-punto exact, citation-snippet grounded, finding exact, latencies) MUST still publish. Context recall MUST run only on gold rows that have a written reference answer. The default automated test command MUST NOT require the judge extra.
+### Requirement: Every metric is code
+Every published L1 metric SHALL be an exact comparison or a count computed in code (hit@5, precision@5, MRR, NDCG@5, citation-id exact, citation-punto exact, citation-snippet grounded, finding exact, latencies). There SHALL NOT be a judge language model.
 
-#### Scenario: Dry run without a judge still publishes code metrics
-- **GIVEN** no judge key and no eval extra
+#### Scenario: Run needs no judge key
+- **GIVEN** no judge key exists in any configuration
 - **WHEN** an operator L1 run completes
 - **THEN** hit@5, precision@5, MRR, citation-id exact, and finding exact are present
-- **AND** judged metrics are skipped with a reason
-- **AND** they are not shown as 0
-
-#### Scenario: Context recall skips silencio
-- **GIVEN** a gold row with no reference answer
-- **WHEN** retrieval judged metrics run
-- **THEN** context recall is skipped for that row
-- **AND** is not treated as 0
 
 ### Requirement: Static results file
-L1 SHALL write a static results document that the assistant UI reads. The browser MUST NOT compute L1 scores. Refresh MUST NOT run L1 unless the operator opts in. The repository SHALL commit a results document at `evals/l1.json`. That document MAY be a published operator run made on the published dump (the dump that `scripts/publish-data.sh` ships), in which case it carries `unpublished: false` and `sample: false`; otherwise it MUST be labeled unpublished or sample. The UI SHALL label the numbers strictly by those flags. The document MUST mark judged metrics skipped, not zero, when the judge did not run. A collector error, including an authentication failure, MUST NOT fail that static write. The serving process SHALL expose the stored document read-only at `GET /l1`; when no document exists it SHALL return the same unpublished stub the UI renders, with HTTP 200.
+L1 SHALL write a static results document that the assistant UI reads. The browser MUST NOT compute L1 scores. Refresh MUST NOT run L1 unless the operator opts in. The repository SHALL commit a results document at `evals/l1.json`. That document MAY be a published operator run made on the published dump (the dump that `scripts/publish-data.sh` ships), in which case it carries `unpublished: false` and `sample: false`; otherwise it MUST be labeled unpublished or sample. The UI SHALL label the numbers strictly by those flags. The document MUST mark a skipped suite skipped, not zero. The serving process SHALL expose the stored document read-only at `GET /l1`; when no document exists it SHALL return the same unpublished stub the UI renders, with HTTP 200.
 
 #### Scenario: UI reads last run
 - **GIVEN** a results file from the last L1 run
@@ -180,7 +163,7 @@ L1 SHALL write a static results document that the assistant UI reads. The browse
 - **GIVEN** a running serving process with a results document
 - **WHEN** a client requests `GET /l1`
 - **THEN** the response is HTTP 200 with the stored JSON object
-- **AND** it contains `retrieval`, `generation`, `judge`, and `n`
+- **AND** it contains `retrieval`, `generation`, and `n`
 
 #### Scenario: Missing document over HTTP
 - **GIVEN** a running serving process whose evals directory has no `l1.json`
@@ -192,12 +175,6 @@ L1 SHALL write a static results document that the assistant UI reads. The browse
 - **GIVEN** a scheduled refresh
 - **WHEN** it completes without an opt-in flag
 - **THEN** L1 is not executed
-
-#### Scenario: Collector auth failure still writes L1
-- **GIVEN** a collector endpoint is configured
-- **AND** the collector rejects annotations as unauthenticated
-- **WHEN** an operator L1 run finishes scoring
-- **THEN** the static results document still contains the scores
 
 ### Requirement: Dump-host published run
 An operator L1 run on the host that stores the dump SHALL score against that dump’s index when the index is ready. Published staff L1 numbers (Calidad L1 without the unpublished/sample banner) MUST come from an operator run on that dump whose index was ready. A run on a machine whose index is not ready MUST still be labeled unpublished or sample and MUST NOT be presented as dump quality. A shipped unpublished sample MAY still be shown until a published run exists. Citation-id exact SHALL remain the headline metric.
@@ -250,14 +227,13 @@ Installing or updating application code on the dump host MUST NOT replace an exi
 - **THEN** the host receives the committed document, not the working-tree run
 
 ### Requirement: CI does not pay for L1
-Automated tests on every change MUST NOT call a paid language model for L1. Unit and acceptance tests use fakes. The default test command MUST NOT require RAGAS and MUST NOT require a live collector or a judge extra.
+Automated tests on every change MUST NOT call a paid language model for L1. Unit and acceptance tests use fakes. The default test command MUST NOT require RAGAS.
 
 #### Scenario: Default test run
 - **GIVEN** the project test command
 - **WHEN** it runs in CI
 - **THEN** it does not require a live LLM API key for L1
 - **AND** it does not require RAGAS
-- **AND** it does not require a live collector
 
 ### Requirement: Threshold gate
 The L1 command SHALL accept a gate option that reads per-metric floors from a TOML file (`evals/gate.toml` by default, `[thresholds]` table of metric name to minimum value). After the run it SHALL compare each listed metric from the published retrieval or generation block against its floor, print one line per failing metric naming the value and the floor, and exit non-zero when any metric fails. A suite that was skipped SHALL fail the gate for its metrics unless the operator allows skipped suites. The default test command MUST NOT run the gate.

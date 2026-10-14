@@ -401,7 +401,7 @@ def test_l1_document_served(tmp_path: Path) -> None:
     client, _, _, _ = make_client(tmp_path, authenticate=False)
     body = client.get("/l1").json()
     assert body["unpublished"] is False
-    for key in ("retrieval", "generation", "judge", "n"):
+    for key in ("retrieval", "generation", "n"):
         assert key in body
 
 

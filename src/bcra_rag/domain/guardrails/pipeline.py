@@ -12,13 +12,10 @@ and does not run them. Output calls this with short-circuit off.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Sequence
 from dataclasses import replace
-from typing import Any
 
 from bcra_rag.domain.guardrails.copy import detail_label
-from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.types import (
     ChunkAction,
     ChunkResult,
@@ -27,103 +24,10 @@ from bcra_rag.domain.guardrails.types import (
     RailPatch,
     RailResult,
     Stage,
-    Tracer,
 )
 from bcra_rag.domain.models import Chunk
 
-_DETAIL_LIMIT = 200
-
 _ALWAYS_APPLY = frozenset({"normalize"})
-
-
-class _NullSpan:
-    def __enter__(self) -> _NullSpan:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def set_attribute(self, *_args: object, **_kwargs: object) -> None:
-        return None
-
-
-class NoOpTracer:
-    def span(self, name: str, layer: str) -> AbstractContextManager[Any]:
-        del name, layer
-        return _NullSpan()
-
-    def record_retriever(
-        self,
-        query: str,
-        hits: Sequence[Chunk],
-        *,
-        route: str = "",
-        silencio_reason: str | None = None,
-        span: Any = None,
-    ) -> None:
-        del query, hits, route, silencio_reason, span
-
-    def flush(self) -> None:
-        return None
-
-    def record_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
-        del prompt_tokens, completion_tokens
-
-    def record_scores(self, span: Any, scores: Mapping[str, float]) -> None:
-        del span, scores
-
-
-def span_id_hex(span: object) -> str | None:
-    getter = getattr(span, "get_span_context", None)
-    if not callable(getter):
-        return None
-    try:
-        ctx = getter()
-    except Exception:
-        return None
-    raw = getattr(ctx, "span_id", 0) or 0
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return None
-    if value <= 0:
-        return None
-    return format(value, "016x")
-
-
-class TracedRail:
-    def __init__(self, inner: Rail, tracer: Tracer) -> None:
-        self._inner = inner
-        self._tracer = tracer
-        self.id = inner.id
-        self.stage = inner.stage
-        self.enforce = inner.enforce
-
-    def run(self, ctx: RailContext) -> RailResult:
-        started = time.perf_counter()
-        span_cm = self._tracer.span(self.id, self.stage)
-        with span_cm as span:
-            result = self._inner.run(ctx)
-            latency_ms = (time.perf_counter() - started) * 1000
-            result = replace(result, latency_ms=latency_ms)
-            setter = getattr(span, "set_attribute", None)
-            if callable(setter):
-                setter("openinference.span.kind", "GUARDRAIL")
-                setter("guardrail_name", self.id)
-                setter("guardrail_layer", self.stage)
-                setter("guardrail_decision", result.verdict)
-                setter("guardrail_enforced", result.enforced)
-                setter("guardrail_latency_ms", result.latency_ms)
-                setter(
-                    "guardrail_would_block",
-                    result.verdict == "block" or result.would_block,
-                )
-                setter("output.value", result.verdict)
-                setter(
-                    "guardrail_detail",
-                    redact_secrets(result.detail)[:_DETAIL_LIMIT],
-                )
-            return result
 
 
 class GuardrailPipeline:
@@ -133,12 +37,10 @@ class GuardrailPipeline:
         *,
         global_enforce: bool = True,
         policy_version: int = 2,
-        tracer: Tracer | None = None,
     ) -> None:
         self._rails = list(rails)
         self._global_enforce = global_enforce
         self.policy_version = policy_version
-        self.tracer: Tracer = tracer or NoOpTracer()
 
     def enabled(self) -> list[Rail]:
         return list(self._rails)
@@ -164,7 +66,8 @@ class GuardrailPipeline:
             if short_circuit and blocked_by is not None:
                 results.append(_skipped(rail, detail_label(f"blocked by {blocked_by}")))
                 continue
-            raw = rail.run(ctx)
+            started = time.perf_counter()
+            raw = replace(rail.run(ctx), latency_ms=(time.perf_counter() - started) * 1000)
             result = _apply_enforce(raw, rail, self._global_enforce)
             if rail.id in _ALWAYS_APPLY or result.enforced:
                 _apply_patch(ctx, raw.patch)

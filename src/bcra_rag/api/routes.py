@@ -8,10 +8,11 @@ POST /chat/clear go through handle.py. The Gradio page is mounted here too.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from starlette.middleware.base import RequestResponseEndpoint
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from bcra_rag.api.chat_stream import json_chat_chunks
@@ -28,7 +29,6 @@ from bcra_rag.auth import AuthModule, build_auth, mount_auth
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.l1_results import L1_FILENAME, load_l1
-from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
@@ -44,7 +44,6 @@ def create_fastapi(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     auth: AuthModule | None = None,
-    turn_evaluator: TurnEvaluator | None = None,
 ) -> FastAPI:
     api = FastAPI(title="BCRA Mini-RAG", version="0.1.0")
     api.state.settings = settings
@@ -52,8 +51,6 @@ def create_fastapi(
     api.state.llm = llm
     api.state.sessions = sessions
     api.state.pipeline = pipeline
-    resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
-    api.state.turn_evaluator = resolved_evaluator
     resolved_auth = auth or build_auth()
     api.state.auth = resolved_auth
     api.state.limiter = RateLimiter(
@@ -67,7 +64,9 @@ def create_fastapi(
     mount_auth(api, resolved_auth)
 
     @api.middleware("http")
-    async def request_id_middleware(request: Request, call_next: Any) -> Any:
+    async def request_id_middleware(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         request_id = request.headers.get("x-request-id") or _new_request_id()
         bind_contextvars(request_id=request_id)
         request.state.request_id = request_id
@@ -115,7 +114,6 @@ def create_fastapi(
                     k=payload.k,
                     filters=payload.filters,
                     request_id=getattr(request.state, "request_id", "unknown"),
-                    turn_evaluator=resolved_evaluator,
                     turn_caps=api.state.turn_caps,
                 )
             ),
@@ -143,12 +141,12 @@ def create_fastapi(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
             demo_key=demo_key_for(request),
-            turn_evaluator=resolved_evaluator,
         )
 
-    from bcra_rag.ui.gradio_app import build_blocks, mount_ui
+    from bcra_rag.ui.gradio_app import build_observatory_blocks
+    from bcra_rag.ui.mount import mount_observatory_ui
 
-    blocks = build_blocks(
+    blocks = build_observatory_blocks(
         settings=settings,
         index=index,
         llm=llm,
@@ -157,9 +155,8 @@ def create_fastapi(
         limiter=api.state.limiter,
         turn_caps=api.state.turn_caps,
         auth=resolved_auth,
-        turn_evaluator=resolved_evaluator,
     )
-    return cast(FastAPI, mount_ui(api, blocks, settings))
+    return mount_observatory_ui(api, blocks)
 
 
 def _new_request_id() -> str:

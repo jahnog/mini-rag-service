@@ -8,8 +8,7 @@ model wrote given a context. context_source oracle is the labeled clause, so
 a bad search does not lower the generation score. retrieved uses the same
 run's hits.
 
-kind code is an exact comparison. kind llm asks a separate judge model. A
-missing score is a skip, not a zero.
+Every metric is an exact comparison. A missing score is a skip, not a zero.
 """
 
 from __future__ import annotations
@@ -19,8 +18,6 @@ from typing import Literal, Protocol
 
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding
-
-MetricKind = Literal["code", "llm"]
 
 
 @dataclass(frozen=True)
@@ -53,16 +50,12 @@ class GenerationSample:
     citations: list[Citation]
     finding: Finding
     latency_ms: float = 0.0
-    usable_context: bool = True
 
 
 @dataclass(frozen=True)
 class Score:
     name: str
     value: float
-    kind: MetricKind = "code"
-    label: str = ""
-    explanation: str = ""
 
 
 @dataclass
@@ -80,28 +73,17 @@ class EvalReport:
     sample: bool
     retrieval: SuiteReport
     generation: SuiteReport
-    judge_skipped: bool = True
-    judge_skip_reason: str | None = "no_judge"
-    judge_model: str = "grok-4.3"
-    judge_calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    chunking: dict[str, object] = field(default_factory=dict)
     slices: dict[str, float] = field(default_factory=dict)
     n: int = 0
-    phoenix_exported: bool = False
-    annotation_span_id: str | None = None
 
 
 class RetrievalMetric(Protocol):
     name: str
-    kind: MetricKind
 
     def score(self, sample: RetrievalSample) -> Score | None: ...
 
 
 class GenerationMetric(Protocol):
     name: str
-    kind: MetricKind
 
     def score(self, sample: GenerationSample) -> Score | None: ...

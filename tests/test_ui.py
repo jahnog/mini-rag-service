@@ -15,6 +15,7 @@ from bcra_rag.schemas import (
     GuardrailVerdict,
     HealthResponse,
 )
+from bcra_rag.ui.auth_js import AUTH_REQUEST_JS, AUTH_VERIFY_JS, auth_request_js
 from bcra_rag.ui.config import (
     AUTH_CLEAR,
     AUTH_EMAIL_LABEL,
@@ -63,22 +64,14 @@ from bcra_rag.ui.config import (
     trust_markdown,
     trust_payload,
 )
-from bcra_rag.ui.gradio_app import (
-    _AUTH_REQUEST_JS,
-    _AUTH_VERIFY_JS,
-    InspectorPrior,
-    _RewriteGradioHtml,
-    auth_request_js,
-    build_blocks,
-    iter_observatory_turn,
-    mount_ui,
-)
+from bcra_rag.ui.gradio_app import build_observatory_blocks
+from bcra_rag.ui.inspector_state import PreviousInspectorState
+from bcra_rag.ui.mount import RewriteGradioHtml, mount_observatory_ui
 from bcra_rag.ui.theme import (
     GRADIO_HEADER_IMAGE,
     OG_IMAGE_HREF,
     PAGE_DESCRIPTION,
     PAGE_TITLE,
-    matomo_snippet,
     observatory_css_path,
     observatory_css_paths,
     observatory_favicon_path,
@@ -89,6 +82,7 @@ from bcra_rag.ui.theme import (
     rewrite_gradio_html,
     weblab_css_path,
 )
+from bcra_rag.ui.turn_stream import stream_turn_updates
 from tests.chat_fixtures import LAST_REFRESH, TO_AS_OF, make_client, seed_ready
 
 _CARD_ORIGIN = "https://cards.example.test"
@@ -232,8 +226,6 @@ def test_observatory_theme_helpers() -> None:
     assert weblab.is_file()
     assert observatory_css_paths() == [weblab, path]
     head = observatory_head()
-    assert "_paq" not in head
-    assert "matomo.js" not in head
     assert f"<title>{PAGE_TITLE}</title>" in head
     assert PAGE_TITLE == "BCRA Mini-RAG"
     assert 'name="description"' in head
@@ -272,9 +264,9 @@ def test_mount_ui_passes_observatory_presentation() -> None:
 
     api = MagicMock()
     blocks = MagicMock()
-    with patch("bcra_rag.ui.gradio_app.gr.mount_gradio_app") as mount:
+    with patch("bcra_rag.ui.mount.gr.mount_gradio_app") as mount:
         mount.return_value = api
-        result = mount_ui(api, blocks)
+        result = mount_observatory_ui(api, blocks)
     assert result is api
     kwargs = mount.call_args.kwargs
     assert kwargs["path"] == "/"
@@ -286,61 +278,6 @@ def test_mount_ui_passes_observatory_presentation() -> None:
     assert kwargs["js"] == observatory_js()
     assert kwargs["favicon_path"] == str(observatory_favicon_path())
     api.add_middleware.assert_called()
-
-
-def test_matomo_snippet_omits_invalid_or_blank() -> None:
-    assert matomo_snippet("", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/", "") == ""
-    assert matomo_snippet("http://tracker.example/matomo/", "42") == ""
-    assert matomo_snippet('https://tracker.example/matomo/"', "42") == ""
-    assert matomo_snippet("https://user:pass@tracker.example/matomo/", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/?x=1", "42") == ""
-    assert matomo_snippet("https://tracker.example/matomo/", "ab") == ""
-    assert matomo_snippet("javascript:alert(1)", "42") == ""
-    assert "matomo.js" not in observatory_head(
-        matomo_url="https://tracker.example/matomo/", matomo_site_id="nope"
-    )
-
-
-def test_matomo_snippet_cookieless_loopback_gate() -> None:
-    snippet = matomo_snippet("https://tracker.example/matomo", "42")
-    assert "disableCookies" in snippet
-    assert "setDoNotTrack" in snippet
-    assert "https://tracker.example/matomo/matomo.php" in snippet
-    assert "https://tracker.example/matomo/matomo.js" in snippet
-    assert '"42"' in snippet
-    assert "localhost" in snippet
-    assert "127.0.0.1" in snippet
-    assert "matomo=1" in snippet
-    assert "@" not in snippet
-    assert "Pregunt" not in snippet
-    head = observatory_head(
-        matomo_url="https://tracker.example/matomo/", matomo_site_id="42"
-    )
-    assert snippet in head
-    assert f"<title>{PAGE_TITLE}</title>" in head
-
-
-def test_mount_ui_passes_matomo_head(tmp_path: Path) -> None:
-    from unittest.mock import MagicMock, patch
-
-    from bcra_rag.settings import Settings
-
-    settings = Settings(
-        data_dir=tmp_path,
-        matomo_url="https://tracker.example/matomo/",
-        matomo_site_id="42",
-        _env_file=None,
-    )
-    api = MagicMock()
-    blocks = MagicMock()
-    with patch("bcra_rag.ui.gradio_app.gr.mount_gradio_app") as mount:
-        mount.return_value = api
-        mount_ui(api, blocks, settings)
-    kwargs = mount.call_args.kwargs
-    assert kwargs["head"] == observatory_head(
-        matomo_url=settings.matomo_url, matomo_site_id=settings.matomo_site_id
-    )
 
 
 def test_rewrite_gradio_html_rewrites_cards_and_spares_internals() -> None:
@@ -376,7 +313,7 @@ def test_rewrite_middleware_rewrites_card_html() -> None:
     inner = Starlette(
         routes=[Route("/", homepage), Route("/ping", ping)],
     )
-    inner.add_middleware(_RewriteGradioHtml)
+    inner.add_middleware(RewriteGradioHtml)
     client = TestClient(inner)
     page = client.get("/")
     origin = "http://testserver"
@@ -400,6 +337,8 @@ def test_forced_includes_exist() -> None:
     assert missing == []
     assert "src/bcra_rag/ui/favicon.ico" in includes
     assert "src/bcra_rag/ui/apple-touch-icon.png" in includes
+    for script in ("auth_request.js", "auth_verify.js", "auth_logout.js"):
+        assert f"src/bcra_rag/ui/js/{script}" in includes
 
 
 def test_page_images_are_served(tmp_path: Path) -> None:
@@ -502,8 +441,8 @@ def test_turn_yields_pending_then_result() -> None:
 
     from bcra_rag.ui import gradio_app
 
-    source = inspect.getsource(gradio_app.build_blocks)
-    assert "iter_observatory_turn" in source
+    source = inspect.getsource(gradio_app._make_page_handlers)
+    assert "stream_turn_updates" in source
     assert "on_thinking" in source
 
 
@@ -541,7 +480,7 @@ async def test_iter_turn_yields_thinking_before_answer() -> None:
         return _turn_response()
 
     yields: list[tuple[object, ...]] = []
-    async for item in iter_observatory_turn(
+    async for item in stream_turn_updates(
         "hola", None, None, run_turn=run_turn
     ):
         yields.append(item)
@@ -580,7 +519,7 @@ async def test_iter_turn_publishes_thinking_on_word_breaks() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
+        async for item in stream_turn_updates(
             "q", None, None, run_turn=run_turn
         )
     ]
@@ -606,7 +545,7 @@ async def test_iter_turn_http_error_drops_thought() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
+        async for item in stream_turn_updates(
             "hola", None, None, run_turn=run_turn
         )
     ]
@@ -630,7 +569,7 @@ async def test_iter_turn_auth_required_spanish_notice() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
+        async for item in stream_turn_updates(
             "hola", None, None, run_turn=run_turn
         )
     ]
@@ -683,8 +622,8 @@ async def test_iter_turn_usuario_hides_thinking_but_keeps_inspector() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
-            "hola", None, None, run_turn=run_turn, staff=False
+        async for item in stream_turn_updates(
+            "hola", None, None, run_turn=run_turn, is_staff_view=False
         )
     ]
     final_rows = yields[-1][0]
@@ -715,7 +654,7 @@ async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
+        async for item in stream_turn_updates(
             "clima", None, None, run_turn=run_turn
         )
     ]
@@ -765,24 +704,16 @@ def test_l1_fixture_renders_operator_run(tmp_path: Path) -> None:
     lowered = text.lower()
     assert "números de muestra" not in lowered
     assert "citation_id_exact" in text or "citation-id" in lowered or "métrica principal" in lowered
-    assert "A vs B: A " in text
     assert "'A':" not in text
     assert "{" not in text
     assert "## Recuperación" in text
     assert "## Generación" in text
-    assert "faithfulness: 0" not in lowered
     assert "## Generación (n=30)" in text
     assert "latencia p95: 137653 ms" in text
     assert "137652.6405" not in text
-    assert "Juez: grok-4.3 · omitido (falta la dependencia del juez)" in text
     assert "coincidencia de cita**: 0.233" in text
     empty = load_l1(tmp_path / "missing.json")
     assert is_sample_l1(empty)
-
-
-def test_l1_markdown_judge_ran_line() -> None:
-    text = l1_markdown({"judge": {"model": "m", "skipped": False, "calls": 12}})
-    assert "Juez: m · 12 llamadas" in text
 
 
 def test_l1_markdown_skipped_generation_not_zero() -> None:
@@ -796,14 +727,12 @@ def test_l1_markdown_skipped_generation_not_zero() -> None:
             "mrr": 0.5,
             "retrieval": {"skipped": False, "hit_at_5": 0.8, "n": 30},
             "generation": {"skipped": True, "skip_reason": "not_requested", "n": 0},
-            "chunking": {"A": 1, "B": 2, "b_documents": ["texto_ordenado"]},
         }
     )
     lowered = text.lower()
     assert "omitido" in lowered
     assert "métrica principal **coincidencia de cita**: 0" not in lowered
     assert "métrica principal **coincidencia de cita**: none" not in lowered
-    assert "faithfulness: 0" not in lowered
 
 
 def test_l1_markdown_skipped_retrieval_not_zero() -> None:
@@ -817,7 +746,6 @@ def test_l1_markdown_skipped_retrieval_not_zero() -> None:
             "mrr": None,
             "retrieval": {"skipped": True, "skip_reason": "not_requested", "n": 0},
             "generation": {"skipped": False, "citation_id_exact": 0.4, "n": 30},
-            "chunking": {"A": 1, "B": 1, "b_documents": ["texto_ordenado"]},
         }
     )
     lowered = text.lower()
@@ -946,7 +874,7 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
     from bcra_rag.auth import build_auth
     from bcra_rag.composition import default_pipeline
 
-    blocks = build_blocks(
+    blocks = build_observatory_blocks(
         settings=settings,
         index=index,
         llm=llm,
@@ -1081,28 +1009,28 @@ def test_build_blocks_does_not_call_run_l1(tmp_path: Path) -> None:
 
 
 def test_auth_js_posts_token_email_request() -> None:
-    assert 'fetch("/auth/request"' in _AUTH_REQUEST_JS
-    assert 'JSON.stringify({email: email || ""})' in _AUTH_REQUEST_JS
-    assert "credentials: \"same-origin\"" in _AUTH_REQUEST_JS
-    assert "if (r.ok)" in _AUTH_REQUEST_JS
-    assert "r.status === 403" in _AUTH_REQUEST_JS
-    assert "r.status === 422" in _AUTH_REQUEST_JS
-    assert AUTH_STATUS_GENERIC in _AUTH_REQUEST_JS
-    assert AUTH_STATUS_SENDING in _AUTH_REQUEST_JS
-    assert AUTH_STATUS_SMTP_OK in _AUTH_REQUEST_JS
-    assert AUTH_STATUS_SMTP_FAIL in _AUTH_REQUEST_JS
-    assert AUTH_STATUS_SMTP_PROBLEM in _AUTH_REQUEST_JS
-    assert "No se pudo pedir el código." not in _AUTH_REQUEST_JS
-    assert str(AUTH_STATUS_FLASH_MS) in _AUTH_REQUEST_JS
-    assert "auth-status-ok" in _AUTH_REQUEST_JS
-    assert "auth-status-err" in _AUTH_REQUEST_JS
-    assert "__authSendToken" in _AUTH_REQUEST_JS
-    assert "readText() !== msg" in _AUTH_REQUEST_JS
-    assert "paint(msg, kind)" in _AUTH_REQUEST_JS
-    assert "aria-live" in _AUTH_REQUEST_JS
-    assert "Demasiados intentos. Probá más tarde." in _AUTH_REQUEST_JS
-    assert "flash = false" in _AUTH_REQUEST_JS
-    assert "Autenticación no configurada." not in _AUTH_REQUEST_JS
+    assert 'fetch("/auth/request"' in AUTH_REQUEST_JS
+    assert 'JSON.stringify({email: email || ""})' in AUTH_REQUEST_JS
+    assert "credentials: \"same-origin\"" in AUTH_REQUEST_JS
+    assert "if (response.ok)" in AUTH_REQUEST_JS
+    assert "response.status === 403" in AUTH_REQUEST_JS
+    assert "response.status === 422" in AUTH_REQUEST_JS
+    assert AUTH_STATUS_GENERIC in AUTH_REQUEST_JS
+    assert AUTH_STATUS_SENDING in AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_OK in AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_FAIL in AUTH_REQUEST_JS
+    assert AUTH_STATUS_SMTP_PROBLEM in AUTH_REQUEST_JS
+    assert "No se pudo pedir el código." not in AUTH_REQUEST_JS
+    assert str(AUTH_STATUS_FLASH_MS) in AUTH_REQUEST_JS
+    assert "auth-status-ok" in AUTH_REQUEST_JS
+    assert "auth-status-err" in AUTH_REQUEST_JS
+    assert "__authSendToken" in AUTH_REQUEST_JS
+    assert "readStatusText() !== statusMessage" in AUTH_REQUEST_JS
+    assert "showStatus(statusMessage, statusKind)" in AUTH_REQUEST_JS
+    assert "aria-live" in AUTH_REQUEST_JS
+    assert "Demasiados intentos. Probá más tarde." in AUTH_REQUEST_JS
+    assert "shouldFlashStatus = false" in AUTH_REQUEST_JS
+    assert "Autenticación no configurada." not in AUTH_REQUEST_JS
     css = observatory_css_path().read_text(encoding="utf-8")
     assert "#auth-status.auth-status-ok" in css
     assert "#auth-status.auth-status-err" in css
@@ -1110,7 +1038,7 @@ def test_auth_js_posts_token_email_request() -> None:
     assert "var(--danger)" in css
     status_css = css[css.find("#auth-status") : css.find("#layout-toggle")]
     assert "white-space: nowrap" not in status_css
-    assert 'fetch("/auth/verify"' in _AUTH_VERIFY_JS
+    assert 'fetch("/auth/verify"' in AUTH_VERIFY_JS
 
 
 def test_layout_toggle_visibility() -> None:
@@ -1220,7 +1148,7 @@ async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
         return _turn_response(thinking="pensando algo. ")
 
     yields = [
-        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+        item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
     first = yields[0]
     assert first[8] == PENDING_CITATION_CARD
@@ -1236,7 +1164,7 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
         del message, session_id, on_thinking
         raise HTTPException(status_code=429, detail="rate limited")
 
-    prior = InspectorPrior(
+    prior = PreviousInspectorState(
         inspector={"id": "A8359", "copy_id": "A8359", "snippet": "texto"},
         trust=[
             {
@@ -1253,8 +1181,8 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
     )
     yields = [
         item
-        async for item in iter_observatory_turn(
-            "hola", None, None, run_turn=run_turn, prior=prior
+        async for item in stream_turn_updates(
+            "hola", None, None, run_turn=run_turn, previous_inspector=prior
         )
     ]
     last = yields[-1]
@@ -1271,7 +1199,7 @@ async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
         raise HTTPException(status_code=401, detail="authentication required")
 
     yields = [
-        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+        item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
     assert yields[-1][8] == EMPTY_CITATION_CARD
 
@@ -1283,7 +1211,7 @@ async def test_iter_turn_generic_error_replaces_pending_row() -> None:
         raise RuntimeError("boom")
 
     yields = [
-        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+        item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
     last = yields[-1]
     assert last[0][-1]["content"] == TURN_FAILED_NOTICE
@@ -1353,8 +1281,8 @@ async def test_iter_turn_phase_line_in_usuario_layout() -> None:
 
     yields = [
         item
-        async for item in iter_observatory_turn(
-            "hola", None, None, run_turn=run_turn, staff=False
+        async for item in stream_turn_updates(
+            "hola", None, None, run_turn=run_turn, is_staff_view=False
         )
     ]
     phases = [y[10]["value"] for y in yields]
@@ -1373,7 +1301,7 @@ async def test_iter_turn_staff_pending_title_follows_phase() -> None:
         return _turn_response(thinking="pienso. ")
 
     yields = [
-        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+        item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
     titles = [y[0][-1].get("metadata", {}).get("title") for y in yields[:-1]]
     assert "Redactando respuesta…" in titles
@@ -1388,7 +1316,7 @@ async def test_iter_turn_skips_unchanged_trace() -> None:
         return _turn_response(thinking="a ")
 
     yields = [
-        item async for item in iter_observatory_turn("hola", None, None, run_turn=run_turn)
+        item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
     pending = [y for y in yields[1:-1] if y[0][-1].get("content") == "a "]
     assert len(pending) == 1

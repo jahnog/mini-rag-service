@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from bcra_rag.domain.models import Chunk
-from bcra_rag.evals.adapters.judge_fake import FakeJudge
 from bcra_rag.evals.domain.aggregate import collect
 from bcra_rag.evals.domain.metrics import (
-    AnswerRelevancy,
     CitationIdExact,
     CitationPuntoExact,
     CitationSnippetGrounded,
-    ContextPrecision,
-    ContextRecall,
-    Faithfulness,
     FindingExact,
     HitAtK,
     Mrr,
@@ -113,67 +106,14 @@ def test_silencio_finding_exact() -> None:
         answer="silencio",
         citations=[],
         finding=Finding.SILENCIO,
-        usable_context=False,
     )
     assert FindingExact().score(sample).value == 1.0
     assert CitationIdExact().score(sample).value == 1.0
-    assert Faithfulness(FakeJudge()).score(sample) is None
-    assert AnswerRelevancy(FakeJudge()).score(sample) is None
-
-
-def test_fake_judge_never_imports_phoenix() -> None:
-    import bcra_rag.evals.adapters.judge_fake as fake
-
-    assert "phoenix" not in fake.__file__
-    source = Path(fake.__file__).read_text(encoding="utf-8")
-    assert "phoenix" not in source
-    gold = _gold(reference_answer="Los residentes deberán liquidar.")
-    sample = RetrievalSample(
-        gold=gold,
-        hits=[_chunk("texto_ordenado", "Los residentes deberán liquidar.")],
-        retrieved_ids=["texto_ordenado"],
-    )
-    judge = FakeJudge()
-    assert ContextPrecision(judge).score(sample) is not None
-    assert ContextRecall(judge).score(sample) is not None
-
-
-def test_empty_hits_skip_context_precision() -> None:
-    sample = RetrievalSample(
-        gold=_gold(id="g13", gold_ids=[], gold_puntos=[], finding="silencio", answerable=False),
-        hits=[],
-        retrieved_ids=[],
-    )
-    assert ContextPrecision(FakeJudge()).score(sample) is None
-
-
-def test_nonempty_irrelevant_hits_score_zero_precision() -> None:
-    judge = FakeJudge(
-        scores={"context_precision": Score(name="context_precision", value=0.0, kind="llm")}
-    )
-    sample = RetrievalSample(
-        gold=_gold(),
-        hits=[_chunk("A1")],
-        retrieved_ids=["A1"],
-    )
-    scored = ContextPrecision(judge).score(sample)
-    assert scored is not None
-    assert scored.value == 0.0
-
-
-def test_context_recall_skips_silencio() -> None:
-    sample = RetrievalSample(
-        gold=_gold(reference_answer=None, gold_ids=[], finding="silencio", answerable=False),
-        hits=[],
-        retrieved_ids=[],
-    )
-    assert ContextRecall(FakeJudge()).score(sample) is None
 
 
 def test_collect_drops_none_scores() -> None:
     grouped = collect([Score(name="hit_at_5", value=1.0), None])
     assert grouped["hit_at_5"] == [1.0]
-    assert "context_precision" not in grouped
 
 
 

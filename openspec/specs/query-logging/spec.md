@@ -85,7 +85,7 @@ A scope, injection, or no-advice block SHALL still write the turn, including the
 - **AND** logged citations are empty
 
 ### Requirement: L1 run on console and file
-After an L1 run writes the static results document the assistant interface already reads, the system SHALL also append the published metrics to the process console and to a log file on the dump host: headline citation-id exact, hit@5, MRR, the slice table, chunking A versus B, unpublished or sample, and the gold-row count. The file SHALL remain readable after a later L1 run overwrites the static results document. Automated tests MUST NOT call a paid language model for this log. The browser MUST NOT compute L1 scores.
+After an L1 run writes the static results document the assistant interface already reads, the system SHALL also append the published metrics to the process console and to a log file on the dump host: headline citation-id exact, hit@5, MRR, the slice table, unpublished or sample, and the gold-row count. The file SHALL remain readable after a later L1 run overwrites the static results document. Automated tests MUST NOT call a paid language model for this log. The browser MUST NOT compute L1 scores.
 
 #### Scenario: Published metrics are logged after L1
 - **GIVEN** an L1 run has completed
@@ -141,47 +141,6 @@ Each completed chat turn record SHALL include the retrieval route (`named`, `vig
 - **THEN** the log record includes that `/clear` turn
 - **AND** it does not include cite-failure fields
 
-### Requirement: Tracer status at process start
-When the serving process starts, it SHALL write one log record stating whether per-turn collector export is enabled or disabled. A disabled record SHALL name the reason: collector endpoint unset, tracing extra missing, or register failed. An enabled record SHALL name the collector host and project. The record MUST NOT include a collector API key.
-
-#### Scenario: Missing tracing extra is logged
-- **GIVEN** a collector endpoint is configured
-- **AND** the tracing extra is not installed
-- **WHEN** the serving process starts
-- **THEN** the console and the log file include a disabled tracer record
-- **AND** the reason is that the tracing extra is missing
-
-#### Scenario: Enabled tracer names host and project
-- **GIVEN** a collector endpoint is configured
-- **AND** tracing export registers
-- **WHEN** the serving process starts
-- **THEN** the log record says the tracer is enabled
-- **AND** it includes the collector host and project
-- **AND** it does not include a collector API key
-
-### Requirement: Compact local traces file
-The serving process SHALL append one compact record per tracing span (`chat.turn`, retrieve, and input-block rules such as scope) to a dump-host traces file, whether or not a collector endpoint is configured. Each record SHALL include the span name, a timestamp, and truncated redacted `input.value` when present. It MUST NOT include retrieved clause bodies, the language-model prompt, the thinking trace, or a collector API key. A failure to write that file MUST NOT fail chat.
-
-#### Scenario: Named turn writes local retrieve and chat.turn
-- **GIVEN** a ready index that holds Comunicación A 3500
-- **AND** no collector endpoint is configured
-- **WHEN** the user asks what Comunicación A 3500 says
-- **THEN** the traces file includes a `chat.turn` record
-- **AND** it includes a retrieve record
-- **AND** a structured chat response is still returned
-
-#### Scenario: Weather writes local scope without retrieve
-- **GIVEN** a ready index
-- **WHEN** the user asks about the weather
-- **THEN** the traces file includes a `chat.turn` record
-- **AND** it includes a scope record
-- **AND** it does not include a retrieve record for that turn
-
-#### Scenario: Unwritable traces file still answers
-- **GIVEN** the traces file cannot be written
-- **WHEN** the user asks an in-corpus question
-- **THEN** a structured chat response is still returned
-
 ### Requirement: Timing and reasoning fields on the chat turn
 Every chat turn record SHALL include `retrieve_ms` (wall time of routing and retrieval), `llm_ms` (wall time of the language-model call including any retry), `ttft_ms` (time from the request to the first streamed token, 0 when the model was not called), `thinking_chars` (length of the reasoning trace, 0 when absent) and `abstain_reason` (null when the finding is not silencio). Times SHALL be milliseconds rounded to one decimal.
 
@@ -196,12 +155,3 @@ Every chat turn record SHALL include `retrieve_ms` (wall time of routing and ret
 - **WHEN** the turn is logged
 - **THEN** `llm_ms` and `ttft_ms` are 0
 - **AND** `abstain_reason` names the blocking rule
-
-### Requirement: Turn evaluation is logged after the response
-When per-turn evaluation is enabled and the language model was called, the `chat_turn_eval` record SHALL be written when background scoring completes, carrying the request id of the turn and the scores, and MAY appear after the `chat_turn` record of the same request id.
-
-#### Scenario: Eval record follows the turn record
-- **GIVEN** per-turn evaluation is enabled
-- **WHEN** an in-corpus question is answered
-- **THEN** a `chat_turn` record is written when the response is returned
-- **AND** a `chat_turn_eval` record with the same request id is written when scoring finishes

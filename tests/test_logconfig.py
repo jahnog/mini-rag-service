@@ -71,17 +71,15 @@ def _job_app(tmp_path: Path) -> IngestApp:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_ingest_and_refresh_jobs_write_log_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_ingest_and_refresh_jobs_log_to_stdout_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _mock_pdfs()
     app = _job_app(tmp_path)
     monkeypatch.setattr("bcra_rag.jobs.ingest.build_ingest", lambda: app)
     monkeypatch.setattr("bcra_rag.jobs.refresh.build_ingest", lambda: app)
     assert await ingest_run() == 0
-    log_file = tmp_path / "logs" / "ingest.log"
-    assert log_file.is_file()
-    first = log_file.read_text(encoding="utf-8")
-    assert "ingest_run_started" in first
+    assert "ingest_run_started" in capsys.readouterr().out
     assert await refresh_run() == 0
-    assert "ingest_run_started" in log_file.read_text(encoding="utf-8")
+    assert "ingest_run_started" in capsys.readouterr().out
+    assert not (tmp_path / "logs").exists()

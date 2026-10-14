@@ -8,21 +8,11 @@ from bcra_rag.evals.domain.metrics.code import (
     NdcgAtK,
     PrecisionAtK,
 )
-from bcra_rag.evals.domain.metrics.judged import (
-    AnswerRelevancy,
-    ContextPrecision,
-    ContextRecall,
-    Faithfulness,
-)
 
 __all__ = [
-    "AnswerRelevancy",
     "CitationIdExact",
     "CitationPuntoExact",
     "CitationSnippetGrounded",
-    "ContextPrecision",
-    "ContextRecall",
-    "Faithfulness",
     "FindingExact",
     "HitAtK",
     "Mrr",

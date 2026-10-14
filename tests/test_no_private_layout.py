@@ -48,14 +48,12 @@ def test_gitignore_ignores_dump_and_operator_overlays() -> None:
             "check-ignore",
             "-v",
             "data/logs/chat.log",
-            "data/phoenix/x",
             "scripts/publish-data.local",
         ],
         cwd=ROOT,
         text=True,
     )
     assert "data/logs/chat.log" in ignored
-    assert "data/phoenix/x" in ignored
     assert "scripts/publish-data.local" in ignored
     tracked = subprocess.check_output(
         ["git", "ls-files", "evals/l1.json"],

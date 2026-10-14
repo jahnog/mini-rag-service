@@ -193,7 +193,7 @@ The staff layout SHALL show the per-query guardrail log as chips grouped by stag
 - **AND** that it would have blocked
 
 ### Requirement: L1 accordion
-In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, each naming the sample size `n` of that suite when present. Rates SHALL be shown with three decimals and latencies as whole milliseconds with a `ms` suffix; raw floating-point noise MUST NOT be shown. The section SHALL show a "Juez" line naming the judge model and either the number of judge calls or that the judge was skipped with its reason. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.
+In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, each naming the sample size `n` of that suite when present. Rates SHALL be shown with three decimals and latencies as whole milliseconds with a `ms` suffix; raw floating-point noise MUST NOT be shown. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.
 
 #### Scenario: Accordion starts collapsed
 - **GIVEN** the interface has just loaded
@@ -204,18 +204,16 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **GIVEN** the staff layout
 - **AND** a stored L1 results file
 - **WHEN** the user expands Calidad L1
-- **THEN** citation-id exact, hit@5, and A vs B from that file are shown
+- **THEN** citation-id exact, and hit@5 from that file are shown
 - **AND** retrieval and generation headings are shown when those blocks exist
 - **AND** no eval request is sent to a model from the client
 
 #### Scenario: Numbers are rounded and sized
 - **GIVEN** a stored file whose generation block has `latency_ms_p95: 137652.6405`, `citation_id_exact: 0.2333` and `n: 30`
-- **AND** whose judge block is `{model: "grok-4.3", skipped: true, skip_reason: "missing_extra"}`
 - **WHEN** the user expands Calidad L1
 - **THEN** the generation heading reads "Generación (n=30)"
 - **AND** the latency line reads "latency_ms_p95: 137653 ms"
 - **AND** the text "137652.6405" does not appear
-- **AND** a line reads "Juez: grok-4.3 · omitido (missing_extra)"
 
 #### Scenario: Unpublished fixture is labeled
 - **GIVEN** the staff layout
@@ -228,7 +226,7 @@ In the staff layout the interface SHALL include a “Calidad L1” section that 
 - **AND** the stored L1 results mark generation skipped
 - **WHEN** the user expands Calidad L1
 - **THEN** generation is labeled skipped
-- **AND** faithfulness is not shown as 0
+- **AND** no generation score is shown as 0
 
 #### Scenario: Published dump-host run has no sample banner
 - **GIVEN** the staff layout
@@ -589,3 +587,44 @@ While the language model streams a reasoning trace, the interface SHALL redraw t
 - **GIVEN** the provider repeats the same trace text twice
 - **WHEN** the interface publishes
 - **THEN** only one pending redraw is produced for that text
+
+### Requirement: Send-code mail-server status
+After the user requests a one-time secret from the login row, the assistant interface SHALL show a Spanish status for about two seconds that reports whether that secret was handed to the mail server. A successful request (including an allowlist miss and a request that does not send because a live secret already exists) SHALL use delivered wording. A failed mail-server handoff or a failed request SHALL use not-delivered wording. After that interval the idle Spanish hint SHALL return unless a later login action already replaced the line. Rate-limit, origin, and invalid-email notices SHALL remain until the next auth action. The interface MUST NOT open a second product UI. The status MUST NOT name the mailbox or the digits.
+
+#### Scenario: Successful send shows delivered then idle
+- **GIVEN** the interface is shown without a session
+- **AND** mail is configured
+- **AND** the email is allowlisted
+- **WHEN** the user requests a one-time secret
+- **THEN** the status reports that the secret was handed to the mail server
+- **AND** after about two seconds the idle Spanish hint is shown again
+- **AND** the question input remains on the same screen
+
+#### Scenario: Failed send shows not delivered then idle
+- **GIVEN** the interface is shown without a session
+- **AND** the email is allowlisted
+- **AND** mail delivery fails
+- **WHEN** the user requests a one-time secret
+- **THEN** the status reports that the secret was not handed to the mail server
+- **AND** after about two seconds the idle Spanish hint is shown again
+- **AND** the status does not name the mailbox or the digits
+
+#### Scenario: Allowlist miss looks like delivered
+- **GIVEN** the interface is shown without a session
+- **AND** the allowlist does not include the typed email
+- **WHEN** the user requests a one-time secret
+- **THEN** the status uses the same delivered wording as a successful send
+
+#### Scenario: Too-many-attempts notice stays
+- **GIVEN** the interface is shown without a session
+- **AND** a send limit applies
+- **WHEN** the user requests a one-time secret
+- **THEN** a Spanish too-many-attempts notice is shown
+- **AND** that notice remains after two seconds
+
+#### Scenario: Verify before the flash ends keeps verify copy
+- **GIVEN** the interface is shown without a session
+- **AND** the user has just requested a one-time secret
+- **WHEN** the user verifies that secret before two seconds have passed
+- **THEN** the status reports that the session started
+- **AND** it does not return to the idle hint from that send

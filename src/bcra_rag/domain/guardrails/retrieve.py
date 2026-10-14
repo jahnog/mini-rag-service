@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
+from bcra_rag.domain.guardrails.injection import injection_check
 from bcra_rag.domain.guardrails.pipeline import ChunkMappingRail
 from bcra_rag.domain.guardrails.types import (
     ChunkResult,
-    InjectionBackend,
     RailContext,
     RailPatch,
     RailResult,
@@ -49,13 +49,12 @@ class ChunkInjectionRail(ChunkMappingRail):
     id = "chunk-injection"
     stage: Stage = "retrieve"
 
-    def __init__(self, backend: InjectionBackend, *, enforce: bool = True) -> None:
+    def __init__(self, *, enforce: bool = True) -> None:
         self.enforce = enforce
-        self._backend = backend
 
     def inspect(self, chunk: Chunk, ctx: RailContext) -> ChunkResult:
         del ctx
-        hit, detail = self._backend.score(chunk.text)
+        hit, detail = injection_check(chunk.text)
         if hit:
             return ChunkResult("drop", chunk, detail)
         return ChunkResult("keep", chunk)

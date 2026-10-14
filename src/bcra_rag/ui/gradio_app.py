@@ -8,522 +8,431 @@ verify) are progress text, not extra models.
 The bubbles on the page are not what a follow-up searches. That memory is
 the session store. Usuario turns the model's thinking trace off unless
 LLM_THINKING_USER_LAYOUT is set; the trace is not the answer. Calidad L1 is
-a file from an offline run. An optional per-turn judge (CHAT_TURN_EVALS, off
-by default) can score a finished answer and does not change it.
+a file from an offline run.
+
+`build_observatory_blocks` builds the page in three steps: lay out the
+widgets, create the event handlers, and wire the handlers to the widgets.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import suppress
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
-import structlog
 from fastapi import HTTPException
-from fastapi.responses import FileResponse, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
-from bcra_rag.api.handle import client_id_for, demo_key_for, handle_turn
+from bcra_rag.api.handle import demo_key_for
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.l1_results import L1_FILENAME
-from bcra_rag.domain.turn_eval import NoOpTurnEvaluator, TurnEvaluator
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
-from bcra_rag.schemas import ChatResponse
+from bcra_rag.schemas import ChatResponse, HealthResponse
 from bcra_rag.settings import Settings
+from bcra_rag.ui.auth_js import AUTH_LOGOUT_JS, AUTH_VERIFY_JS, auth_request_js
 from bcra_rag.ui.config import (
+    API_NAME_APPLY_SELECTED_LAYOUT,
+    API_NAME_CLEAR_CONVERSATION,
+    API_NAME_INITIALIZE_PAGE,
+    API_NAME_REFRESH_AFTER_LOGIN,
+    API_NAME_RESET_AFTER_LOGOUT,
+    API_NAME_SHOW_SELECTED_CITATION,
+    API_NAME_SUBMIT_QUESTION,
     AUTH_CLEAR,
     AUTH_CODE_LABEL,
     AUTH_EMAIL_LABEL,
     AUTH_KICKER,
     AUTH_LOGOUT,
     AUTH_SEND,
-    AUTH_STATUS_FLASH_MS,
     AUTH_STATUS_GENERIC,
-    AUTH_STATUS_SENDING,
-    AUTH_STATUS_SMTP_FAIL,
-    AUTH_STATUS_SMTP_OK,
-    AUTH_STATUS_SMTP_PROBLEM,
     AUTH_VERIFY,
     CANNED_PROMPTS,
     CHAT_KICKER,
+    CHAT_LABEL,
+    CHAT_PLACEHOLDER,
+    CITATION_CHOICE_LABEL,
+    CITATION_ID_LABEL,
     CITATIONS_KICKER,
+    CODE_PLACEHOLDER,
+    DEMO_KEY_LABEL,
+    EMAIL_PLACEHOLDER,
     EXAMPLES_KICKER,
+    GUARDRAILS_JSON_LABEL,
     GUARDRAILS_KICKER,
+    INSPECTOR_JSON_LABEL,
+    L1_ACCORDION_LABEL,
     L1_ACCORDION_OPEN_DEFAULT,
+    LAYOUT_CHOICE_LABEL,
     LAYOUT_HELP,
     LAYOUT_STAFF,
     LAYOUT_USER,
-    PENDING_CITATION_CARD,
-    PENDING_TRUST,
-    PHASE_COPY,
-    THOUGHT_PENDING_TITLE,
-    THOUGHT_PUBLISH_S,
-    TURN_FAILED_NOTICE,
-    abstain_visible,
-    append_messages,
-    append_pending,
+    QUESTION_LABEL,
+    QUESTION_PLACEHOLDER,
+    SEND_BUTTON_LABEL,
     apply_clear_result,
     apply_layout,
     auth_chrome,
     auth_status_smtp_ok,
     citation_card_markdown,
-    citation_cards,
     footer_text,
     freeze_chips_html,
-    http_turn_notice,
-    inspector_payload,
     l1_markdown,
     load_l1,
     thinking_for_layout,
-    thinking_for_staff,
-    thought_publish_ready,
     trust_markdown,
-    trust_payload,
 )
-from bcra_rag.ui.theme import (
-    PAGE_TITLE,
-    footer_html,
-    observatory_apple_icon_path,
-    observatory_css_paths,
-    observatory_favicon_path,
-    observatory_favicon_svg_path,
-    observatory_head,
-    observatory_js,
-    observatory_og_image_path,
-    observatory_theme,
-    rewrite_gradio_html,
-    topbar_html,
-    weblab_css_path,
+from bcra_rag.ui.inspector_state import (
+    InspectorPanels,
+    PreviousInspectorState,
+    citation_id_box_update,
+    phase_label_update,
 )
-from bcra_rag.use_cases.answer_query import OnPhase, new_request_id
+from bcra_rag.ui.theme import PAGE_TITLE, footer_html, topbar_html
+from bcra_rag.ui.turn_service import TurnService
+from bcra_rag.ui.turn_stream import stream_turn_updates
+from bcra_rag.use_cases.generate import OnPhase
 
-
-def _choice_update(choices: list[str], *, value: str | None = None) -> Any:
-    return gr.update(
-        choices=choices,
-        value=value if value in choices else (choices[0] if choices else None),
-        visible=bool(choices),
-    )
-
-
-def _copy_update(copy_id: str) -> Any:
-    return gr.update(value=copy_id, visible=bool(copy_id))
-
-
-def _abstain_update(text: str, *, visible: bool) -> Any:
-    return gr.update(value=text, visible=visible)
-
-
-def _phase_update(text: str) -> Any:
-    return gr.update(value=text, visible=bool(text))
-
-
-_LOG = structlog.get_logger("bcra_rag.observatory")
+# ---------------------------------------------------------------------------
+# Widgets
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class InspectorPrior:
-    """Previous turn's citation card, guardrail rows, cards, and selected id."""
+class LoginWidgets:
+    """The sign-in card and the view toggle."""
 
-    inspector: dict[str, Any]
-    trust: list[dict[str, str]]
-    cards: list[dict[str, Any]]
-    choice: str | None
-
-
-TurnRunner = Callable[..., Awaitable[ChatResponse]]
-
-
-def auth_request_js(smtp_ok: str) -> str:
-    return (
-        _AUTH_REQUEST_TEMPLATE.replace(
-            "__AUTH_GENERIC__", json.dumps(AUTH_STATUS_GENERIC, ensure_ascii=False)
-        )
-        .replace("__AUTH_SENDING__", json.dumps(AUTH_STATUS_SENDING, ensure_ascii=False))
-        .replace("__AUTH_SMTP_OK__", json.dumps(smtp_ok, ensure_ascii=False))
-        .replace("__AUTH_SMTP_FAIL__", json.dumps(AUTH_STATUS_SMTP_FAIL, ensure_ascii=False))
-        .replace(
-            "__AUTH_SMTP_PROBLEM__", json.dumps(AUTH_STATUS_SMTP_PROBLEM, ensure_ascii=False)
-        )
-        .replace("__AUTH_FLASH_MS__", json.dumps(AUTH_STATUS_FLASH_MS))
-    )
+    fields_row: Any
+    email_box: Any
+    send_code_button: Any
+    code_box: Any
+    verify_code_button: Any
+    status: Any
+    session_row: Any
+    signed_in_email_label: Any
+    logout_button: Any
+    layout_choice: Any
+    freeze_chips_box: Any
 
 
-_AUTH_REQUEST_TEMPLATE = """
-async (email) => {
-  const generic = __AUTH_GENERIC__;
-  const sending = __AUTH_SENDING__;
-  const smtpOk = __AUTH_SMTP_OK__;
-  const smtpFail = __AUTH_SMTP_FAIL__;
-  const smtpProblem = __AUTH_SMTP_PROBLEM__;
-  const flashMs = __AUTH_FLASH_MS__;
-  const okClass = "auth-status-ok";
-  const errClass = "auth-status-err";
-  const token = (window.__authSendToken = (window.__authSendToken || 0) + 1);
-  const sendBtn = document.querySelector("#auth-send button")
-    || document.querySelector("#auth-send");
-  const host = document.querySelector("#auth-status");
-  if (host && !host.getAttribute("aria-live")) {
-    host.setAttribute("aria-live", "polite");
-  }
-  const readText = () => {
-    const node = document.querySelector(
-      "#auth-status p, #auth-status .md, #auth-status"
-    );
-    return (node && node.textContent ? node.textContent : "").trim();
-  };
-  const paint = (text, kind) => {
-    const root = document.querySelector("#auth-status");
-    if (!root) return;
-    root.classList.remove(okClass, errClass);
-    if (kind === "ok") root.classList.add(okClass);
-    if (kind === "err") root.classList.add(errClass);
-    const node = root.querySelector("p") || root.querySelector(".md");
-    if (node) node.textContent = text;
-  };
-  if (sendBtn) sendBtn.disabled = true;
-  paint(sending, "idle");
-  let msg = smtpFail;
-  let kind = "err";
-  let flash = true;
-  try {
-    const r = await fetch("/auth/request", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      credentials: "same-origin",
-      body: JSON.stringify({email: email || ""}),
-    });
-    if (r.ok) {
-      msg = smtpOk;
-      kind = "ok";
-    } else if (r.status === 429) {
-      msg = "Demasiados intentos. Probá más tarde.";
-      kind = "idle";
-      flash = false;
-    } else if (r.status === 403) {
-      msg = "Origen inválido.";
-      kind = "idle";
-      flash = false;
-    } else if (r.status === 422) {
-      msg = "Correo inválido.";
-      kind = "idle";
-      flash = false;
-    } else if (r.status === 503) {
-      msg = smtpFail;
-      kind = "err";
-    } else {
-      msg = smtpProblem;
-      kind = "err";
-    }
-  } catch (e) {
-    msg = smtpProblem;
-    kind = "err";
-    flash = true;
-  }
-  if (sendBtn) sendBtn.disabled = false;
-  paint(msg, kind);
-  if (flash) {
-    setTimeout(() => {
-      if (token !== window.__authSendToken) return;
-      const root = document.querySelector("#auth-status");
-      if (!root) return;
-      root.classList.toggle(okClass, kind === "ok");
-      root.classList.toggle(errClass, kind === "err");
-    }, 0);
-    setTimeout(() => {
-      if (token !== window.__authSendToken) return;
-      if (readText() !== msg) return;
-      paint(generic, "idle");
-    }, flashMs);
-  }
-  return msg;
-}
-"""
+@dataclass(frozen=True)
+class ChatStageWidgets:
+    """The main column: abstain banner, chat, example prompts and the composer."""
 
-_AUTH_REQUEST_JS = auth_request_js(AUTH_STATUS_SMTP_OK)
-
-_AUTH_VERIFY_JS = """
-async (email, code) => {
-  try {
-    const r = await fetch("/auth/verify", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      credentials: "same-origin",
-      body: JSON.stringify({email: email || "", code: code || ""}),
-    });
-    if (r.ok) return "Sesión iniciada.";
-    if (r.status === 429) return "Demasiados intentos. Probá más tarde.";
-    return "Código inválido o vencido.";
-  } catch (e) {
-    return "No se pudo verificar.";
-  }
-}
-"""
-
-_AUTH_LOGOUT_JS = """
-async () => {
-  try {
-    await fetch("/auth/logout", {method: "POST", credentials: "same-origin"});
-  } catch (e) {}
-  return "Sesión cerrada.";
-}
-"""
+    abstain_banner: Any
+    chatbot: Any
+    phase_label_box: Any
+    example_prompt_buttons: list[Any]
+    question_box: Any
+    send_button: Any
+    clear_button: Any
+    demo_key_box: Any
 
 
-async def iter_observatory_turn(
-    message: str,
-    history: list[dict[str, Any]] | None,
-    session_id: str | None,
-    *,
-    run_turn: TurnRunner,
-    staff: bool = True,
-    prior: InspectorPrior | None = None,
-) -> AsyncIterator[tuple[Any, ...]]:
-    """Stream retrieve, generate, and verify, then fill the citation card and guardrail log.
+@dataclass(frozen=True)
+class StaffSidePanelWidgets:
+    """The staff column: citations, guardrail log and the stored Calidad L1 numbers."""
 
-    HTTPException (rate limit and other HTTP errors) restores InspectorPrior.
-    Any other failure clears the side panel.
-    """
-    snapshot = list(history or [])
-    started = time.perf_counter()
-    yield (
-        append_pending(snapshot, message),
-        session_id,
-        *_pending_inspector(),
-        _phase_update(""),
-    )
-    latest = [""]
-    held = [""]
-    last_pub = [0.0]
-    phase = [""]
-    event = asyncio.Event()
-    box: list[ChatResponse | BaseException] = []
+    panel: Any
+    citation_selector: Any
+    citation_card_box: Any
+    citation_id_box: Any
+    guardrail_panel_html: Any
+    citation_inspector_json: Any
+    guardrail_panel_json: Any
 
-    async def on_thinking(text: str) -> None:
-        held[0] = text
-        now = time.monotonic()
-        if last_pub[0] == 0.0:
-            last_pub[0] = now
-        elapsed = now - last_pub[0]
-        ready = thought_publish_ready(text) and elapsed >= THOUGHT_PUBLISH_S
-        if ready or elapsed >= 2 * THOUGHT_PUBLISH_S:
-            latest[0] = text
-            last_pub[0] = now
-            event.set()
 
-    async def on_phase(code: str) -> None:
-        phase[0] = PHASE_COPY.get(code, "")
-        event.set()
-        # Let the consumer publish this phase before the next one replaces it.
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+@dataclass(frozen=True)
+class PageWidgets:
+    """Every widget the event wiring needs."""
 
-    async def produce() -> None:
-        try:
-            box.append(
-                await run_turn(
-                    message=message,
-                    session_id=session_id,
-                    on_thinking=on_thinking if staff else None,
-                    on_phase=on_phase,
-                )
+    session_state: Any
+    cards_state: Any
+    page_shell: Any
+    login: LoginWidgets
+    stage: ChatStageWidgets
+    side_panel: StaffSidePanelWidgets
+
+
+def _build_login_area(health: HealthResponse) -> LoginWidgets:
+    """Sign-in card (email, code, status, session row) and the Operador/Usuario toggle."""
+    with gr.Column(elem_id="auth-login"):
+        gr.Markdown(AUTH_KICKER, elem_id="auth-kicker")
+        with gr.Row(elem_id="auth-login-fields") as fields_row:
+            email_box = gr.Textbox(
+                label=AUTH_EMAIL_LABEL,
+                placeholder=EMAIL_PLACEHOLDER,
+                scale=2,
+                elem_id="auth-email",
             )
-        except asyncio.CancelledError:
-            raise
-        except BaseException as exc:
-            box.append(exc)
-        finally:
-            if held[0]:
-                latest[0] = held[0]
-            event.set()
-
-    task = asyncio.create_task(produce())
-    last_trace = [""]
-    last_phase = [""]
-    try:
-        while True:
-            await event.wait()
-            event.clear()
-            trace = latest[0] if staff else ""
-            phase_changed = phase[0] != last_phase[0]
-            if (trace and trace != last_trace[0]) or phase_changed:
-                last_trace[0] = trace
-                last_phase[0] = phase[0]
-                yield (
-                    append_pending(
-                        snapshot,
-                        message,
-                        thinking=trace,
-                        title=phase[0] or THOUGHT_PENDING_TITLE,
-                    ),
-                    session_id,
-                    *_skipped_inspector(),
-                    _phase_update(phase[0]),
-                )
-            if task.done():
-                final_trace = latest[0] if staff else ""
-                if final_trace and final_trace != last_trace[0]:
-                    yield (
-                        append_pending(
-                            snapshot,
-                            message,
-                            thinking=final_trace,
-                            title=phase[0] or THOUGHT_PENDING_TITLE,
-                        ),
-                        session_id,
-                        *_skipped_inspector(),
-                        _phase_update(phase[0]),
-                    )
-                break
-    finally:
-        if not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-
-    if not box:
-        return
-    outcome = box[0]
-    if isinstance(outcome, HTTPException):
-        notice = http_turn_notice(outcome.status_code, str(outcome.detail))
-        rows = append_messages(snapshot, message, notice)
-        yield (rows, session_id, *_prior_inspector(prior), _phase_update(""))
-        return
-    if isinstance(outcome, BaseException):
-        _LOG.warning("observatory_turn_failed", error=type(outcome).__name__)
-        rows = append_messages(snapshot, message, TURN_FAILED_NOTICE)
-        yield (rows, session_id, *_empty_inspector(), _phase_update(""))
-        return
-    duration = time.perf_counter() - started
-    thinking = thinking_for_staff(outcome.thinking, staff=staff)
-    rows = append_messages(
-        snapshot,
-        message,
-        outcome.answer,
-        thinking=thinking,
-        duration=duration,
-    )
-    cards = citation_cards(outcome)
-    inspector = inspector_payload(outcome)
-    trust = trust_payload(outcome)
-    banner = "Silencio: no hay una cláusula que responda esto." if abstain_visible(outcome) else ""
-    copy_id = str(inspector.get("copy_id") or "")
-    choices = [str(card["id"]) for card in cards]
-    yield (
-        rows,
-        outcome.session_id,
-        inspector,
-        trust,
-        _abstain_update(banner, visible=bool(banner)),
-        _copy_update(copy_id),
-        _choice_update(choices),
-        cards,
-        citation_card_markdown(inspector),
-        trust_markdown(trust),
-        _phase_update(""),
-    )
-
-
-def _empty_inspector() -> tuple[Any, ...]:
-    return (
-        {},
-        [],
-        _abstain_update("", visible=False),
-        _copy_update(""),
-        _choice_update([]),
-        [],
-        citation_card_markdown(None),
-        trust_markdown(None),
-    )
-
-
-def _pending_inspector() -> tuple[Any, ...]:
-    return (
-        {},
-        [],
-        _abstain_update("", visible=False),
-        _copy_update(""),
-        _choice_update([]),
-        [],
-        PENDING_CITATION_CARD,
-        PENDING_TRUST,
-    )
-
-
-def _prior_inspector(prior: InspectorPrior | None) -> tuple[Any, ...]:
-    if prior is None or (not prior.inspector and not prior.trust):
-        return _empty_inspector()
-    choices = [str(card["id"]) for card in prior.cards]
-    return (
-        prior.inspector,
-        prior.trust,
-        _abstain_update("", visible=False),
-        _copy_update(str(prior.inspector.get("copy_id") or "")),
-        _choice_update(choices, value=prior.choice),
-        prior.cards,
-        citation_card_markdown(prior.inspector or None),
-        trust_markdown(prior.trust or None),
-    )
-
-
-def _skipped_inspector() -> tuple[Any, ...]:
-    skip = gr.skip()
-    return (skip, skip, skip, skip, skip, skip, skip, skip)
-
-
-def build_blocks(
-    *,
-    settings: Settings,
-    index: IndexPort,
-    llm: LlmPort,
-    sessions: SessionStore,
-    pipeline: GuardrailPipeline,
-    limiter: RateLimiter,
-    turn_caps: TurnCaps,
-    auth: AuthModule,
-    turn_evaluator: TurnEvaluator | None = None,
-) -> gr.Blocks:
-    """Build the widgets and wire submit to handle_turn, the same path as POST /chat."""
-
-    health = dump_health(settings, index)
-    resolved_evaluator = turn_evaluator or NoOpTurnEvaluator()
-    l1_path = Path(settings.evals_dir) / L1_FILENAME
-    l1_data = load_l1(l1_path)
-
-    async def _turn(
-        message: str,
-        history: list[dict[str, Any]],
-        session_id: str | None,
-        demo_key: str | None,
-        layout: str | None,
-        inspector_prior: dict[str, Any] | None,
-        trust_prior: list[dict[str, str]] | None,
-        cards_prior: list[dict[str, Any]] | None,
-        choice_prior: str | None,
-        request: gr.Request,
-    ) -> AsyncIterator[tuple[Any, ...]]:
-        key = (demo_key or "").strip() or demo_key_for(request)
-        prior = InspectorPrior(
-            inspector=dict(inspector_prior or {}),
-            trust=list(trust_prior or []),
-            cards=list(cards_prior or []),
-            choice=choice_prior,
+            send_code_button = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
+            code_box = gr.Textbox(
+                label=AUTH_CODE_LABEL,
+                placeholder=CODE_PLACEHOLDER,
+                scale=1,
+                elem_id="auth-code",
+            )
+            verify_code_button = gr.Button(AUTH_VERIFY, scale=0, elem_id="auth-verify")
+        status = gr.Markdown(AUTH_STATUS_GENERIC, elem_id="auth-status")
+        with gr.Row(elem_id="auth-session", visible=False) as session_row:
+            signed_in_email_label = gr.Markdown("", elem_id="auth-who")
+            logout_button = gr.Button(AUTH_LOGOUT, scale=0, elem_id="auth-logout")
+        with gr.Row(elem_id="layout-toggle"):
+            layout_choice = gr.Radio(
+                label=LAYOUT_CHOICE_LABEL,
+                choices=[LAYOUT_STAFF, LAYOUT_USER],
+                value=LAYOUT_USER,
+                container=False,
+                elem_classes=["vista-radio"],
+            )
+            gr.Markdown(LAYOUT_HELP, elem_id="layout-toggle-help")
+        freeze_chips_box = gr.HTML(
+            freeze_chips_html(health),
+            elem_id="observatory-freeze",
+            apply_default_css=False,
+            js_on_load="",
+            visible=False,
         )
-        staff = (
-            email_from_request(auth, request) is not None and layout == LAYOUT_STAFF
+    return LoginWidgets(
+        fields_row=fields_row,
+        email_box=email_box,
+        send_code_button=send_code_button,
+        code_box=code_box,
+        verify_code_button=verify_code_button,
+        status=status,
+        session_row=session_row,
+        signed_in_email_label=signed_in_email_label,
+        logout_button=logout_button,
+        layout_choice=layout_choice,
+        freeze_chips_box=freeze_chips_box,
+    )
+
+
+def _build_chat_stage(settings: Settings) -> ChatStageWidgets:
+    """Abstain banner, chat, phase label, example prompts and the one-line composer."""
+    with gr.Column(scale=3, min_width=0, elem_id="observatory-stage"):
+        abstain_banner = gr.Markdown("", elem_id="abstain-banner", visible=False)
+        gr.Markdown(CHAT_KICKER, elem_id="chat-kicker")
+        chatbot = gr.Chatbot(
+            label=CHAT_LABEL,
+            show_label=False,
+            elem_id="observatory-chat",
+            height="auto",
+            min_height=192,
+            buttons=[],
+            feedback_options=[],
+            placeholder=CHAT_PLACEHOLDER,
+            group_consecutive_messages=False,
+        )
+        phase_label_box = gr.Markdown("", elem_id="turn-phase", visible=False)
+        # Examples sit above the composer; the composer is one line (question,
+        # Enviar, Limpiar) and sticks to the viewport bottom on desktop.
+        gr.Markdown(EXAMPLES_KICKER, elem_id="examples-kicker")
+        with gr.Row(elem_id="observatory-pills"):
+            example_prompt_buttons = [
+                gr.Button(
+                    prompt,
+                    size="sm",
+                    scale=0,
+                    elem_classes=["observatory-pill"],
+                )
+                for prompt in CANNED_PROMPTS
+            ]
+        with gr.Row(elem_id="observatory-composer"):
+            question_box = gr.Textbox(
+                label=QUESTION_LABEL,
+                lines=1,
+                max_lines=4,
+                placeholder=QUESTION_PLACEHOLDER,
+                scale=1,
+                elem_id="observatory-input",
+            )
+            send_button = gr.Button(
+                SEND_BUTTON_LABEL,
+                variant="primary",
+                scale=0,
+                elem_id="observatory-send",
+            )
+            clear_button = gr.Button(
+                AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
+            )
+        demo_key_box = gr.Textbox(
+            label=DEMO_KEY_LABEL,
+            type="password",
+            visible=bool(settings.demo_api_key),
+        )
+    return ChatStageWidgets(
+        abstain_banner=abstain_banner,
+        chatbot=chatbot,
+        phase_label_box=phase_label_box,
+        example_prompt_buttons=example_prompt_buttons,
+        question_box=question_box,
+        send_button=send_button,
+        clear_button=clear_button,
+        demo_key_box=demo_key_box,
+    )
+
+
+def _build_staff_side_panel(l1_results: dict[str, Any]) -> StaffSidePanelWidgets:
+    """Staff column: citations, guardrail log, and Calidad L1.
+
+    L1 is evals/l1.json, read once while these blocks were built.
+    """
+    panel = gr.Column(scale=2, min_width=320, elem_id="observatory-side", visible=False)
+    with panel:
+        citation_selector = gr.Radio(
+            label=CITATION_CHOICE_LABEL,
+            choices=[],
+            interactive=True,
+            visible=False,
+        )
+        gr.Markdown(CITATIONS_KICKER, elem_id="citations-kicker")
+        citation_card_box = gr.Markdown(
+            citation_card_markdown(None),
+            elem_id="citation-card",
+        )
+        citation_id_box = gr.Textbox(
+            label=CITATION_ID_LABEL,
+            interactive=False,
+            buttons=["copy"],
+            visible=False,
+        )
+        gr.Markdown(GUARDRAILS_KICKER, elem_id="guardrails-kicker")
+        guardrail_panel_html = gr.HTML(
+            trust_markdown(None),
+            elem_id="trust-panel",
+            apply_default_css=False,
+            js_on_load="",
+        )
+        with gr.Accordion(L1_ACCORDION_LABEL, open=L1_ACCORDION_OPEN_DEFAULT):
+            gr.Markdown(l1_markdown(l1_results), elem_id="l1-panel")
+        citation_inspector_json = gr.JSON(label=INSPECTOR_JSON_LABEL, visible=False)
+        guardrail_panel_json = gr.JSON(label=GUARDRAILS_JSON_LABEL, visible=False)
+    return StaffSidePanelWidgets(
+        panel=panel,
+        citation_selector=citation_selector,
+        citation_card_box=citation_card_box,
+        citation_id_box=citation_id_box,
+        guardrail_panel_html=guardrail_panel_html,
+        citation_inspector_json=citation_inspector_json,
+        guardrail_panel_json=guardrail_panel_json,
+    )
+
+
+def _build_layout(
+    settings: Settings, health: HealthResponse, l1_results: dict[str, Any]
+) -> PageWidgets:
+    """Create every widget: topbar, sign-in card, chat stage, staff column, footer."""
+    session_state = gr.State(None)
+    cards_state = gr.State([])
+    with gr.Column(elem_id="observatory-shell", elem_classes=["layout-user"]) as page_shell:
+        # Family chrome: static topbar, then the sign-in card, then the
+        # stage and side panels, then the family footer.
+        gr.HTML(
+            topbar_html(),
+            elem_id="observatory-topbar",
+            apply_default_css=False,
+            js_on_load="",
+        )
+        login = _build_login_area(health)
+        with gr.Row(elem_id="observatory-layout"):
+            stage = _build_chat_stage(settings)
+            side_panel = _build_staff_side_panel(l1_results)
+        gr.HTML(
+            footer_html(footer_text(health.last_refresh)),
+            elem_id="observatory-footer-host",
+            apply_default_css=False,
+            js_on_load="",
+        )
+    return PageWidgets(
+        session_state=session_state,
+        cards_state=cards_state,
+        page_shell=page_shell,
+        login=login,
+        stage=stage,
+        side_panel=side_panel,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PageHandlers:
+    """The functions Gradio calls when the user acts on the page."""
+
+    submit_question: Callable[..., AsyncIterator[tuple[Any, ...]]]
+    clear_conversation: Callable[..., Any]
+    show_selected_citation: Callable[..., tuple[dict[str, Any], Any, str]]
+    apply_selected_layout: Callable[..., tuple[Any, Any, Any]]
+    initialize_page_on_load: Callable[..., tuple[Any, ...]]
+    refresh_chrome_after_login: Callable[..., tuple[Any, ...]]
+    reset_chrome_after_logout: Callable[..., tuple[Any, ...]]
+
+
+def show_selected_citation(
+    selected_citation_id: str | None, cards: list[dict[str, Any]]
+) -> tuple[dict[str, Any], Any, str]:
+    """Show the citation card picked in the selector, or an empty card if none matches."""
+    if not selected_citation_id:
+        return {}, citation_id_box_update(""), citation_card_markdown(None)
+    for card in cards:
+        if card.get("id") == selected_citation_id:
+            citation_id = str(card.get("copy_id") or card["id"])
+            return card, citation_id_box_update(citation_id), citation_card_markdown(card)
+    return {}, citation_id_box_update(""), citation_card_markdown(None)
+
+
+def _chrome_updates(selected_layout: str | None, email: str | None) -> tuple[Any, ...]:
+    """Layout and sign-in widget updates for a visitor, in `auth_chrome_outputs` order.
+
+    The order is: freeze chips, staff side panel, page shell, login fields,
+    session row, signed-in label.
+    """
+    is_signed_in = email is not None
+    freeze_chips, side_panel, page_shell = apply_layout(selected_layout, is_signed_in)
+    login_fields, session_row, signed_in_label = auth_chrome(is_signed_in, email)
+    return freeze_chips, side_panel, page_shell, login_fields, session_row, signed_in_label
+
+
+def _make_page_handlers(
+    service: TurnService, auth: AuthModule, settings: Settings
+) -> PageHandlers:
+    """Create the handlers that need the turn service, auth, or settings."""
+
+    async def submit_question(
+        question: str,
+        chat_history: list[dict[str, Any]],
+        session_id: str | None,
+        typed_demo_key: str | None,
+        selected_layout: str | None,
+        previous_inspector_json: dict[str, Any] | None,
+        previous_guardrail_rows: list[dict[str, str]] | None,
+        previous_cards: list[dict[str, Any]] | None,
+        previous_citation_choice: str | None,
+        gradio_request: gr.Request,
+    ) -> AsyncIterator[tuple[Any, ...]]:
+        """Submit handler: run one chat turn and stream UI updates to the page."""
+        # Prefer an explicit demo key; otherwise derive one from the request.
+        demo_key = (typed_demo_key or "").strip() or demo_key_for(gradio_request)
+        previous_inspector = PreviousInspectorState(
+            inspector=dict(previous_inspector_json or {}),
+            trust=list(previous_guardrail_rows or []),
+            cards=list(previous_cards or []),
+            choice=previous_citation_choice,
+        )
+        # Staff view requires both a signed-in user and the staff layout selected.
+        is_staff_view = (
+            email_from_request(auth, gradio_request) is not None
+            and selected_layout == LAYOUT_STAFF
         )
 
         async def run_turn(
@@ -533,413 +442,256 @@ def build_blocks(
             on_thinking: OnThinking | None = None,
             on_phase: OnPhase | None = None,
         ) -> ChatResponse:
-            return await handle_turn(
-                settings=settings,
-                index=index,
-                llm=llm,
-                sessions=sessions,
-                pipeline=pipeline,
-                limiter=limiter,
-                turn_caps=turn_caps,
-                auth=auth,
-                request=request,
+            """Run the turn through the same `handle_turn` path as POST /chat."""
+            return await service.run_chat_turn(
+                gradio_request=gradio_request,
                 message=message,
-                session_id=session_id or None,
-                k=None,
-                filters=None,
-                request_id=new_request_id(),
-                client_id=client_id_for(
-                    request, trusted_proxy=auth.settings.trust_proxy
-                ),
-                demo_key=key or None,
+                session_id=session_id,
+                demo_key=demo_key or None,
+                thinking=thinking_for_layout(is_staff_view, settings),
                 on_thinking=on_thinking,
-                turn_evaluator=resolved_evaluator,
-                thinking=thinking_for_layout(staff, settings),
                 on_phase=on_phase,
             )
 
-        async for item in iter_observatory_turn(
-            message, history, session_id, run_turn=run_turn, staff=staff, prior=prior
+        async for page_update in stream_turn_updates(
+            question,
+            chat_history,
+            session_id,
+            run_turn=run_turn,
+            is_staff_view=is_staff_view,
+            previous_inspector=previous_inspector,
         ):
-            yield item
+            yield page_update
 
-    async def _clear(
-        history: list[dict[str, Any]] | None,
+    async def clear_conversation(
+        chat_history: list[dict[str, Any]] | None,
         session_id: str | None,
-        request: gr.Request,
+        gradio_request: gr.Request,
     ) -> tuple[Any, ...]:
-        error: HTTPException | None = None
+        """Clear button handler: send `/clear` to the backend and reset the chat and panels.
+
+        An HTTP error from the backend is passed to `apply_clear_result`, which
+        decides what the chat shows.
+        """
+        backend_error: HTTPException | None = None
         try:
-            await handle_turn(
-                settings=settings,
-                index=index,
-                llm=llm,
-                sessions=sessions,
-                pipeline=pipeline,
-                limiter=limiter,
-                turn_caps=turn_caps,
-                auth=auth,
-                request=request,
+            await service.run_chat_turn(
+                gradio_request=gradio_request,
                 message="/clear",
-                session_id=session_id or None,
-                k=None,
-                filters=None,
-                request_id=new_request_id(),
-                client_id=client_id_for(
-                    request, trusted_proxy=auth.settings.trust_proxy
-                ),
+                session_id=session_id,
                 demo_key=None,
-                turn_evaluator=resolved_evaluator,
             )
-        except HTTPException as exc:
-            error = exc
-        rows, sid = apply_clear_result(history, session_id, error)
-        return rows, sid, *_empty_inspector(), _phase_update("")
-
-    def _select_card(
-        selected: str | None, cards: list[dict[str, Any]]
-    ) -> tuple[dict[str, Any], Any, str]:
-        if not selected:
-            return {}, _copy_update(""), citation_card_markdown(None)
-        for card in cards:
-            if card.get("id") == selected:
-                copy_id = str(card.get("copy_id") or card["id"])
-                return card, _copy_update(copy_id), citation_card_markdown(card)
-        return {}, _copy_update(""), citation_card_markdown(None)
-
-    with gr.Blocks(title=PAGE_TITLE) as demo:
-        session_state = gr.State(None)
-        cards_state = gr.State([])
-        with gr.Column(
-            elem_id="observatory-shell",
-            elem_classes=["layout-user"],
-        ) as shell:
-            # Family chrome: static topbar, then the sign-in card, then the
-            # stage and side panels, then the family footer.
-            gr.HTML(
-                topbar_html(),
-                elem_id="observatory-topbar",
-                apply_default_css=False,
-                js_on_load="",
-            )
-            with gr.Column(elem_id="auth-login"):
-                gr.Markdown(AUTH_KICKER, elem_id="auth-kicker")
-                with gr.Row(elem_id="auth-login-fields") as auth_fields:
-                    auth_email = gr.Textbox(
-                        label=AUTH_EMAIL_LABEL,
-                        placeholder="nombre@dominio.com",
-                        scale=2,
-                        elem_id="auth-email",
-                    )
-                    send_code = gr.Button(AUTH_SEND, scale=0, elem_id="auth-send")
-                    auth_code = gr.Textbox(
-                        label=AUTH_CODE_LABEL,
-                        placeholder="6 dígitos",
-                        scale=1,
-                        elem_id="auth-code",
-                    )
-                    verify_code = gr.Button(
-                        AUTH_VERIFY, scale=0, elem_id="auth-verify"
-                    )
-                auth_status = gr.Markdown(
-                    AUTH_STATUS_GENERIC, elem_id="auth-status"
-                )
-                with gr.Row(elem_id="auth-session", visible=False) as auth_session:
-                    auth_who = gr.Markdown("", elem_id="auth-who")
-                    logout = gr.Button(AUTH_LOGOUT, scale=0, elem_id="auth-logout")
-                with gr.Row(elem_id="layout-toggle"):
-                    layout_choice = gr.Radio(
-                        label="Vista",
-                        choices=[LAYOUT_STAFF, LAYOUT_USER],
-                        value=LAYOUT_USER,
-                        container=False,
-                        elem_classes=["vista-radio"],
-                    )
-                    gr.Markdown(LAYOUT_HELP, elem_id="layout-toggle-help")
-                freeze_box = gr.HTML(
-                    freeze_chips_html(health),
-                    elem_id="observatory-freeze",
-                    apply_default_css=False,
-                    js_on_load="",
-                    visible=False,
-                )
-            with gr.Row(elem_id="observatory-layout"):
-                with gr.Column(scale=3, min_width=0, elem_id="observatory-stage"):
-                    abstain_box = gr.Markdown(
-                        "",
-                        elem_id="abstain-banner",
-                        visible=False,
-                    )
-                    gr.Markdown(CHAT_KICKER, elem_id="chat-kicker")
-                    chatbot = gr.Chatbot(
-                        label="Conversación",
-                        show_label=False,
-                        elem_id="observatory-chat",
-                        height="auto",
-                        min_height=192,
-                        buttons=[],
-                        feedback_options=[],
-                        placeholder="La conversación aparece acá.",
-                        group_consecutive_messages=False,
-                    )
-                    phase_box = gr.Markdown("", elem_id="turn-phase", visible=False)
-                    # Examples sit above the composer; the composer is one
-                    # line (question, Enviar, Limpiar) and sticks to the
-                    # viewport bottom on desktop.
-                    gr.Markdown(EXAMPLES_KICKER, elem_id="examples-kicker")
-                    with gr.Row(elem_id="observatory-pills"):
-                        pills = [
-                            gr.Button(
-                                prompt,
-                                size="sm",
-                                scale=0,
-                                elem_classes=["observatory-pill"],
-                            )
-                            for prompt in CANNED_PROMPTS
-                        ]
-                    with gr.Row(elem_id="observatory-composer"):
-                        msg = gr.Textbox(
-                            label="Pregunta",
-                            lines=1,
-                            max_lines=4,
-                            placeholder="Preguntá por una cláusula CAMEX…",
-                            scale=1,
-                            elem_id="observatory-input",
-                        )
-                        send = gr.Button(
-                            "Enviar",
-                            variant="primary",
-                            scale=0,
-                            elem_id="observatory-send",
-                        )
-                        clear = gr.Button(
-                            AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
-                        )
-                    for pill, prompt in zip(pills, CANNED_PROMPTS, strict=True):
-                        pill.click(  # type: ignore[attr-defined]
-                            lambda value=prompt: value,
-                            outputs=[msg],
-                        )
-                    demo_box = gr.Textbox(
-                        label="Clave de demostración",
-                        type="password",
-                        visible=bool(settings.demo_api_key),
-                    )
-                # Staff column: citations, guardrail log, and Calidad L1.
-                # L1 is evals/l1.json, read once while these blocks were built.
-                side = gr.Column(
-                    scale=2, min_width=320, elem_id="observatory-side", visible=False
-                )
-                with side:
-                    citation_choice = gr.Radio(
-                        label="Citas",
-                        choices=[],
-                        interactive=True,
-                        visible=False,
-                    )
-                    gr.Markdown(CITATIONS_KICKER, elem_id="citations-kicker")
-                    card_md = gr.Markdown(
-                        citation_card_markdown(None),
-                        elem_id="citation-card",
-                    )
-                    copy_id = gr.Textbox(
-                        label="Identificador",
-                        interactive=False,
-                        buttons=["copy"],
-                        visible=False,
-                    )
-                    gr.Markdown(GUARDRAILS_KICKER, elem_id="guardrails-kicker")
-                    trust_box = gr.HTML(
-                        trust_markdown(None),
-                        elem_id="trust-panel",
-                        apply_default_css=False,
-                        js_on_load="",
-                    )
-                    with gr.Accordion("Calidad L1", open=L1_ACCORDION_OPEN_DEFAULT):
-                        gr.Markdown(l1_markdown(l1_data), elem_id="l1-panel")
-                    inspector = gr.JSON(label="Inspector de citas", visible=False)
-                    trust = gr.JSON(label="Panel de guardrails", visible=False)
-            gr.HTML(
-                footer_html(footer_text(health.last_refresh)),
-                elem_id="observatory-footer-host",
-                apply_default_css=False,
-                js_on_load="",
-            )
-
-        outputs = [
-            chatbot,
-            session_state,
-            inspector,
-            trust,
-            abstain_box,
-            copy_id,
-            citation_choice,
-            cards_state,
-            card_md,
-            trust_box,
-            phase_box,
-        ]
-        send.click(  # type: ignore[attr-defined]
-            _turn,
-            inputs=[
-                msg,
-                chatbot,
-                session_state,
-                demo_box,
-                layout_choice,
-                inspector,
-                trust,
-                cards_state,
-                citation_choice,
-            ],
-            outputs=outputs,
-        ).then(lambda: "", outputs=[msg])
-        msg.submit(  # type: ignore[attr-defined]
-            _turn,
-            inputs=[
-                msg,
-                chatbot,
-                session_state,
-                demo_box,
-                layout_choice,
-                inspector,
-                trust,
-                cards_state,
-                citation_choice,
-            ],
-            outputs=outputs,
-        ).then(lambda: "", outputs=[msg])
-        clear.click(_clear, inputs=[chatbot, session_state], outputs=outputs)  # type: ignore[attr-defined]
-        citation_choice.change(  # type: ignore[attr-defined]
-            _select_card,
-            inputs=[citation_choice, cards_state],
-            outputs=[inspector, copy_id, card_md],
+        except HTTPException as error:
+            backend_error = error
+        chat_rows, new_session_id = apply_clear_result(chat_history, session_id, backend_error)
+        return (
+            chat_rows,
+            new_session_id,
+            *InspectorPanels.cleared().as_tuple(),
+            phase_label_update(""),
         )
 
-        def _layout(choice: str | None, request: gr.Request) -> tuple[Any, Any, Any]:
-            email = email_from_request(auth, request)
-            return apply_layout(choice, email is not None)
+    def apply_selected_layout(
+        selected_layout: str | None, gradio_request: gr.Request
+    ) -> tuple[Any, Any, Any]:
+        """Apply the chosen layout (user or staff) given whether the visitor is signed in."""
+        email = email_from_request(auth, gradio_request)
+        return apply_layout(selected_layout, email is not None)
 
-        def _hydrate(request: gr.Request) -> tuple[Any, ...]:
-            email = email_from_request(auth, request)
-            authed = email is not None
-            freeze, side_u, shell_u = apply_layout(LAYOUT_USER, authed)
-            fields, session, who = auth_chrome(authed, email)
-            return freeze, side_u, shell_u, fields, session, who, LAYOUT_USER
+    def initialize_page_on_load(gradio_request: gr.Request) -> tuple[Any, ...]:
+        """On page load: set the user layout and auth widgets from the session cookie."""
+        email = email_from_request(auth, gradio_request)
+        return (*_chrome_updates(LAYOUT_USER, email), LAYOUT_USER)
 
-        def _after_auth(
-            choice: str | None, request: gr.Request
-        ) -> tuple[Any, ...]:
-            email = email_from_request(auth, request)
-            authed = email is not None
-            freeze, side_u, shell_u = apply_layout(choice, authed)
-            fields, session, who = auth_chrome(authed, email)
-            return freeze, side_u, shell_u, fields, session, who
+    def refresh_chrome_after_login(
+        selected_layout: str | None, gradio_request: gr.Request
+    ) -> tuple[Any, ...]:
+        """After code verification: refresh layout and auth widgets for the new session."""
+        email = email_from_request(auth, gradio_request)
+        return _chrome_updates(selected_layout, email)
 
-        def _after_logout(request: gr.Request) -> tuple[Any, ...]:
-            freeze, side_u, shell_u = apply_layout(LAYOUT_USER, False)
-            fields, session, who = auth_chrome(False, None)
-            return freeze, side_u, shell_u, fields, session, who, LAYOUT_USER
+    def reset_chrome_after_logout() -> tuple[Any, ...]:
+        """After logout: reset to the signed-out user layout and auth widgets."""
+        return (*_chrome_updates(LAYOUT_USER, None), LAYOUT_USER)
 
-        chrome_out = [freeze_box, side, shell, auth_fields, auth_session, auth_who]
-        layout_choice.change(  # type: ignore[attr-defined]
-            _layout,
-            inputs=[layout_choice],
-            outputs=[freeze_box, side, shell],
+    return PageHandlers(
+        submit_question=submit_question,
+        clear_conversation=clear_conversation,
+        show_selected_citation=show_selected_citation,
+        apply_selected_layout=apply_selected_layout,
+        initialize_page_on_load=initialize_page_on_load,
+        refresh_chrome_after_login=refresh_chrome_after_login,
+        reset_chrome_after_logout=reset_chrome_after_logout,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wiring
+# ---------------------------------------------------------------------------
+
+
+def _empty_text() -> str:
+    """Empty string, used to clear the question box after a submit."""
+    return ""
+
+
+def _wire_events(
+    observatory_blocks: gr.Blocks,
+    widgets: PageWidgets,
+    handlers: PageHandlers,
+    auth: AuthModule,
+) -> None:
+    """Connect every widget event to its handler or browser script."""
+    login = widgets.login
+    stage = widgets.stage
+    side_panel = widgets.side_panel
+
+    # The order of these lists must match the values `ChatTurnUpdate.as_tuple` returns.
+    turn_outputs = [
+        stage.chatbot,
+        widgets.session_state,
+        side_panel.citation_inspector_json,
+        side_panel.guardrail_panel_json,
+        stage.abstain_banner,
+        side_panel.citation_id_box,
+        side_panel.citation_selector,
+        widgets.cards_state,
+        side_panel.citation_card_box,
+        side_panel.guardrail_panel_html,
+        stage.phase_label_box,
+    ]
+    turn_inputs = [
+        stage.question_box,
+        stage.chatbot,
+        widgets.session_state,
+        stage.demo_key_box,
+        login.layout_choice,
+        side_panel.citation_inspector_json,
+        side_panel.guardrail_panel_json,
+        widgets.cards_state,
+        side_panel.citation_selector,
+    ]
+    # The order must match the values `_chrome_updates` returns.
+    auth_chrome_outputs = [
+        login.freeze_chips_box,
+        side_panel.panel,
+        widgets.page_shell,
+        login.fields_row,
+        login.session_row,
+        login.signed_in_email_label,
+    ]
+
+    # Chat: the Enviar button and pressing Enter both submit the question.
+    submit_triggers = (
+        stage.send_button.click,  # type: ignore[attr-defined]
+        stage.question_box.submit,  # type: ignore[attr-defined]
+    )
+    for submit_trigger in submit_triggers:
+        submit_trigger(
+            handlers.submit_question,
+            inputs=turn_inputs,
+            outputs=turn_outputs,
+            api_name=API_NAME_SUBMIT_QUESTION,
+        ).then(_empty_text, outputs=[stage.question_box])
+    stage.clear_button.click(  # type: ignore[attr-defined]
+        handlers.clear_conversation,
+        inputs=[stage.chatbot, widgets.session_state],
+        outputs=turn_outputs,
+        api_name=API_NAME_CLEAR_CONVERSATION,
+    )
+    for example_button, example_prompt in zip(
+        stage.example_prompt_buttons, CANNED_PROMPTS, strict=True
+    ):
+        example_button.click(  # type: ignore[attr-defined]
+            lambda prompt=example_prompt: prompt,
+            outputs=[stage.question_box],
         )
-        demo.load(  # type: ignore[attr-defined]
-            _hydrate,
-            outputs=[*chrome_out, layout_choice],
-        )
-        send_code.click(  # type: ignore[attr-defined]
-            None,
-            inputs=[auth_email],
-            outputs=[auth_status],
-            js=auth_request_js(auth_status_smtp_ok(auth.settings.otp_ttl_s)),
-        )
-        verify_code.click(  # type: ignore[attr-defined]
-            None,
-            inputs=[auth_email, auth_code],
-            outputs=[auth_status],
-            js=_AUTH_VERIFY_JS,
-        ).then(
-            _after_auth,
-            inputs=[layout_choice],
-            outputs=chrome_out,
-        )
-        logout.click(  # type: ignore[attr-defined]
-            None,
-            outputs=[auth_status],
-            js=_AUTH_LOGOUT_JS,
-        ).then(
-            _after_logout,
-            outputs=[*chrome_out, layout_choice],
-        )
-    queued = demo.queue()
+
+    # Staff column and layout toggle.
+    side_panel.citation_selector.change(  # type: ignore[attr-defined]
+        handlers.show_selected_citation,
+        inputs=[side_panel.citation_selector, widgets.cards_state],
+        outputs=[
+            side_panel.citation_inspector_json,
+            side_panel.citation_id_box,
+            side_panel.citation_card_box,
+        ],
+        api_name=API_NAME_SHOW_SELECTED_CITATION,
+    )
+    login.layout_choice.change(  # type: ignore[attr-defined]
+        handlers.apply_selected_layout,
+        inputs=[login.layout_choice],
+        outputs=[login.freeze_chips_box, side_panel.panel, widgets.page_shell],
+        api_name=API_NAME_APPLY_SELECTED_LAYOUT,
+    )
+    observatory_blocks.load(  # type: ignore[attr-defined]
+        handlers.initialize_page_on_load,
+        outputs=[*auth_chrome_outputs, login.layout_choice],
+        api_name=API_NAME_INITIALIZE_PAGE,
+    )
+
+    # Login: the browser scripts call the auth routes; the handlers refresh the page after.
+    login.send_code_button.click(  # type: ignore[attr-defined]
+        None,
+        inputs=[login.email_box],
+        outputs=[login.status],
+        js=auth_request_js(auth_status_smtp_ok(auth.settings.otp_ttl_s)),
+    )
+    login.verify_code_button.click(  # type: ignore[attr-defined]
+        None,
+        inputs=[login.email_box, login.code_box],
+        outputs=[login.status],
+        js=AUTH_VERIFY_JS,
+    ).then(
+        handlers.refresh_chrome_after_login,
+        inputs=[login.layout_choice],
+        outputs=auth_chrome_outputs,
+        api_name=API_NAME_REFRESH_AFTER_LOGIN,
+    )
+    login.logout_button.click(  # type: ignore[attr-defined]
+        None,
+        outputs=[login.status],
+        js=AUTH_LOGOUT_JS,
+    ).then(
+        handlers.reset_chrome_after_logout,
+        outputs=[*auth_chrome_outputs, login.layout_choice],
+        api_name=API_NAME_RESET_AFTER_LOGOUT,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def build_observatory_blocks(
+    *,
+    settings: Settings,
+    index: IndexPort,
+    llm: LlmPort,
+    sessions: SessionStore,
+    pipeline: GuardrailPipeline,
+    limiter: RateLimiter,
+    turn_caps: TurnCaps,
+    auth: AuthModule,
+) -> gr.Blocks:
+    """Build the widgets and wire submit to handle_turn, the same path as POST /chat."""
+    health = dump_health(settings, index)
+    l1_results = load_l1(Path(settings.evals_dir) / L1_FILENAME)
+    service = TurnService(
+        settings=settings,
+        index=index,
+        llm=llm,
+        sessions=sessions,
+        pipeline=pipeline,
+        limiter=limiter,
+        turn_caps=turn_caps,
+        auth=auth,
+    )
+    handlers = _make_page_handlers(service, auth, settings)
+
+    with gr.Blocks(title=PAGE_TITLE) as observatory_blocks:
+        widgets = _build_layout(settings, health, l1_results)
+        _wire_events(observatory_blocks, widgets, handlers, auth)
+    queued = observatory_blocks.queue()
     return queued  # type: ignore[no-any-return]
-
-
-class _RewriteGradioHtml(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Any) -> Any:
-        response = await call_next(request)
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type:
-            return response
-        body = bytearray()
-        async for chunk in response.body_iterator:
-            body.extend(chunk)
-        html = rewrite_gradio_html(
-            body.decode("utf-8", errors="replace"),
-            origin=str(request.base_url).rstrip("/"),
-        )
-        headers = dict(response.headers)
-        headers.pop("content-length", None)
-        return Response(
-            content=html,
-            status_code=response.status_code,
-            headers=headers,
-            media_type=content_type,
-        )
-
-
-def mount_ui(
-    api: Any, blocks: gr.Blocks, settings: Settings | None = None
-) -> Any:
-    def og_image() -> FileResponse:
-        return FileResponse(observatory_og_image_path(), media_type="image/png")
-
-    def favicon_svg() -> FileResponse:
-        return FileResponse(observatory_favicon_svg_path(), media_type="image/svg+xml")
-
-    def apple_icon() -> FileResponse:
-        return FileResponse(observatory_apple_icon_path(), media_type="image/png")
-
-    def weblab_css() -> FileResponse:
-        return FileResponse(weblab_css_path(), media_type="text/css")
-
-    matomo_url = settings.matomo_url if settings is not None else ""
-    matomo_site_id = settings.matomo_site_id if settings is not None else ""
-    api.add_api_route("/og.png", og_image, methods=["GET"], include_in_schema=False)
-    api.add_api_route(
-        "/favicon.svg", favicon_svg, methods=["GET"], include_in_schema=False
-    )
-    api.add_api_route(
-        "/apple-touch-icon.png", apple_icon, methods=["GET"], include_in_schema=False
-    )
-    api.add_api_route("/weblab.css", weblab_css, methods=["GET"], include_in_schema=False)
-    api.add_middleware(_RewriteGradioHtml)
-    mounted: Any = gr.mount_gradio_app(
-        api,
-        blocks,
-        path="/",
-        theme=observatory_theme(),
-        css_paths=observatory_css_paths(),
-        head=observatory_head(
-            matomo_url=matomo_url, matomo_site_id=matomo_site_id
-        ),
-        js=observatory_js(),
-        footer_links=[],
-        run_history=False,
-        favicon_path=str(observatory_favicon_path()),
-    )
-    return mounted
