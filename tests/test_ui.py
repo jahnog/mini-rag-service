@@ -391,7 +391,7 @@ def test_append_pending_then_done_has_no_leftover_pending() -> None:
     silencio = append_messages(None, "clima", "No puedo responder (scope).")
     assert len(silencio) == 2
     assert "metadata" not in silencio[1]
-    denied = append_messages(None, "hola", "Se requiere DEMO_API_KEY.")
+    denied = append_messages(None, "hola", "Tenés que ingresar con tu correo.")
     limited = append_messages(None, "hola", "Demasiados intentos. Probá más tarde.")
     assert "metadata" not in denied[1]
     assert "metadata" not in limited[1]

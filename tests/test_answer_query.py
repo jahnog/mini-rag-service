@@ -717,33 +717,22 @@ def _chat_events(text: str) -> list[dict[str, object]]:
     return events
 
 
-def _configure_chat_log(tmp_path: Path) -> Path:
-    log_file = tmp_path / "logs" / "chat.log"
-    configure_logging(log_file=log_file)
-    return log_file
-
-
-def _assert_stdout_matches_file(
-    capsys: pytest.CaptureFixture[str], log_file: Path
-) -> dict[str, object]:
-    stored = _chat_events(log_file.read_text(encoding="utf-8"))
-    stdout = _chat_events(capsys.readouterr().out)
-    assert stored
-    assert stdout
-    assert stored[-1]["message"] == stdout[-1]["message"]
-    assert stored[-1]["finding"] == stdout[-1]["finding"]
-    return stored[-1]
+def _stdout_turn(capsys: pytest.CaptureFixture[str]) -> tuple[str, dict[str, object]]:
+    text = capsys.readouterr().out
+    events = _chat_events(text)
+    assert events
+    return text, events[-1]
 
 
 @pytest.mark.asyncio
 async def test_in_corpus_turn_is_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     use_case, _ = _uc(tmp_path)
     question = "qué se exige hoy para liquidar el cobro de exportaciones"
     response = await use_case.run(ChatRequest(message=question), request_id="req-log")
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     for key in ("retrieve_ms", "llm_ms", "ttft_ms", "thinking_chars"):
         assert key in event
     assert event["abstain_reason"] is None
@@ -769,13 +758,13 @@ async def test_in_corpus_turn_is_logged(
 async def test_named_a3500_turn_is_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     use_case, _ = _uc(tmp_path)
     await use_case.run(
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-a3500",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     citations = event["citations"]
     assert isinstance(citations, list)
     assert any(item["id"] == "A3500" for item in citations)
@@ -788,7 +777,7 @@ async def test_named_a3500_turn_is_logged(
 async def test_named_paraphrase_logs_cite_failure(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     draft = LlmDraft(
         answer="Tipo de cambio de referencia. Fuente: A3500.",
         finding=Finding.DEFINICION,
@@ -805,7 +794,7 @@ async def test_named_paraphrase_logs_cite_failure(
         ChatRequest(message="Qué dice la Comunicación A 3500?"),
         request_id="req-cite-log",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     assert event["named_id"] == "A3500"
     assert event["retrieval_route"] == "named"
     failures = event["cite_failures"]
@@ -819,13 +808,13 @@ async def test_named_paraphrase_logs_cite_failure(
 async def test_weather_log_omits_cite_failures(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     use_case, llm = _uc(tmp_path)
     await use_case.run(
         ChatRequest(message="What's the weather in Madrid?"),
         request_id="req-weather-log",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     assert event["finding"] == Finding.SILENCIO.value
     assert "cite_failures" not in event
     assert llm.calls == []
@@ -835,11 +824,11 @@ async def test_weather_log_omits_cite_failures(
 async def test_no_advice_block_is_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     use_case, llm = _uc(tmp_path)
     question = "Debería comprar dólares?"
     response = await use_case.run(ChatRequest(message=question), request_id="req-adv")
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     assert event["message"] == question
     assert event["finding"] == Finding.SILENCIO.value
     assert response.finding is Finding.SILENCIO
@@ -853,15 +842,14 @@ async def test_no_advice_block_is_logged(
 async def test_secret_token_is_redacted_in_chat_log(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     use_case, llm = _uc(tmp_path)
     token = "sk-abcdefghijklmnopqrstuvwxyz"
     await use_case.run(
         ChatRequest(message=f"mi clave es {token} sobre liquidar exportaciones"),
         request_id="req-secret",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
-    dumped = log_file.read_text(encoding="utf-8")
+    dumped, event = _stdout_turn(capsys)
     assert token not in dumped
     assert "[secret]" in event["message"]
     assert event["policy_version"] == 3
@@ -872,7 +860,7 @@ async def test_secret_token_is_redacted_in_chat_log(
 async def test_clear_turn_is_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     sessions = InMemorySessionStore()
     use_case, llm = _uc(tmp_path, sessions=sessions)
     first = await use_case.run(
@@ -884,7 +872,7 @@ async def test_clear_turn_is_logged(
         ChatRequest(message="/clear", session_id=first.session_id),
         request_id="r2",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     assert event["message"] == "/clear"
     assert event["citations"] == []
     assert event["finding"] == Finding.SILENCIO.value
@@ -896,7 +884,7 @@ async def test_clear_turn_is_logged(
 async def test_empty_retrieval_silencio_is_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     settings, _, _ = seed_ready(tmp_path)
     index = FakeIndex()
     index.upsert(
@@ -909,7 +897,7 @@ async def test_empty_retrieval_silencio_is_logged(
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
         request_id="req-empty-log",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    _, event = _stdout_turn(capsys)
     assert event["finding"] == Finding.SILENCIO.value
     assert event["citations"] == []
     assert llm.calls == []
@@ -920,19 +908,18 @@ async def test_empty_retrieval_silencio_is_logged(
 async def test_thinking_trace_is_not_logged(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    log_file = _configure_chat_log(tmp_path)
+    configure_logging()
     draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
     use_case, _ = _uc(tmp_path, llm=FakeLlm(draft))
     response = await use_case.run(
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
         request_id="req-think-log",
     )
-    event = _assert_stdout_matches_file(capsys, log_file)
+    dumped, event = _stdout_turn(capsys)
     assert response.thinking == "voy a citar el TO"
     assert event["answer"] == response.answer
     assert event["finding"] == response.finding.value
     assert "thinking" not in event
-    dumped = log_file.read_text(encoding="utf-8")
     assert "voy a citar el TO" not in dumped
 
 

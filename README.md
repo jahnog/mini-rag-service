@@ -18,7 +18,7 @@ The corpus is BCRA only; the ingest jobs never fetch from other hosts.
 
 Copy `.env.example` to `.env`. The main configuration groups:
 
-- **Embeddings** (`EMBEDDING_*`): required for a real index upsert. Upserts send `EMBEDDING_BATCH_SIZE` chunks per request (default 8); `EMBEDDING_MAX_CHARS` (default 2048) caps each chunk for a 1024-token embedding server. The intended host model is a local `qwen3-embedding-0.6b` CPU server behind `EMBEDDING_BASE_URL`; `EMBEDDING_BACKEND=onnx` uses Chroma's built-in MiniLM instead. Wipe `data/index` when you switch embedding models.
+- **Embeddings** (`EMBEDDING_*`): required for a real index upsert. Upserts send `EMBEDDING_BATCH_SIZE` chunks per request (default 8); `EMBEDDING_MAX_CHARS` (default 2048) caps each chunk for a 1024-token embedding server. The intended host model is a local `qwen3-embedding-0.6b` CPU server behind `EMBEDDING_BASE_URL`. `EMBEDDING_BACKEND` is `auto` (the HTTP endpoint when `EMBEDDING_API_KEY` is set, deterministic vectors otherwise), `openai`, or `deterministic`. Wipe `data/index` when you switch embedding models.
 - **Chat model** (`LLM_*`): any OpenAI-compatible endpoint. `LLM_API_KEY` is required for chat; the default base URL is `https://api.x.ai/v1`. A local llama.cpp server works with the same `LLM_BASE_URL` / `LLM_MODEL` and a dummy key.
 - **Auth** (`AUTH_*`, module `bcra_rag.auth`): chat and the observatory need a session. Set `AUTH_SECRET` (at least 32 characters), `AUTH_ALLOWED_EMAILS` (`*` for any well-formed mailbox; empty sends nothing), and SMTP (`AUTH_SMTP_HOST`, `AUTH_SMTP_FROM`, `AUTH_SMTP_TIMEOUT_S`). `POST /chat` needs the `session` cookie issued by `POST /auth/verify` or the emailed login link; sessions last `AUTH_SESSION_DAYS` (default 1), and a chat `session_id` is not portable across mailboxes. Set `AUTH_PUBLIC_ORIGIN` to the public `https://` origin so the cookie is `Secure` behind TLS termination, `/auth` POST origin checks pass, and login links point at the right host. Set `AUTH_TRUST_PROXY=true` only behind a reverse proxy that overwrites `X-Forwarded-For`.
 - **Quotas**: authenticated chat is capped at `CHAT_TURNS_PER_EMAIL_DAY` (default 30) and `CHAT_TURNS_PER_PROCESS_DAY` (default 100).
@@ -149,7 +149,7 @@ uv run pytest --pdb
 ```
 <!-- /commands:debug -->
 
-**Logs.** Job logs are JSON (structlog) on stdout only. Chat turns also append to `DATA_DIR/logs/chat.log` (default `data/logs/chat.log`). Each `chat_turn` line logs `retrieve_ms`, `llm_ms`, `ttft_ms`, and `thinking_chars`.
+**Logs.** Job logs and chat turns are JSON (structlog) on stdout only. Each `chat_turn` line logs `retrieve_ms`, `llm_ms`, `ttft_ms`, and `thinking_chars`.
 
 **Thinking and generation.** A local llama.cpp server (for example Qwen3.6-35B-A3B) uses the same `LLM_BASE_URL` / `LLM_MODEL` and a dummy `LLM_API_KEY`. With a llama.cpp backend, thinking is on by default (`LLM_ENABLE_THINKING=true`) and arrives as a provider trace (`reasoning_content` or `<think>` tags); set `LLM_ENABLE_THINKING=false` to disable it. `api.x.ai` never receives that extra body. Controls: `LLM_TEMPERATURE` (0.1), `LLM_MAX_TOKENS` (1500; with thinking on, llama.cpp counts reasoning tokens inside this bound, so raise it or set `LLM_REASONING_BUDGET`), `LLM_SEED` (unset), `LLM_REASONING_BUDGET` (0 = provider default; llama.cpp only), `LLM_THINKING_USER_LAYOUT` (false: Usuario turns run without thinking). A timed-out call becomes `abstain_reason=llm_timeout`; an unreadable body retries once without thinking, then yields `llm_bad_json`.
 

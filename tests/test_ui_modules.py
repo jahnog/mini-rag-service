@@ -95,14 +95,12 @@ async def test_turn_service_forwards_the_same_collaborators_for_chat_and_clear()
             gradio_request=browser_request,  # type: ignore[arg-type]
             message="hola",
             session_id="",
-            demo_key="key",
             thinking=True,
         )
         await service.run_chat_turn(
             gradio_request=browser_request,  # type: ignore[arg-type]
             message="/clear",
             session_id="session-1",
-            demo_key=None,
         )
     chat_call, clear_call = captured
     for name in (
@@ -118,11 +116,9 @@ async def test_turn_service_forwards_the_same_collaborators_for_chat_and_clear()
         assert chat_call[name] is clear_call[name] is getattr(service, name)
     assert chat_call["message"] == "hola"
     assert chat_call["session_id"] is None
-    assert chat_call["demo_key"] == "key"
     assert chat_call["thinking"] is True
     assert clear_call["message"] == "/clear"
     assert clear_call["session_id"] == "session-1"
-    assert clear_call["demo_key"] is None
     assert clear_call["thinking"] is None
     assert chat_call["client_id"] == clear_call["client_id"] == "client-1"
     assert chat_call["request_id"] != clear_call["request_id"]

@@ -42,7 +42,6 @@ class TurnService:
         gradio_request: gr.Request,
         message: str,
         session_id: str | None,
-        demo_key: str | None,
         thinking: bool | None = None,
         on_thinking: OnThinking | None = None,
         on_phase: OnPhase | None = None,
@@ -66,7 +65,6 @@ class TurnService:
             client_id=client_id_for(
                 gradio_request, trusted_proxy=self.auth.settings.trust_proxy
             ),
-            demo_key=demo_key,
             on_thinking=on_thinking,
             thinking=thinking,
             on_phase=on_phase,

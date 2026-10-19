@@ -1,7 +1,7 @@
 """Gate in front of one chat turn.
 
-Requires the email session cookie, then the optional demo key, the rate
-limit, and the daily turn caps. The session id is bound to the mailbox, so
+Requires the email session cookie, then the rate limit and the daily turn
+caps. The session id is bound to the mailbox, so
 one person's history is not another's. AnswerQuery runs only after that.
 """
 
@@ -49,13 +49,10 @@ def prepare_turn(
     session_id: str | None,
     k: int | None,
     client_id: str,
-    demo_key: str | None,
 ) -> PreparedTurn:
     email = email_from_request(auth, request)
     if email is None:
         raise HTTPException(status_code=401, detail="authentication required")
-    if settings.demo_api_key and demo_key != settings.demo_api_key:
-        raise HTTPException(status_code=401, detail="invalid demo key")
     if not limiter.allow(client_id):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
     if (message or "").strip().lower() != "/clear":
@@ -130,7 +127,6 @@ async def handle_turn(
     filters: ChatFilters | None,
     request_id: str,
     client_id: str,
-    demo_key: str | None,
     on_thinking: OnThinking | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
@@ -145,7 +141,6 @@ async def handle_turn(
         session_id=session_id,
         k=k,
         client_id=client_id,
-        demo_key=demo_key,
     )
     return await run_prepared_turn(
         prepared,
@@ -177,25 +172,3 @@ def _scoped_session_id(email: str, public_id: str, secret: str) -> str:
 
 def client_id_for(request: object, *, trusted_proxy: bool = False) -> str:
     return client_ip(request, trusted_proxy=trusted_proxy)
-
-
-def demo_key_for(request: object) -> str | None:
-    return _header(request, "x-demo-key") or _bearer(request)
-
-
-def _header(request: object, name: str) -> str | None:
-    headers = getattr(request, "headers", None)
-    if headers is None:
-        return None
-    getter = getattr(headers, "get", None)
-    if callable(getter):
-        value = getter(name) or getter(name.title()) or getter(name.upper())
-        return str(value) if value else None
-    return None
-
-
-def _bearer(request: object) -> str | None:
-    header = _header(request, "authorization") or ""
-    if header.lower().startswith("bearer "):
-        return header[7:].strip()
-    return None

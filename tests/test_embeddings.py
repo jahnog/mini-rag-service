@@ -143,16 +143,6 @@ def test_resolve_auto_with_key_is_openai_compatible(tmp_path: Path) -> None:
     assert ef.get_config()["batch_size"] == 4
 
 
-def test_resolve_onnx_uses_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = Settings(data_dir=tmp_path, embedding_backend="onnx")
-
-    def fake_onnx() -> str:
-        return "onnx-ef"
-
-    monkeypatch.setattr("bcra_rag.adapters.embeddings._onnx_embedding_function", fake_onnx)
-    assert resolve_embedding_function(settings) == "onnx-ef"
-
-
 def test_resolve_openai_without_key_raises(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path, embedding_backend="openai", embedding_api_key=""
@@ -178,10 +168,9 @@ def test_resolve_deterministic_backend_ignores_key(tmp_path: Path) -> None:
     )
 
 
-def test_resolve_unknown_backend_without_key_is_deterministic(tmp_path: Path) -> None:
+def test_resolve_unknown_backend_raises(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path, embedding_backend="nope", embedding_api_key=""
     )
-    assert isinstance(
-        resolve_embedding_function(settings), DeterministicEmbeddingFunction
-    )
+    with pytest.raises(ValueError, match="EMBEDDING_BACKEND"):
+        resolve_embedding_function(settings)

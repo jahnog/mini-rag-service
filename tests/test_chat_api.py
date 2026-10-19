@@ -203,38 +203,6 @@ def test_health_public_without_cookie(tmp_path: Path) -> None:
     assert response.status_code == 200
 
 
-def test_demo_key_is_not_a_substitute_for_session(tmp_path: Path) -> None:
-    settings, index, _ = seed_ready(tmp_path)
-    settings = settings.model_copy(update={"demo_api_key": "secret"})
-    client, llm, _, _ = make_client(
-        tmp_path, settings=settings, index=index, authenticate=False
-    )
-    denied = client.post(
-        "/chat",
-        json={"message": "Qué es el MULC?"},
-        headers={"x-demo-key": "secret"},
-    )
-    assert denied.status_code == 401
-    assert denied.json()["detail"] == "authentication required"
-    assert llm.calls == []
-
-
-def test_demo_api_key_required(tmp_path: Path) -> None:
-    settings, index, _ = seed_ready(tmp_path)
-    settings = settings.model_copy(update={"demo_api_key": "secret"})
-    client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
-    denied = client.post("/chat", json={"message": "Qué es el MULC?"})
-    assert denied.status_code == 401
-    ok = client.post(
-        "/chat",
-        json={"message": "Qué es el MULC?"},
-        headers={"x-demo-key": "secret"},
-    )
-    assert ok.status_code == 200
-    assert ok.json()["finding"] != "silencio" or ok.json()["abstain_reason"] != "scope"
-    assert llm.calls
-
-
 def test_unauthenticated_401_does_not_eat_chat_budget(tmp_path: Path) -> None:
     settings, index, _ = seed_ready(tmp_path)
     settings = settings.model_copy(update={"rate_limit_requests": 2, "rate_limit_window_s": 60})

@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Give operators a durable dump-host record of each completed chat turn (the user question, the cited answer or silencio, and the v1 guardrail log) and of each L1 run’s published metrics, without running evals in the browser or changing the chat contract.
+Give operators a console record of each completed chat turn (the user question, the cited answer or silencio, and the v1 guardrail log) and a durable file of each L1 run’s published metrics, without running evals in the browser or changing the chat contract.
 
 ## Requirements
 
-### Requirement: Chat turn on console and file
-Every completed chat turn SHALL be written to the process console and to a log file on the dump host. The record SHALL include the user message, the answer text, finding, citation dump ids, abstain flag, request id, session id, and the full v1 guardrail log (each rule with verdict `pass`, `warn`, or `block` and a short detail). The file SHALL remain readable after the process exits. The system MUST NOT require a separate operator command to produce these logs. HTTP and the assistant interface SHALL share this record for the same turn.
+### Requirement: Chat turn on the console
+Every completed chat turn SHALL be written to the process console. The record SHALL include the user message, the answer text, finding, citation dump ids, abstain flag, request id, session id, and the full v1 guardrail log (each rule with verdict `pass`, `warn`, or `block` and a short detail). The system MUST NOT require a separate operator command to produce these logs. HTTP and the assistant interface SHALL share this record for the same turn.
 
 #### Scenario: In-corpus turn is logged
 - **GIVEN** a ready index
 - **WHEN** the user asks an in-corpus vigente question
-- **THEN** the console and the log file include that question
+- **THEN** the console includes that question
 - **AND** they include the answer text and finding
 - **AND** they include at least one citation dump id
 - **AND** they include the v1 guardrail log with each listed rule as pass, warn, or block
@@ -22,11 +22,6 @@ Every completed chat turn SHALL be written to the process console and to a log f
 - **WHEN** the user asks what Comunicación A 3500 says
 - **THEN** the log record includes citation dump id `A3500`
 
-#### Scenario: File keeps the turn after the process exits
-- **GIVEN** a completed chat turn has been logged
-- **WHEN** an operator reads the dump-host log file after the process has exited
-- **THEN** that file still contains the user message, the answer, and the guardrail log from that turn
-
 ### Requirement: Thinking trace is not persisted
 Each completed chat turn record MUST NOT include the language-model thinking trace. It MUST NOT include the language-model prompt. The record SHALL still include the user message, the answer text, finding, citation dump ids when present, and the guardrail log.
 
@@ -34,7 +29,7 @@ Each completed chat turn record MUST NOT include the language-model thinking tra
 - **GIVEN** a ready index
 - **AND** the language-model provider returns a reasoning trace with a cited JSON answer
 - **WHEN** the user asks an in-corpus vigente question
-- **THEN** the console and the log file include that question
+- **THEN** the console includes that question
 - **AND** they include the answer text and finding
 - **AND** they include at least one citation dump id
 - **AND** they do not include the thinking trace
@@ -56,7 +51,7 @@ Each completed chat turn record MUST NOT include the language-model thinking tra
 #### Scenario: Typed /clear is logged without thinking
 - **GIVEN** a session with prior turns
 - **WHEN** the user sends `/clear`
-- **THEN** the console and the log file include that `/clear` turn
+- **THEN** the console includes that `/clear` turn
 - **AND** the language model is not called
 - **AND** the log record does not include a thinking trace
 
@@ -66,7 +61,7 @@ A scope, injection, or no-advice block SHALL still write the turn, including the
 #### Scenario: No-advice block is logged
 - **GIVEN** the user asks “Debería comprar dólares?”
 - **WHEN** the request is processed
-- **THEN** the console and the log file include that question
+- **THEN** the console includes that question
 - **AND** the no-advice rule is `block` in the logged guardrail log
 - **AND** finding is silencio
 - **AND** the language model is not called
@@ -74,7 +69,7 @@ A scope, injection, or no-advice block SHALL still write the turn, including the
 #### Scenario: Typed /clear is logged
 - **GIVEN** a session with prior turns
 - **WHEN** the user sends `/clear`
-- **THEN** the console and the log file include that `/clear` turn
+- **THEN** the console includes that `/clear` turn
 - **AND** the logged citations are empty
 - **AND** the language model is not called
 

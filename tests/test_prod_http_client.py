@@ -58,7 +58,6 @@ def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
 def matching_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_PUBLIC_ORIGIN", BASE)
     monkeypatch.setenv("PROD_BASE_URL", BASE)
-    monkeypatch.delenv("DEMO_API_KEY", raising=False)
 
 
 def test_blank_prod_base_url_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:

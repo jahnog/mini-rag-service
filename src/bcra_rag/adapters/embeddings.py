@@ -1,8 +1,8 @@
 """Vectors Chroma compares. The same function embeds chunks and the question.
 
 auto uses the OpenAI-compatible endpoint when EMBEDDING_API_KEY is set, and
-the deterministic local vectors otherwise. onnx is the only path that uses
-the local MiniLM model.
+the deterministic local vectors otherwise. EMBEDDING_BACKEND is auto, openai,
+or deterministic.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ from bcra_rag.settings import Settings
 
 log = structlog.get_logger(__name__)
 
-_BACKENDS = frozenset({"auto", "openai", "onnx", "deterministic"})
+_BACKENDS = frozenset({"auto", "openai", "deterministic"})
 
 
 class DeterministicEmbeddingFunction(EmbeddingFunction[Documents]):
-    """Local embeddings so tests never call a paid API or download ONNX."""
+    """Local embeddings so tests never call a paid API."""
 
     def __init__(self, dim: int = 8) -> None:
         self._dim = dim
@@ -162,12 +162,6 @@ class OpenAICompatibleEmbeddingFunction(EmbeddingFunction[Documents]):
         )
 
 
-def _onnx_embedding_function() -> Any:
-    from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
-
-    return ONNXMiniLM_L6_V2()
-
-
 def resolve_embedding_function(
     settings: Settings,
     override: Any | None = None,
@@ -176,9 +170,7 @@ def resolve_embedding_function(
         return override
     backend = (settings.embedding_backend or "auto").strip().lower()
     if backend not in _BACKENDS:
-        backend = "auto"
-    if backend == "onnx":
-        return _onnx_embedding_function()
+        raise ValueError("EMBEDDING_BACKEND must be auto, openai, or deterministic")
     if backend == "deterministic":
         return DeterministicEmbeddingFunction()
     use_openai = backend == "openai" or (

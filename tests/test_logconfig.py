@@ -49,13 +49,13 @@ def test_omitting_log_file_does_not_create_a_file(
     assert list(tmp_path.rglob("*.log")) == []
 
 
-def test_app_configures_chat_log_file() -> None:
+def test_app_configures_stdout_logging() -> None:
     source = (
         Path(__file__).resolve().parents[1].joinpath("src/bcra_rag/api/app.py")
         .read_text(encoding="utf-8")
     )
     assert "configure_logging" in source
-    assert "chat.log" in source
+    assert "chat.log" not in source
     assert "ingest.log" not in source
 
 

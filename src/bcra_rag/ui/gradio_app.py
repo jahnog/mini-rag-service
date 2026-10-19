@@ -24,7 +24,6 @@ from typing import Any
 import gradio as gr
 from fastapi import HTTPException
 
-from bcra_rag.api.handle import demo_key_for
 from bcra_rag.api.rate_limit import RateLimiter
 from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule, email_from_request
@@ -61,7 +60,6 @@ from bcra_rag.ui.config import (
     CITATION_ID_LABEL,
     CITATIONS_KICKER,
     CODE_PLACEHOLDER,
-    DEMO_KEY_LABEL,
     EMAIL_PLACEHOLDER,
     EXAMPLES_KICKER,
     GUARDRAILS_JSON_LABEL,
@@ -132,7 +130,6 @@ class ChatStageWidgets:
     question_box: Any
     send_button: Any
     clear_button: Any
-    demo_key_box: Any
 
 
 @dataclass(frozen=True)
@@ -214,7 +211,7 @@ def _build_login_area(health: HealthResponse) -> LoginWidgets:
     )
 
 
-def _build_chat_stage(settings: Settings) -> ChatStageWidgets:
+def _build_chat_stage() -> ChatStageWidgets:
     """Abstain banner, chat, phase label, example prompts and the one-line composer."""
     with gr.Column(scale=3, min_width=0, elem_id="observatory-stage"):
         abstain_banner = gr.Markdown("", elem_id="abstain-banner", visible=False)
@@ -262,11 +259,6 @@ def _build_chat_stage(settings: Settings) -> ChatStageWidgets:
             clear_button = gr.Button(
                 AUTH_CLEAR, variant="secondary", scale=0, elem_id="observatory-clear"
             )
-        demo_key_box = gr.Textbox(
-            label=DEMO_KEY_LABEL,
-            type="password",
-            visible=bool(settings.demo_api_key),
-        )
     return ChatStageWidgets(
         abstain_banner=abstain_banner,
         chatbot=chatbot,
@@ -275,7 +267,6 @@ def _build_chat_stage(settings: Settings) -> ChatStageWidgets:
         question_box=question_box,
         send_button=send_button,
         clear_button=clear_button,
-        demo_key_box=demo_key_box,
     )
 
 
@@ -325,9 +316,7 @@ def _build_staff_side_panel(l1_results: dict[str, Any]) -> StaffSidePanelWidgets
     )
 
 
-def _build_layout(
-    settings: Settings, health: HealthResponse, l1_results: dict[str, Any]
-) -> PageWidgets:
+def _build_layout(health: HealthResponse, l1_results: dict[str, Any]) -> PageWidgets:
     """Create every widget: topbar, sign-in card, chat stage, staff column, footer."""
     session_state = gr.State(None)
     cards_state = gr.State([])
@@ -342,7 +331,7 @@ def _build_layout(
         )
         login = _build_login_area(health)
         with gr.Row(elem_id="observatory-layout"):
-            stage = _build_chat_stage(settings)
+            stage = _build_chat_stage()
             side_panel = _build_staff_side_panel(l1_results)
         gr.HTML(
             footer_html(footer_text(health.last_refresh)),
@@ -412,7 +401,6 @@ def _make_page_handlers(
         question: str,
         chat_history: list[dict[str, Any]],
         session_id: str | None,
-        typed_demo_key: str | None,
         selected_layout: str | None,
         previous_inspector_json: dict[str, Any] | None,
         previous_guardrail_rows: list[dict[str, str]] | None,
@@ -421,8 +409,6 @@ def _make_page_handlers(
         gradio_request: gr.Request,
     ) -> AsyncIterator[tuple[Any, ...]]:
         """Submit handler: run one chat turn and stream UI updates to the page."""
-        # Prefer an explicit demo key; otherwise derive one from the request.
-        demo_key = (typed_demo_key or "").strip() or demo_key_for(gradio_request)
         previous_inspector = PreviousInspectorState(
             inspector=dict(previous_inspector_json or {}),
             trust=list(previous_guardrail_rows or []),
@@ -447,7 +433,6 @@ def _make_page_handlers(
                 gradio_request=gradio_request,
                 message=message,
                 session_id=session_id,
-                demo_key=demo_key or None,
                 thinking=thinking_for_layout(is_staff_view, settings),
                 on_thinking=on_thinking,
                 on_phase=on_phase,
@@ -479,7 +464,6 @@ def _make_page_handlers(
                 gradio_request=gradio_request,
                 message="/clear",
                 session_id=session_id,
-                demo_key=None,
             )
         except HTTPException as error:
             backend_error = error
@@ -564,7 +548,6 @@ def _wire_events(
         stage.question_box,
         stage.chatbot,
         widgets.session_state,
-        stage.demo_key_box,
         login.layout_choice,
         side_panel.citation_inspector_json,
         side_panel.guardrail_panel_json,
@@ -691,7 +674,7 @@ def build_observatory_blocks(
     handlers = _make_page_handlers(service, auth, settings)
 
     with gr.Blocks(title=PAGE_TITLE) as observatory_blocks:
-        widgets = _build_layout(settings, health, l1_results)
+        widgets = _build_layout(health, l1_results)
         _wire_events(observatory_blocks, widgets, handlers, auth)
     queued = observatory_blocks.queue()
     return queued  # type: ignore[no-any-return]

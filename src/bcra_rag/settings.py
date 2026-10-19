@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     evals_dir: Path = Path("evals")
 
     # Vectors for the index, a different model from the chat model.
-    # auto without a key is the deterministic function, not MiniLM.
+    # auto without a key is the deterministic function.
     embedding_api_key: str = ""
     embedding_base_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
@@ -51,7 +51,6 @@ class Settings(BaseSettings):
     llm_seed: int | None = None
     llm_reasoning_budget: int = Field(default=0, ge=0)
     llm_thinking_user_layout: bool = False
-    demo_api_key: str = ""
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)  # retrieve budget rail
     context_chunk_chars: int = Field(default=3000, ge=500)  # clip in the prompt and get_section

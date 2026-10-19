@@ -36,20 +36,12 @@ def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
 def matching_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_PUBLIC_ORIGIN", BASE)
     monkeypatch.setenv("LIVE_BASE_URL", BASE)
-    monkeypatch.delenv("DEMO_API_KEY", raising=False)
 
 
 def test_origin_and_referer_headers() -> None:
     headers = browser_headers(BASE)
     assert headers["Origin"] == BASE
     assert headers["Referer"] == f"{BASE}/"
-    assert "x-demo-key" not in headers
-
-
-def test_demo_key_header(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DEMO_API_KEY", "demo-secret")
-    headers = browser_headers(BASE)
-    assert headers["x-demo-key"] == "demo-secret"
 
 
 def test_origin_mismatch_names_both_urls() -> None:

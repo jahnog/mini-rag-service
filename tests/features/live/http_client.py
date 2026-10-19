@@ -97,11 +97,7 @@ def require_imap_env() -> ImapSettings:
 
 def browser_headers(base_url: str) -> dict[str, str]:
     origin = base_url.rstrip("/")
-    headers = {"Origin": origin, "Referer": f"{origin}/"}
-    demo = os.environ.get("DEMO_API_KEY", "").strip()
-    if demo:
-        headers["x-demo-key"] = demo
-    return headers
+    return {"Origin": origin, "Referer": f"{origin}/"}
 
 
 def raise_for_limiter(response: httpx.Response, *, what: str) -> None:

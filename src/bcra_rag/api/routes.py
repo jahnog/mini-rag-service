@@ -18,7 +18,6 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from bcra_rag.api.chat_stream import json_chat_chunks
 from bcra_rag.api.handle import (
     client_id_for,
-    demo_key_for,
     handle_turn,
     prepare_turn,
     run_prepared_turn,
@@ -99,7 +98,6 @@ def create_fastapi(
             client_id=client_id_for(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
-            demo_key=demo_key_for(request),
         )
         return StreamingResponse(
             json_chat_chunks(
@@ -140,7 +138,6 @@ def create_fastapi(
             client_id=client_id_for(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
-            demo_key=demo_key_for(request),
         )
 
     from bcra_rag.ui.gradio_app import build_observatory_blocks

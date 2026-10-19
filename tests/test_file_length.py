@@ -11,8 +11,8 @@ MAX_LINES = 400
 # when the file shrinks; never add one.
 CEILING = {
     "bcra_rag/adapters/llm_openai.py": 549,
-    "bcra_rag/ui/config.py": 531,
-    "bcra_rag/ui/gradio_app.py": 697,
+    "bcra_rag/ui/config.py": 530,
+    "bcra_rag/ui/gradio_app.py": 680,
 }
 
 

@@ -43,8 +43,6 @@ def test_readme_operator_bullets() -> None:
     assert "tests/test_jobs_integration.py::test_ingest_command_downloads_one_real_pdf" in readme
     assert "tests/test_jobs_integration.py::test_refresh_command_downloads_one_real_pdf" in readme
     assert "--pdb" in readme
-    assert "DATA_DIR/logs/chat.log" in readme
-    assert "data/logs/chat.log" in readme
     assert "DATA_DIR/logs/l1.log" in readme
     assert "data/logs/l1.log" in readme
     assert "evals/l1.json" in readme
@@ -55,7 +53,6 @@ def test_readme_operator_bullets() -> None:
     assert "EMBEDDING_BATCH_SIZE" in readme
     assert "EMBEDDING_MAX_CHARS" in readme
     assert "2048" in readme
-    assert "EMBEDDING_BACKEND=onnx" in readme
     assert "LLM_API_KEY" in readme
     assert "LLM_TIMEOUT_S" in readme
     assert "wall-clock" in readme
