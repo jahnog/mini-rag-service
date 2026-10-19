@@ -190,15 +190,6 @@ The system SHALL refuse investment advice, including whether to buy dollars or w
 - **THEN** finding is silencio
 - **AND** the draft is not shown
 
-### Requirement: Retrieval sidecar is not an L1 score
-The system SHALL attach a cheap sidecar (top-k ids and scores, citation coverage, grounded flag) on each response. That sidecar MUST NOT be a batch L1 faithfulness score computed in the client.
-
-#### Scenario: Sidecar explains cite-or-abstain
-- **GIVEN** a successful retrieval
-- **WHEN** the response is returned
-- **THEN** the sidecar lists retrieved ids and scores
-- **AND** the client does not compute faithfulness
-
 ### Requirement: Retrieved documents are scanned
 The system SHALL inspect each retrieved document before generation. A document that carries hidden instructions or role-override markup SHALL be dropped on the original text. Role tags MAY be stripped from surviving documents afterwards. If no document survives, the system SHALL use finding `silencio` and SHALL NOT call the language model.
 

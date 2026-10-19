@@ -186,10 +186,7 @@ def test_named_a3500(prod_chats: dict[str, Any]) -> None:
     for key in CONTRACT_KEYS:
         assert key in body
     if body.get("finding") == "silencio":
-        pytest.fail(
-            "HTTP finding is silencio with abstain_reason "
-            f"{body.get('abstain_reason')}"
-        )
+        pytest.fail("HTTP finding is silencio")
     ids = [item["id"] for item in body.get("citations") or []]
     assert "A3500" in ids
 

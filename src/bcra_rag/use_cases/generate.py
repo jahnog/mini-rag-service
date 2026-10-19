@@ -138,17 +138,13 @@ async def generate_from_context(
     ctx.delimiter = f"<<<DOC_{secrets.token_hex(3)}>>>"
     prompt = build_prompt(ctx, query, options.chunk_chars, options.history)
     await emit(options.on_phase, PHASE_GENERATE)
-    started = time.perf_counter()
     try:
         draft, retry_note = await _complete_with_retry(llm, prompt, options)
     except LlmFailure as failure:
-        ctx.generate_reason = failure.reason
         ctx.finding = Finding.SILENCIO
         ctx.answer = LLM_FAILURE_COPY[failure.reason]
         skipped = [step("generate", "generate", "skipped", detail_label(failure.reason))]
         return GeneratedFromContext(log=skipped, output_log=[], draft=None, blocked=None)
-    finally:
-        ctx.timings["llm_ms"] = (time.perf_counter() - started) * 1000
 
     called = "llm called" if retry_note is None else f"llm called ({retry_note})"
     generate_log = [step("generate", "generate", "pass", detail_label(called))]

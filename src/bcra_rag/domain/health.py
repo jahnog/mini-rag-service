@@ -40,5 +40,4 @@ def _compute_health(settings: Settings, index: IndexPort) -> HealthResponse:
         last_comm_id=manifest.last_comm_id,
         n_docs=n_docs,
         index_ready=index_ready,
-        embedding_model=settings.embedding_model,
     )

@@ -68,8 +68,12 @@ Keep by explicit decision. Clicking an example fills the question input without 
 
 ### Incremental staff reasoning display
 
-The staff UI's partial reasoning updates, word-boundary throttle, and `OnThinking` callback chain are removed. Operador still shows retrieve/generate/verify progress and the completed provider trace with the final answer. Provider streaming, thinking settings, retries, timeouts, and reasoning metrics remain; Usuario still runs without thinking. The cited clause or silencio, HTTP response including `thinking` and the retrieval sidecar, session memory, and protected inspector/trust/L1 panels are unchanged.
+The staff UI's partial reasoning updates, word-boundary throttle, and `OnThinking` callback chain are removed. Operador still shows retrieve/generate/verify progress and the completed provider trace with the final answer. Provider streaming, thinking settings, retries, and timeouts were left in place; Usuario still runs without thinking. That cut left the cited clause or silencio, the `thinking` field, session memory, and the inspector, trust, and L1 panels unchanged.
 
 ### Timed send-code status flash
 
 The login card no longer resets send-code success or failure to the idle hint after two seconds. Notices remain until the next auth action or page reload; verification and logout replace the previous notice. Reset timers, timer tokens, DOM readback, and the flash-duration constant are removed. Email code/link login, truthful reuse-or-check-mail copy, allowlist privacy, explicit failures, accessibility, rate limits, and daily caps remain.
+
+### Unshown response and log fields
+
+The retrieval sidecar (top-k ids, fused scores, citation coverage, and the grounded flag), the chat fields `disclaimer` and `abstain_reason`, the health field `embedding_model`, and the log-only measurements (`retrieve_ms`, `llm_ms`, `ttft_ms`, `thinking_chars`, `prompt_tokens`, `completion_tokens`, and per-rail latency) are not drawn by the Usuario or Operador views. They are removed. Citation `tipo` stays on the citation and in the model JSON. A turn that searched is still remembered for follow-ups, including an empty search; an input block, an index that is not ready, `/clear`, and a failed language-model call stay unremembered. The shown answer, Fuente line, freeze sentence, silencio banner, phase line, footer, examples, login, Operador thinking trace, citation card, trust chips, and Calidad L1 stay. `Settings.embedding_model` still selects the embedding model. The interface footer still states that the extract is unofficial. Provider streaming, the stream loop, thinking assembly, and the truncation check stay. L1 sample latency stays.

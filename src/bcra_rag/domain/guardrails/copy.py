@@ -88,7 +88,7 @@ def stage_label(stage: str) -> str:
 
 
 def detail_label(detail: str) -> str:
-    """Spanish wording for a guardrail log line. Machine codes stay in abstain_reason."""
+    """Spanish wording for a guardrail log line."""
     text = (detail or "").strip()
     known = DETAIL_LABELS.get(text)
     if known is not None:

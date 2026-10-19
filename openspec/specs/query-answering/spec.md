@@ -7,7 +7,7 @@ Turn a user question into a short cited answer or silencio, with a structured re
 ## Requirements
 
 ### Requirement: Structured cited answer
-The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag and reason, `last_refresh`, `to_as_of`, per-query guardrail log, retrieval sidecar, request id, session id, and optional `thinking` (a reasoning trace from the language-model provider; absent, empty, or null when none). Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. The visible answer SHALL name the dump freeze as a Spanish sentence of the form "Según el dump del <fecha> (texto ordenado al <to_as_of>)." where `<fecha>` is the calendar date of `last_refresh`; it MUST NOT print `last_refresh=` or `to_as_of=` identifiers. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary. A chat request MUST NOT accept `thinking` as an input field.
+The system SHALL return a structured response that includes: answer text with a `Fuente:` line when citations exist, finding (`obligacion`, `permiso`, `prohibicion`, `definicion`, `procedimiento`, or `silencio`), citations (id, tipo, fecha, punto when known, snippet, source URL), abstain flag, `last_refresh`, `to_as_of`, per-query guardrail log, request id, session id, and optional `thinking` (a reasoning trace from the language-model provider; absent, empty, or null when none). Citation `id` SHALL be the dump document id (`A8359` or `texto_ordenado`), never an internal chunk id. Citation `tipo` SHALL be `A` for Comunicaciones A (including reprint events) and SHALL NOT be `A` for the texto ordenado. Quoted clauses SHALL remain in Spanish even if the question is English. The visible answer SHALL name the dump freeze as a Spanish sentence of the form "Según el dump del <fecha> (texto ordenado al <to_as_of>)." where `<fecha>` is the calendar date of `last_refresh`; it MUST NOT print `last_refresh=` or `to_as_of=` identifiers. Abstain SHALL be true if and only if finding is `silencio`. Extra unknown fields MUST be rejected at the boundary. A chat request MUST NOT accept `thinking` as an input field.
 
 #### Scenario: Successful in-corpus answer
 - **GIVEN** the index is ready
@@ -79,7 +79,8 @@ When the language model is called and the provider returns a reasoning trace, th
 - **GIVEN** the index is ready
 - **WHEN** the language-model call fails or no key is configured
 - **THEN** finding is `silencio`
-- **AND** `abstain_reason` is `llm_unavailable`
+- **AND** the answer says that no model is available
+- **AND** the generate step is skipped
 - **AND** `thinking` is absent, empty, or null
 - **AND** the answer does not contain exception text
 
@@ -164,17 +165,17 @@ The system SHALL clear a session when the user sends `/clear` (in the UI or as t
 - **AND** the acknowledgement has no retrieved citations
 
 ### Requirement: Index not ready
-When the document index is not ready, `POST /chat` SHALL return silencio with abstain reason `index_not_ready` and SHALL NOT invent CAMEX text. That path SHALL NOT retrieve and SHALL NOT call the language model.
+When the document index is not ready, `POST /chat` SHALL return silencio and the Spanish answer that the index is not ready, and SHALL NOT invent CAMEX text. That path SHALL NOT retrieve and SHALL NOT call the language model.
 
 #### Scenario: Empty dump
 - **GIVEN** no documents have been ingested
 - **WHEN** the user asks any CAMEX question
 - **THEN** finding is silencio
 - **AND** abstain is true
-- **AND** abstain_reason is `index_not_ready`
+- **AND** the answer says the index is not ready
 
 ### Requirement: Messy model citations must not drop dump hits
-When the index is ready and retrieval returned dump hits, the system SHALL still return a citation when the language-model JSON names a this-turn dump document id even if `citations` is a string, a list of strings, or objects that omit `tipo`. Citation `id` SHALL be a dump document id (`texto_ordenado` or `A####`), never an internal chunk id. Citation `tipo` SHALL be `TO` for the texto ordenado and `A` for Comunicaciones A. `POST /chat` citations SHALL be objects with `id` and `tipo`, not a string. `abstain_reason` MUST NOT be `llm_unavailable` solely because `citations` was messy. If the model omits usable citation ids, the system SHALL force finding `silencio` and empty citations and MUST NOT show the draft. Quoted clauses SHALL remain in Spanish even if the question is English. The answer SHALL name `last_refresh` and `to_as_of` on a successful in-corpus turn.
+When the index is ready and retrieval returned dump hits, the system SHALL still return a citation when the language-model JSON names a this-turn dump document id even if `citations` is a string, a list of strings, or objects that omit `tipo`. Citation `id` SHALL be a dump document id (`texto_ordenado` or `A####`), never an internal chunk id. Citation `tipo` SHALL be `TO` for the texto ordenado and `A` for Comunicaciones A. `POST /chat` citations SHALL be objects with `id` and `tipo`, not a string. The turn MUST NOT be the model-unavailable silencio solely because `citations` was messy. If the model omits usable citation ids, the system SHALL force finding `silencio` and empty citations and MUST NOT show the draft. Quoted clauses SHALL remain in Spanish even if the question is English. The answer SHALL name `last_refresh` and `to_as_of` on a successful in-corpus turn.
 
 #### Scenario: Citations field is a Fuente string
 - **GIVEN** the index is ready
@@ -184,7 +185,7 @@ When the index is ready and retrieval returned dump hits, the system SHALL still
 - **THEN** the chat response citations include dump id `texto_ordenado`
 - **AND** that citation’s `tipo` is `TO`
 - **AND** citations in `POST /chat` are objects, not a string
-- **AND** `abstain_reason` is not `llm_unavailable`
+- **AND** the answer is not the sentence that no model is available
 - **AND** the answer names `last_refresh` and `to_as_of`
 
 #### Scenario: Citations field is a list of dump ids
@@ -206,7 +207,7 @@ When the index is ready and retrieval returned dump hits, the system SHALL still
 - **WHEN** the language model returns JSON with an answer and no usable citation ids
 - **THEN** finding is silencio
 - **AND** citations are empty
-- **AND** `abstain_reason` is not `llm_unavailable`
+- **AND** the answer is not the sentence that no model is available
 
 #### Scenario: Named Com. A still cites the dump
 - **GIVEN** the index is ready
@@ -223,13 +224,14 @@ When the index is ready and retrieval returned dump hits, the system SHALL still
 - **AND** the clear path does not call the language model
 
 ### Requirement: Language-model call failure is still silencio
-When the language-model call fails, the system SHALL return finding `silencio` with an `abstain_reason` that names the failure class: `llm_timeout` when the configured wall-clock bound elapsed, `llm_bad_json` when the model body could not be read as the answer object after one retry with thinking disabled, and `llm_unavailable` for any other failure or when no language-model key is configured. Before declaring `llm_bad_json` the system SHALL strip a surrounding code fence and SHALL accept the last balanced JSON object in the body. Each reason SHALL have its own Spanish answer sentence; the answer MUST NOT contain exception text and SHALL still name the dump freeze. Empty retrieval remains silencio without a language-model call (existing empty-hits contract).
+When the language-model call fails, the system SHALL return finding `silencio` with a Spanish answer for that failure: the model took too long when the configured wall-clock bound elapsed, the model reply could not be read when the body could not be read as the answer object after one retry with thinking disabled, and no model is available for any other failure or when no language-model key is configured. Before treating the body as unreadable the system SHALL strip a surrounding code fence and SHALL accept the last balanced JSON object in the body. The answer MUST NOT contain exception text and SHALL still name the dump freeze. Empty retrieval remains silencio without a language-model call (existing empty-hits contract).
 
 #### Scenario: Missing key or failed call
 - **GIVEN** the index is ready
 - **WHEN** the language-model call raises a non-timeout, non-parse error or no key is configured
 - **THEN** finding is `silencio`
-- **AND** `abstain_reason` is `llm_unavailable`
+- **AND** the answer says that no model is available
+- **AND** the generate step is skipped
 - **AND** the answer does not contain exception text
 - **AND** the answer names `last_refresh`
 
@@ -250,11 +252,10 @@ When the language-model call fails, the system SHALL return finding `silencio` w
 - **AND** the turn uses the second draft
 - **AND** the generate step detail notes the retry
 
-#### Scenario: Unreadable body twice is llm_bad_json
+#### Scenario: Unreadable body twice says the reply could not be read
 - **GIVEN** both model bodies are unreadable
 - **WHEN** the turn is processed
 - **THEN** finding is `silencio`
-- **AND** `abstain_reason` is `llm_bad_json`
 - **AND** the answer says the model reply could not be read
 
 #### Scenario: Empty retrieval still does not call the model

@@ -309,10 +309,8 @@ async def test_adapter_complete_coerces_string_citations() -> None:
     assert llm.calls == ["pregunta"]
     assert "extra_body" not in client.chat.completions.kwargs[0]
     assert client.chat.completions.kwargs[0]["stream"] is True
-    assert client.chat.completions.kwargs[0]["stream_options"] == {"include_usage": True}
+    assert "stream_options" not in client.chat.completions.kwargs[0]
     assert draft.thinking == ""
-    assert draft.prompt_tokens == 0
-    assert draft.completion_tokens == 0
 
 
 def _cited_json() -> str:
@@ -326,15 +324,14 @@ def _cited_json() -> str:
 
 
 @pytest.mark.asyncio
-async def test_adapter_reads_usage_from_trailing_chunk() -> None:
+async def test_adapter_trailing_usage_chunk_still_parses() -> None:
     chunks = _chunks_from_message(_cited_json())
     chunks.append(_StreamChunk(usage=_Usage(12, 7)))
     client = StubOpenAI(_cited_json(), chunks=chunks)
     llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
     draft = await llm.complete("pregunta")
-    assert draft.prompt_tokens == 12
-    assert draft.completion_tokens == 7
     assert draft.citations[0].id == "texto_ordenado"
+    assert draft.finding is Finding.OBLIGACION
 
 
 @pytest.mark.asyncio
@@ -530,14 +527,6 @@ async def test_adapter_thinking_override_beats_setting() -> None:
     client = StubOpenAI(_cited_json())
     await LlmAdapter(_local_settings(), client=client).complete("pregunta", thinking=False)
     assert client.chat.completions.kwargs[0]["extra_body"]["enable_thinking"] is False
-
-
-@pytest.mark.asyncio
-async def test_adapter_reports_ttft_and_thinking_chars() -> None:
-    client = StubOpenAI(_cited_json(), reasoning_content="pienso")
-    draft = await LlmAdapter(_local_settings(), client=client).complete("pregunta")
-    assert draft.thinking_chars == len("pienso")
-    assert draft.ttft_ms >= 0.0
 
 
 @pytest.mark.asyncio

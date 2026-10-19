@@ -11,13 +11,7 @@ from bcra_rag.domain.guardrails.output import _quote_ok, anchor_span
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import named_ids
 from bcra_rag.domain.urls import TO_DOC_ID, TO_PDF_URL
-from bcra_rag.schemas import (
-    Citation,
-    Finding,
-    HitScore,
-    LlmDraft,
-    Sidecar,
-)
+from bcra_rag.schemas import Citation, Finding, LlmDraft
 
 SNIPPET_CHARS = 280
 
@@ -142,17 +136,3 @@ def _replace_snippet(ctx: RailContext, index: int, slice_: str) -> str:
         return "none"
     ctx.citations[index] = citation.model_copy(update={"snippet": slice_})
     return "replaced_snippet"
-
-
-def build_sidecar(hits: list[Chunk], citations: list[Citation]) -> Sidecar:
-    top_k = [
-        HitScore(
-            id=_doc_id(chunk) or chunk.chunk_id,
-            score=float(chunk.metadata.get("score") or 0.0),
-        )
-        for chunk in hits
-    ]
-    retrieved = {item.id for item in top_k}
-    cited = {item.id for item in citations}
-    coverage = (len(cited & retrieved) / len(retrieved)) if retrieved else 0.0
-    return Sidecar(top_k=top_k[:8], citation_coverage=coverage, grounded=bool(citations))

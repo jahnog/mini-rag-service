@@ -71,7 +71,7 @@ Opening the login URL from a new message SHALL NOT set a session on the token pa
 - **AND** the 6-digit secret from that message no longer authenticates
 
 ### Requirement: Named Com. A and out-of-scope weather
-With a valid session, `POST /chat` SHALL return the structured contract: answer, finding, citations, guardrails, session id, `last_refresh`, and `to_as_of`. When health reports `index_ready` false, the production-smoke command SHALL fail (not skip). When the client asks what Comunicación A 3500 says, the suite SHALL fail if the finding is `silencio` (including `llm_unavailable` or `missing_document`) and SHALL require a citation id `A3500` when the finding is not `silencio`. When the client asks about the weather, the finding SHALL be `silencio` and the scope rule SHALL be `block`. Exact clause wording MUST NOT be required.
+With a valid session, `POST /chat` SHALL return the structured contract: answer, finding, citations, guardrails, session id, `last_refresh`, and `to_as_of`. When health reports `index_ready` false, the production-smoke command SHALL fail (not skip). When the client asks what Comunicación A 3500 says, the suite SHALL fail if the finding is `silencio` and SHALL require a citation id `A3500` when the finding is not `silencio`. When the client asks about the weather, the finding SHALL be `silencio` and the scope rule SHALL be `block`. Exact clause wording MUST NOT be required.
 
 #### Scenario: Health is ready
 - **GIVEN** no session credential

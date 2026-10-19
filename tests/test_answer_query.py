@@ -44,7 +44,7 @@ def _uc(
 
 
 @pytest.mark.asyncio
-async def test_in_corpus_has_fuente_and_sidecar(tmp_path: Path) -> None:
+async def test_in_corpus_has_fuente(tmp_path: Path) -> None:
     use_case, llm = _uc(tmp_path)
     response = await use_case.run(
         ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
@@ -54,12 +54,10 @@ async def test_in_corpus_has_fuente_and_sidecar(tmp_path: Path) -> None:
     assert "Fuente:" in response.answer
     assert response.citations
     assert all(c.id in {"texto_ordenado", "A8359", "A3500"} for c in response.citations)
-    assert response.sidecar.top_k
     assert response.last_refresh == LAST_REFRESH
     assert response.to_as_of == TO_AS_OF
     assert llm.calls
     assert response.thinking is None
-    assert response.disclaimer
     assert {g.rule for g in response.guardrails} >= {
         "scope",
         "injection",
@@ -109,7 +107,8 @@ async def test_empty_model_citations_become_silencio(tmp_path: Path) -> None:
     )
     assert response.finding is Finding.SILENCIO
     assert response.citations == []
-    assert response.abstain_reason != "llm_unavailable"
+    assert any(g.rule == "cite-or-abstain" and g.verdict == "block" for g in response.guardrails)
+    assert "No hay modelo disponible" not in response.answer
 
 
 @pytest.mark.asyncio
@@ -216,7 +215,7 @@ async def test_named_a3500_uncited_draft_stays_silencio(tmp_path: Path) -> None:
     )
     assert response.finding is Finding.SILENCIO
     assert response.citations == []
-    assert response.abstain_reason == "cite-or-abstain"
+    assert any(g.rule == "cite-or-abstain" and g.verdict == "block" for g in response.guardrails)
 
 
 @pytest.mark.asyncio
@@ -242,7 +241,7 @@ async def test_similar_paraphrased_snippet_is_silencio(tmp_path: Path) -> None:
     )
     assert response.finding is Finding.SILENCIO
     assert response.citations == []
-    assert response.abstain_reason == "cite-or-abstain"
+    assert any(g.rule == "cite-or-abstain" and g.verdict == "block" for g in response.guardrails)
 
 
 @pytest.mark.asyncio
@@ -261,7 +260,9 @@ async def test_model_native_silencio_is_not_labeled_cite_or_abstain(
     )
     assert response.finding is Finding.SILENCIO
     assert response.citations == []
-    assert response.abstain_reason != "cite-or-abstain"
+    assert not any(
+        g.rule == "cite-or-abstain" and g.verdict == "block" for g in response.guardrails
+    )
 
 
 @pytest.mark.asyncio
@@ -359,7 +360,6 @@ async def test_weather_silencio_no_llm(tmp_path: Path) -> None:
         request_id="req-w",
     )
     assert response.finding is Finding.SILENCIO
-    assert response.abstain_reason == "scope"
     assert llm.calls == []
     assert response.thinking is None
     assert any(g.rule == "scope" and g.verdict == "block" for g in response.guardrails)
@@ -394,7 +394,11 @@ async def test_index_not_ready_no_llm(tmp_path: Path) -> None:
         request_id="req-nr",
     )
     assert response.finding is Finding.SILENCIO
-    assert response.abstain_reason == "index_not_ready"
+    assert "El índice no está listo." in response.answer
+    assert any(
+        g.rule == "generate" and g.verdict == "skipped" and g.detail == "el índice no está listo"
+        for g in response.guardrails
+    )
     assert llm.calls == []
     assert response.thinking is None
 
@@ -431,7 +435,7 @@ async def test_weather_after_camex_still_blocks_scope(tmp_path: Path) -> None:
         request_id="r2",
     )
     assert second.finding is Finding.SILENCIO
-    assert second.abstain_reason == "scope"
+    assert any(g.rule == "scope" and g.verdict == "block" for g in second.guardrails)
     assert len(llm.calls) == calls
 
 
@@ -449,7 +453,7 @@ async def test_followup_weather_after_camex_blocks_scope(tmp_path: Path) -> None
         request_id="r2",
     )
     assert second.finding is Finding.SILENCIO
-    assert second.abstain_reason == "scope"
+    assert any(g.rule == "scope" and g.verdict == "block" for g in second.guardrails)
     assert len(llm.calls) == calls
 
 
@@ -461,7 +465,7 @@ async def test_weather_with_bcra_keyword_blocks_scope(tmp_path: Path) -> None:
         request_id="req-w-bcra",
     )
     assert response.finding is Finding.SILENCIO
-    assert response.abstain_reason == "scope"
+    assert any(g.rule == "scope" and g.verdict == "block" for g in response.guardrails)
     assert llm.calls == []
 
 
@@ -478,7 +482,8 @@ async def test_llm_failure_is_silencio_not_exception_text(tmp_path: Path) -> Non
         request_id="llm",
     )
     assert response.finding is Finding.SILENCIO
-    assert response.abstain_reason == "llm_unavailable"
+    assert "No hay modelo disponible" in response.answer
+    assert any(g.rule == "generate" and g.verdict == "skipped" for g in response.guardrails)
     assert "RuntimeError" not in response.answer
     assert "LLM_API_KEY" not in response.answer
     assert response.thinking is None
@@ -538,7 +543,11 @@ async def test_thinking_past_timeout_is_silencio_not_partial_draft(
     assert "TimeoutError" not in ctx.answer
     assert "pienso" not in ctx.answer
     assert llm.calls
-    assert ctx.generate_reason == "llm_timeout"
+    assert "tardó demasiado" in ctx.answer
+    assert any(
+        item.rule == "generate" and item.verdict == "skipped" and "tardó demasiado" in item.detail
+        for item in result.log
+    )
 
 
 @pytest.mark.asyncio
@@ -625,7 +634,7 @@ async def test_oversized_never_hits_llm(tmp_path: Path) -> None:
         request_id="big",
     )
     assert response.finding is Finding.SILENCIO
-    assert response.abstain_reason == "message_too_long"
+    assert any(g.rule == "length" and g.verdict == "block" for g in response.guardrails)
     assert llm.calls == []
 
 
@@ -659,9 +668,19 @@ async def test_in_corpus_turn_is_logged(
     question = "qué se exige hoy para liquidar el cobro de exportaciones"
     response = await use_case.run(ChatRequest(message=question), request_id="req-log")
     _, event = _stdout_turn(capsys)
-    for key in ("retrieve_ms", "llm_ms", "ttft_ms", "thinking_chars"):
-        assert key in event
-    assert event["abstain_reason"] is None
+    for key in (
+        "retrieve_ms",
+        "llm_ms",
+        "ttft_ms",
+        "thinking_chars",
+        "prompt_tokens",
+        "completion_tokens",
+        "guardrail_latency_ms",
+        "abstain_reason",
+        "sidecar",
+        "disclaimer",
+    ):
+        assert key not in event
     assert event["message"] == question
     assert event["answer"] == response.answer
     assert event["finding"] == response.finding.value
@@ -868,7 +887,6 @@ async def test_llm_timeout_reason(tmp_path: Path) -> None:
     response = await use_case.run(
         ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="t"
     )
-    assert response.abstain_reason == "llm_timeout"
     assert "tardó demasiado" in response.answer
     assert names_freeze(response.answer, LAST_REFRESH, TO_AS_OF)
 
@@ -882,7 +900,6 @@ async def test_llm_bad_json_retries_without_thinking(tmp_path: Path) -> None:
         ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="r"
     )
     assert llm.thinking_args == [None, False]
-    assert response.abstain_reason != "llm_bad_json"
     assert any(
         g.rule == "generate" and "reintento sin razonamiento" in (g.detail or "")
         for g in response.guardrails
@@ -902,7 +919,6 @@ async def test_llm_bad_json_twice(tmp_path: Path) -> None:
     response = await use_case.run(
         ChatRequest(message="Qué dice la Comunicación A 3500?"), request_id="b"
     )
-    assert response.abstain_reason == "llm_bad_json"
     assert "no se pudo leer" in response.answer
     assert llm.thinking_args == [None, False]
 

@@ -424,10 +424,23 @@ def _apply_a3500_matrix(body: dict[str, Any] | None) -> None:
     if not body:
         pytest.fail("observatory chat did not return JSON")
     if body.get("finding") == "silencio":
-        reason = body.get("abstain_reason")
-        if reason in {"llm_unavailable", "missing_document"}:
-            pytest.skip(f"HTTP finding is silencio with abstain_reason {reason}")
-        pytest.fail(f"HTTP finding is silencio with abstain_reason {reason}")
+        detail = _skippable_a3500_detail(body)
+        if detail is not None:
+            pytest.skip(f"HTTP finding is silencio ({detail})")
+        pytest.fail("HTTP finding is silencio")
     ids = [item.get("id") for item in body.get("citations") or []]
     if "A3500" not in ids:
         pytest.fail("named Com. A 3500 did not return citation id A3500")
+
+
+_SKIP_A3500_DETAILS = frozenset({"no hay modelo disponible", "falta el documento"})
+
+
+def _skippable_a3500_detail(body: dict[str, Any]) -> str | None:
+    for row in body.get("guardrails") or []:
+        if row.get("rule") != "generate" or row.get("verdict") != "skipped":
+            continue
+        detail = str(row.get("detail") or "")
+        if detail in _SKIP_A3500_DETAILS:
+            return detail
+    return None

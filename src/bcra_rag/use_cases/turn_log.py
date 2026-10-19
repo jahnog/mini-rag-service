@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import structlog
 
-from bcra_rag.domain.guardrails import RailContext, RailResult
+from bcra_rag.domain.guardrails import RailContext
 from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.schemas import ChatRequest, ChatResponse
 
@@ -26,7 +26,6 @@ def log_turn(
     request: ChatRequest,
     response: ChatResponse,
     ctx: RailContext,
-    results: list[RailResult],
 ) -> None:
     payload = response.model_dump()
     payload.pop("thinking", None)
@@ -35,21 +34,13 @@ def log_turn(
         {**item, "detail": redact_secrets(str(item.get("detail") or ""))}
         for item in payload.get("guardrails") or []
     ]
-    draft = ctx.draft
     log.info(
         "chat_turn",
         message=redact_secrets(request.message or ""),
         llm_called=llm_called(response),
         blocked_by=blocked_by(response),
-        guardrail_latency_ms={item.rule: round(item.latency_ms, 3) for item in results},
         survived_ids=sorted(id_ for id_ in ctx.turn_ids if id_),
         dropped_ids=list(ctx.dropped_ids),
-        prompt_tokens=draft.prompt_tokens if draft else 0,
-        completion_tokens=draft.completion_tokens if draft else 0,
-        retrieve_ms=round(ctx.timings.get("retrieve_ms", 0.0), 1),
-        llm_ms=round(ctx.timings.get("llm_ms", 0.0), 1),
-        ttft_ms=round(draft.ttft_ms, 1) if draft else 0.0,
-        thinking_chars=draft.thinking_chars if draft else 0,
         **_route_fields(ctx),
         **payload,
     )

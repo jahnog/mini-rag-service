@@ -278,10 +278,10 @@ def http_no_leak(live_world: LiveWorld) -> None:
 def http_citation_a3500(live_world: LiveWorld) -> None:
     body = live_world["body"]
     if body.get("finding") == "silencio":
-        reason = body.get("abstain_reason")
-        if reason in {"llm_unavailable", "missing_document"}:
-            pytest.skip(f"HTTP finding is silencio with abstain_reason {reason}")
-        pytest.fail(f"HTTP finding is silencio with abstain_reason {reason}")
+        detail = _skippable_a3500_detail(body)
+        if detail is not None:
+            pytest.skip(f"HTTP finding is silencio ({detail})")
+        pytest.fail("HTTP finding is silencio")
     ids = [item["id"] for item in body.get("citations") or []]
     assert "A3500" in ids
 
@@ -295,6 +295,19 @@ def http_citations_empty(live_world: LiveWorld) -> None:
 def live_clear_no_citations(live_world: LiveWorld) -> None:
     assert live_world["response"].status_code == 200
     assert live_world["body"].get("citations") == []
+
+
+_SKIP_A3500_DETAILS = frozenset({"no hay modelo disponible", "falta el documento"})
+
+
+def _skippable_a3500_detail(body: dict[str, Any]) -> str | None:
+    for row in body.get("guardrails") or []:
+        if row.get("rule") != "generate" or row.get("verdict") != "skipped":
+            continue
+        detail = str(row.get("detail") or "")
+        if detail in _SKIP_A3500_DETAILS:
+            return detail
+    return None
 
 
 def _http_rule(live_world: LiveWorld, name: str, verdict: str) -> None:

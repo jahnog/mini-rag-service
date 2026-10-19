@@ -7,7 +7,7 @@ Keep the service operable when the dump is empty, honest about dates, cheap enou
 ## Requirements
 
 ### Requirement: Health document
-The system SHALL expose `GET /health` that reports last_refresh, to_as_of, last_comm_id, n_docs, and index_ready. It SHOULD also report the embedding model name. When the dump or index is missing, the process SHALL still start and health SHALL return `index_ready` false with HTTP 200. last_refresh, to_as_of, and last_comm_id SHALL still be present (null is allowed). n_docs SHALL still be present (0 is allowed). The system MUST NOT use HTTP 503 solely because the index is empty.
+The system SHALL expose `GET /health` that reports last_refresh, to_as_of, last_comm_id, n_docs, and index_ready. When the dump or index is missing, the process SHALL still start and health SHALL return `index_ready` false with HTTP 200. last_refresh, to_as_of, and last_comm_id SHALL still be present (null is allowed). n_docs SHALL still be present (0 is allowed). The system MUST NOT use HTTP 503 solely because the index is empty.
 
 #### Scenario: Empty dump
 - **GIVEN** no dump has been ingested
@@ -17,12 +17,12 @@ The system SHALL expose `GET /health` that reports last_refresh, to_as_of, last_
 - **AND** last_refresh, to_as_of, last_comm_id, and n_docs are present
 
 ### Requirement: Disclaimer
-Every answer and the interface footer SHALL state that the extract is unofficial, not BCRA, not legal advice, and dated as of last_refresh.
+The interface footer SHALL state that the extract is unofficial, not BCRA, not legal advice, and that vigencia follows the last update of the extract.
 
 #### Scenario: Disclaimer on silencio
 - **GIVEN** any chat response
 - **WHEN** it is shown
-- **THEN** the unofficial-extract wording and last_refresh appear
+- **THEN** the interface footer states the unofficial-extract wording
 
 ### Requirement: Message size cap
 The system SHALL reject a message longer than the configured maximum (default 4000 characters). Retrieval SHALL use the configured k (default 5); a client cannot request another k. Oversized messages MUST NOT retrieve, MUST NOT call the language model, and MUST NOT produce invented CAMEX text.
@@ -192,13 +192,13 @@ When generation is scored with oracle context, the serving index MUST NOT be sea
 - **AND** a structured generation result is still produced
 
 ### Requirement: Language-model timeout
-The system SHALL bound a language-model call with a configured timeout (default 60 seconds). That bound SHALL be wall-clock for the whole call, including while a streaming thinking trace is still arriving and including any retry. On timeout the turn SHALL be silencio with abstain reason `llm_timeout`, citations SHALL be empty, the answer SHALL be a Spanish sentence saying the model took too long, and the serving process SHALL still return a structured chat response. The system MUST NOT invent CAMEX text from a partial stream.
+The system SHALL bound a language-model call with a configured timeout (default 60 seconds). That bound SHALL be wall-clock for the whole call, including while a streaming thinking trace is still arriving and including any retry. On timeout the turn SHALL be silencio, citations SHALL be empty, the answer SHALL be a Spanish sentence saying the model took too long, and the serving process SHALL still return a structured chat response. The system MUST NOT invent CAMEX text from a partial stream.
 
 #### Scenario: Timed-out generation is silencio
 - **GIVEN** the language-model call exceeds the configured timeout
 - **WHEN** the request is processed
 - **THEN** finding is silencio
-- **AND** `abstain_reason` is `llm_timeout`
+- **AND** the answer says the model took too long
 - **AND** citations are empty
 
 #### Scenario: Thinking tokens past the bound still silencio

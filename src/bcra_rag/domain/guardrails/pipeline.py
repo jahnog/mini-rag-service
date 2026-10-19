@@ -7,9 +7,7 @@ block and does not run them. Output calls this with short-circuit off.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Sequence
-from dataclasses import replace
 
 from bcra_rag.domain.guardrails.copy import detail_label
 from bcra_rag.domain.guardrails.types import (
@@ -49,8 +47,7 @@ class GuardrailPipeline:
             if short_circuit and blocked_by is not None:
                 results.append(_skipped(rail, detail_label(f"blocked by {blocked_by}")))
                 continue
-            started = time.perf_counter()
-            result = replace(rail.run(ctx), latency_ms=(time.perf_counter() - started) * 1000)
+            result = rail.run(ctx)
             _apply_patch(ctx, result.patch)
             results.append(result)
             if result.verdict == "block":

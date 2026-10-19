@@ -434,7 +434,6 @@ def _turn_response(**kwargs: object) -> ChatResponse:
         "guardrails": [],
         "request_id": "r",
         "session_id": "s1",
-        "disclaimer": "x",
         "thinking": "voy a citar",
     }
     payload.update(kwargs)
@@ -588,7 +587,6 @@ async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
             answer="No hay una cláusula citada en el dump CAMEX.",
             finding=Finding.SILENCIO,
             abstain=True,
-            abstain_reason="retrieve_empty",
             thinking=None,
         )
 
@@ -696,7 +694,7 @@ def test_l1_markdown_skipped_retrieval_not_zero() -> None:
 
 
 def test_inspector_copy_id_and_trust() -> None:
-    from bcra_rag.schemas import Citation, Sidecar
+    from bcra_rag.schemas import Citation
 
     response = ChatResponse(
         answer="Fuente: A8359 last_refresh=x to_as_of=y",
@@ -720,10 +718,8 @@ def test_inspector_copy_id_and_trust() -> None:
             GuardrailVerdict(rule="cite-or-abstain", verdict="pass"),
             GuardrailVerdict(rule="freeze-honesty", verdict="pass"),
         ],
-        sidecar=Sidecar(),
         request_id="r",
         session_id="s",
-        disclaimer="x",
     )
     inspector = inspector_payload(response)
     cards = citation_cards(response)

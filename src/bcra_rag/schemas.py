@@ -49,26 +49,6 @@ class GuardrailVerdict(BaseModel):
     stage: Literal["input", "retrieve", "generate", "output"] = "input"
 
 
-class HitScore(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    score: float = 0.0
-
-
-class Sidecar(BaseModel):
-    """Hit ids, their fused scores, the share that were cited, and whether any citation remains.
-
-    The page does not render this as the answer.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    top_k: list[HitScore] = Field(default_factory=list)
-    citation_coverage: float = 0.0
-    grounded: bool = False
-
-
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,10 +68,6 @@ class LlmDraft(BaseModel):
     finding: Finding
     citations: list[Citation] = Field(default_factory=list)
     thinking: str = ""
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    ttft_ms: float = 0.0
-    thinking_chars: int = 0
 
 
 class ChatResponse(BaseModel):
@@ -103,14 +79,11 @@ class ChatResponse(BaseModel):
     finding: Finding
     citations: list[Citation] = Field(default_factory=list)
     abstain: bool
-    abstain_reason: str | None = None
     last_refresh: str | None = None
     to_as_of: str | None = None
     guardrails: list[GuardrailVerdict] = Field(default_factory=list)
-    sidecar: Sidecar = Field(default_factory=Sidecar)
     request_id: str
     session_id: str
-    disclaimer: str = ""
     thinking: str | None = None
 
     @model_validator(mode="after")
@@ -128,11 +101,6 @@ class HealthResponse(BaseModel):
     last_comm_id: str | None = None
     n_docs: int = 0
     index_ready: bool = False
-    embedding_model: str | None = None
-
-
-def empty_sidecar() -> Sidecar:
-    return Sidecar()
 
 
 def model_has_field(model: type[BaseModel], name: str) -> bool:

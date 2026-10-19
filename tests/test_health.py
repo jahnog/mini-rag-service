@@ -35,7 +35,7 @@ def test_health_empty_dump_is_200(tmp_path: Path) -> None:
     assert body["to_as_of"] is None
     assert body["last_comm_id"] is None
     assert body["n_docs"] == 0
-    assert body["embedding_model"] == "fake-embed"
+    assert "embedding_model" not in body
 
 
 def test_health_reads_ingest_manifest(tmp_path: Path) -> None:

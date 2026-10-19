@@ -22,13 +22,11 @@ from __future__ import annotations
 
 import asyncio
 import re
-import time
 from dataclasses import dataclass, field, replace
 from uuid import uuid4
 
 import structlog
 
-from bcra_rag.domain.disclaimer import disclaimer_for
 from bcra_rag.domain.freeze import freeze_footer
 from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext, RailResult, step
 from bcra_rag.domain.guardrails.copy import NO_CLAUSE, blocked_copy, detail_label
@@ -39,9 +37,8 @@ from bcra_rag.domain.router import Router, RouteResult, named_ids
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
-from bcra_rag.schemas import ChatRequest, ChatResponse, Finding, HealthResponse, Sidecar
+from bcra_rag.schemas import ChatRequest, ChatResponse, Finding, HealthResponse
 from bcra_rag.settings import Settings
-from bcra_rag.use_cases.citations import build_sidecar
 from bcra_rag.use_cases.generate import (
     PHASE_RETRIEVE,
     GenerateOptions,
@@ -140,7 +137,7 @@ class AnswerQuery:
         if CLEAR_RE.match(turn.request.message or ""):
             self._sessions.clear(turn.session_id)
             skipped = self._skipped(input_ids, detail_label("cleared"))
-            return self._abstain(turn, "Sesión borrada.", skipped, "cleared")
+            return self._abstain(turn, "Sesión borrada.", skipped)
 
         prefix = [name for name in input_ids if name in _INPUT_PREFIX]
         suffix = [name for name in input_ids if name not in _INPUT_PREFIX]
@@ -160,7 +157,7 @@ class AnswerQuery:
 
         if not turn.health.index_ready:
             skipped = self._skipped([], detail_label("index_not_ready"))
-            return self._abstain(turn, "El índice no está listo.", skipped, "index_not_ready")
+            return self._abstain(turn, "El índice no está listo.", skipped)
         return None
 
     async def _retrieve(self, turn: _Turn, on_phase: OnPhase | None) -> ChatResponse | None:
@@ -181,8 +178,7 @@ class AnswerQuery:
                 + pipe.skip_named(retrieve_ids, shown)
                 + [step("generate", "generate", "skipped", shown)]
             )
-            sidecar = build_sidecar(routed.hits, [])
-            return self._abstain(turn, NO_CLAUSE, rest, reason, sidecar)
+            return self._abstain(turn, NO_CLAUSE, rest, searched=True)
 
         ctx.hits = list(routed.hits)
         count = step("retrieve", "retrieve", "pass", f"{len(ctx.hits)} fragmentos")
@@ -190,23 +186,18 @@ class AnswerQuery:
         if ctx.hits:
             return None
         rest = [step("generate", "generate", "skipped", detail_label("retrieve_empty"))]
-        sidecar = build_sidecar(routed.hits, [])
-        return self._abstain(turn, NO_CLAUSE, rest, "retrieve_empty", sidecar)
+        return self._abstain(turn, NO_CLAUSE, rest, searched=True)
 
     async def _route(self, turn: _Turn, on_phase: OnPhase | None) -> RouteResult:
         ctx = turn.ctx
         manifest = Manifest.load_cached(self._settings.manifest_path)
-        started = time.perf_counter()
         await emit(on_phase, PHASE_RETRIEVE)
-        try:
-            routed = await asyncio.to_thread(
-                Router(self._index, manifest).route,
-                ctx.text,
-                k=self._settings.default_k,
-                to_as_of=manifest.to_as_of or turn.health.to_as_of,
-            )
-        finally:
-            ctx.timings["retrieve_ms"] = (time.perf_counter() - started) * 1000
+        routed = await asyncio.to_thread(
+            Router(self._index, manifest).route,
+            ctx.text,
+            k=self._settings.default_k,
+            to_as_of=manifest.to_as_of or turn.health.to_as_of,
+        )
         ctx.dump_ids = set(manifest.documents)
         ctx.retrieval_route = routed.kind
         ctx.named_id = routed.named_id
@@ -226,12 +217,10 @@ class AnswerQuery:
         )
         turn.log += generated.log
         if generated.draft is None:
-            return self._finalize(turn, ctx.generate_reason or "llm_unavailable")
-        blocked = generated.blocked
+            return self._finalize(turn)
         return self._finalize(
             turn,
-            blocked.rule if blocked else None,
-            sidecar=build_sidecar(ctx.hits, ctx.citations),
+            searched=True,
             extra_log=generated.output_log,
             thinking=(generated.draft.thinking or "").strip() or None,
         )
@@ -248,28 +237,26 @@ class AnswerQuery:
 
     def _blocked(self, turn: _Turn, blocked: RailResult, *, skip: list[str]) -> ChatResponse:
         skipped = self._skipped(skip, detail_label(f"blocked by {blocked.rule}"))
-        reason = "message_too_long" if blocked.rule == "length" else blocked.rule
-        return self._abstain(turn, blocked_copy(blocked.rule), skipped, reason)
+        return self._abstain(turn, blocked_copy(blocked.rule), skipped)
 
     def _abstain(
         self,
         turn: _Turn,
         answer: str,
         rest: list[RailResult],
-        reason: str,
-        sidecar: Sidecar | None = None,
+        *,
+        searched: bool = False,
     ) -> ChatResponse:
         turn.ctx.finding = Finding.SILENCIO
         turn.ctx.answer = answer
         turn.log += rest
-        return self._finalize(turn, reason, sidecar=sidecar)
+        return self._finalize(turn, searched=searched)
 
     def _finalize(
         self,
         turn: _Turn,
-        abstain_reason: str | None,
         *,
-        sidecar: Sidecar | None = None,
+        searched: bool = False,
         extra_log: list[RailResult] | None = None,
         thinking: str | None = None,
     ) -> ChatResponse:
@@ -277,7 +264,7 @@ class AnswerQuery:
 
         Paths that never generated append the dump footer here, then run output
         rails (those calls short-circuit). A generated turn already did both.
-        A turn that searched (it has a sidecar) is remembered for follow-ups.
+        A turn that searched is remembered for follow-ups.
         """
         ctx = turn.ctx
         if extra_log is None:
@@ -290,20 +277,17 @@ class AnswerQuery:
             finding=ctx.finding,
             citations=ctx.citations,
             abstain=silencio,
-            abstain_reason=abstain_reason if silencio else None,
             last_refresh=ctx.last_refresh,
             to_as_of=ctx.to_as_of,
             guardrails=[item.to_verdict() for item in results],
-            sidecar=sidecar or Sidecar(),
             request_id=turn.request_id,
             session_id=turn.session_id,
-            disclaimer=disclaimer_for(ctx.last_refresh),
             thinking=thinking,
         )
-        if sidecar is not None:
+        if searched:
             self._sessions.append(turn.session_id, "user", turn.request.message)
             self._sessions.append(turn.session_id, "assistant", response.answer)
-        log_turn(turn.request, response, ctx, results)
+        log_turn(turn.request, response, ctx)
         return response
 
 

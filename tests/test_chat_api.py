@@ -182,13 +182,12 @@ def test_rate_limit_rejects_without_full_answer(tmp_path: Path) -> None:
     assert len(llm.calls) == 2
 
 
-def test_disclaimer_on_every_response(tmp_path: Path) -> None:
+def test_response_has_no_disclaimer_field(tmp_path: Path) -> None:
     client, _, _, _ = make_client(tmp_path)
     body = client.post("/chat", json={"message": "Qué es el MULC?"}).json()
-    assert "no oficial" in body["disclaimer"].lower()
-    assert "fecha del extracto" in body["disclaimer"].lower()
+    assert "disclaimer" not in body
     silencio = client.post("/chat", json={"message": "What's the weather in Madrid?"}).json()
-    assert silencio["disclaimer"]
+    assert "disclaimer" not in silencio
     assert silencio["finding"] == "silencio"
 
 
@@ -346,7 +345,10 @@ def test_scope_blocked_turn_is_refunded(tmp_path: Path) -> None:
     for _ in range(2):
         blocked = client.post("/chat", json={"message": "What's the weather in Madrid?"})
         assert blocked.status_code == 200
-        assert blocked.json()["abstain_reason"] == "scope"
+        body = blocked.json()
+        assert any(
+            item["rule"] == "scope" and item["verdict"] == "block" for item in body["guardrails"]
+        )
     answered = client.post("/chat", json={"message": "Qué es el MULC?"})
     assert answered.status_code == 200
     assert len(llm.calls) == 1

@@ -59,8 +59,6 @@ def _draft_for_retrieved(draft: LlmDraft, doc_id: str, prompt: str) -> LlmDraft:
         finding=draft.finding,
         citations=[Citation(id=doc_id, tipo=tipo, snippet=snippet)],
         thinking=draft.thinking,
-        prompt_tokens=draft.prompt_tokens,
-        completion_tokens=draft.completion_tokens,
     )
 
 
