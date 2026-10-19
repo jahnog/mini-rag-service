@@ -13,8 +13,6 @@ from pathlib import Path
 
 from bcra_rag.ui.config import (
     AUTH_STATUS_CODE_REJECTED,
-    AUTH_STATUS_FLASH_MS,
-    AUTH_STATUS_GENERIC,
     AUTH_STATUS_INVALID_EMAIL,
     AUTH_STATUS_INVALID_ORIGIN,
     AUTH_STATUS_SENDING,
@@ -67,7 +65,6 @@ def auth_request_js(smtp_ok_message: str) -> str:
     return fill_placeholders(
         template,
         {
-            "__AUTH_GENERIC__": _as_js_literal(AUTH_STATUS_GENERIC),
             "__AUTH_SENDING__": _as_js_literal(AUTH_STATUS_SENDING),
             "__AUTH_SMTP_OK__": _as_js_literal(smtp_ok_message),
             "__AUTH_SMTP_FAIL__": _as_js_literal(AUTH_STATUS_SMTP_FAIL),
@@ -75,7 +72,6 @@ def auth_request_js(smtp_ok_message: str) -> str:
             "__AUTH_TOO_MANY_ATTEMPTS__": _as_js_literal(AUTH_STATUS_TOO_MANY_ATTEMPTS),
             "__AUTH_INVALID_ORIGIN__": _as_js_literal(AUTH_STATUS_INVALID_ORIGIN),
             "__AUTH_INVALID_EMAIL__": _as_js_literal(AUTH_STATUS_INVALID_EMAIL),
-            "__AUTH_FLASH_MS__": json.dumps(AUTH_STATUS_FLASH_MS),
         },
     )
 

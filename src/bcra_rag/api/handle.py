@@ -21,7 +21,7 @@ from bcra_rag.auth import AuthModule, email_from_request
 from bcra_rag.auth.ip import client_ip
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
@@ -77,7 +77,6 @@ async def run_prepared_turn(
     pipeline: GuardrailPipeline,
     message: str,
     request_id: str,
-    on_thinking: OnThinking | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
     turn_caps: TurnCaps | None = None,
@@ -86,7 +85,6 @@ async def run_prepared_turn(
     response = await use_case.run(
         ChatRequest(message=message, session_id=prepared.scoped_id),
         request_id=request_id,
-        on_thinking=on_thinking,
         thinking=thinking,
         on_phase=on_phase,
     )
@@ -117,7 +115,6 @@ async def handle_turn(
     session_id: str | None,
     request_id: str,
     client_id: str,
-    on_thinking: OnThinking | None = None,
     thinking: bool | None = None,
     on_phase: OnPhase | None = None,
 ) -> ChatResponse:
@@ -139,7 +136,6 @@ async def handle_turn(
         pipeline=pipeline,
         message=message,
         request_id=request_id,
-        on_thinking=on_thinking,
         thinking=thinking,
         on_phase=on_phase,
         turn_caps=turn_caps,

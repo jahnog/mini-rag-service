@@ -12,7 +12,7 @@ from bcra_rag.api.turn_caps import TurnCaps
 from bcra_rag.auth import AuthModule
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatResponse
 from bcra_rag.settings import Settings
@@ -43,7 +43,6 @@ class TurnService:
         message: str,
         session_id: str | None,
         thinking: bool | None = None,
-        on_thinking: OnThinking | None = None,
         on_phase: OnPhase | None = None,
     ) -> ChatResponse:
         """Answer one message (or run a command such as `/clear`) for this browser request."""
@@ -63,7 +62,6 @@ class TurnService:
             client_id=client_id_for(
                 gradio_request, trusted_proxy=self.auth.settings.trust_proxy
             ),
-            on_thinking=on_thinking,
             thinking=thinking,
             on_phase=on_phase,
         )

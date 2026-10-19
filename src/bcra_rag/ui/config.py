@@ -66,7 +66,6 @@ def auth_status_smtp_ok(ttl_s: int) -> str:
 AUTH_STATUS_SMTP_OK = auth_status_smtp_ok(300)
 AUTH_STATUS_SMTP_FAIL = "No se pudo enviar el código"
 AUTH_STATUS_SMTP_PROBLEM = "Hubo un problema al enviar el código."
-AUTH_STATUS_FLASH_MS = 2000
 AUTH_NOTICE = "Tenés que ingresar con tu correo."
 
 # Messages shown by the login JavaScript (ui/js/auth_*.js).
@@ -308,8 +307,6 @@ def footer_text(last_refresh: str | None) -> str:
 THOUGHT_PENDING_TITLE = "Pensando…"
 ChatRow = dict[str, Any]
 _ATX_HEADING = re.compile(r"(?m)^(#{1,6})(?=\s|$)")
-_THOUGHT_BREAK = frozenset(" \t\n\r.,;:!?…)]}\"'»")
-THOUGHT_PUBLISH_S = 0.5
 # retrieve = search, generate = model draft, verify = the output rails.
 PHASE_COPY = {
     "retrieve": "Buscando en el extracto…",
@@ -319,15 +316,8 @@ PHASE_COPY = {
 
 
 def thought_markdown(text: str) -> str:
-    """Keep CoT at body size: streaming `#` / `##` must not become Markdown headings."""
+    """Keep reasoning at body size: `#` / `##` must not become Markdown headings."""
     return _ATX_HEADING.sub(lambda match: "\\" + match.group(1), text)
-
-
-def thought_publish_ready(text: str) -> bool:
-    """True when the trace ends on a word/punctuation break (not mid-token)."""
-    if not text:
-        return False
-    return text[-1] in _THOUGHT_BREAK
 
 
 def thought_message(
@@ -379,13 +369,12 @@ def collapse_prior_thoughts(history: list[ChatRow] | None) -> list[ChatRow]:
 def append_pending(
     history: list[ChatRow] | None,
     user: str,
-    thinking: str = "",
     *,
     title: str = THOUGHT_PENDING_TITLE,
 ) -> list[ChatRow]:
     rows = collapse_prior_thoughts(history)
     rows.append({"role": "user", "content": user})
-    rows.append(thought_message(thinking, title=title, status="pending"))
+    rows.append(thought_message("", title=title, status="pending"))
     return rows
 
 

@@ -34,6 +34,12 @@ Same abuse gate as login. A request that is allowed still gets the same answer.
 
 Developer convenience. It never runs inside the service and adds nothing to ingest, retrieve, cite, or silencio.
 
+### Suggested-prompt buttons
+
+The four canned examples in `src/bcra_rag/ui/config.py` and their buttons in `src/bcra_rag/ui/gradio_app.py`.
+
+Keep by explicit decision. Clicking an example fills the question input without submitting a turn; the examples, styling, and coverage remain.
+
 ## Removed
 
 ### ONNX MiniLM embedding backend
@@ -59,3 +65,11 @@ Developer convenience. It never runs inside the service and adds nothing to inge
 ### Retrieval and generation tuning settings
 
 `RETRIEVAL_MIN_SCORE` (a cosine floor, 0 = off), `RETRIEVAL_HYBRID=false` (dense-only search), `RETRIEVAL_CANDIDATES`, `INDEX_SPACE`, `LLM_SEED`, `LLM_REASONING_BUDGET`, and `LLM_THINKING_USER_LAYOUT` were all left at their defaults in every env file. Search is now always dense plus BM25 with 20 candidates per side, new collections are always cosine, no seed or reasoning budget is sent, and Usuario turns always run without thinking, which is exactly what the defaults did, so the cited clause or silencio is unchanged. Hits no longer carry the unread `dense_score` and `lexical_rank` metadata. Settings ignore unknown keys, so check the dump host's `.env` for these names: a leftover value is silently dropped. On llama.cpp, raise `LLM_MAX_TOKENS` instead of setting a reasoning budget. An index created with another space keeps it until it is deleted and re-ingested.
+
+### Incremental staff reasoning display
+
+The staff UI's partial reasoning updates, word-boundary throttle, and `OnThinking` callback chain are removed. Operador still shows retrieve/generate/verify progress and the completed provider trace with the final answer. Provider streaming, thinking settings, retries, timeouts, and reasoning metrics remain; Usuario still runs without thinking. The cited clause or silencio, HTTP response including `thinking` and the retrieval sidecar, session memory, and protected inspector/trust/L1 panels are unchanged.
+
+### Timed send-code status flash
+
+The login card no longer resets send-code success or failure to the idle hint after two seconds. Notices remain until the next auth action or page reload; verification and logout replace the previous notice. Reset timers, timer tokens, DOM readback, and the flash-duration constant are removed. Email code/link login, truthful reuse-or-check-mail copy, allowlist privacy, explicit failures, accessibility, rate limits, and daily caps remain.

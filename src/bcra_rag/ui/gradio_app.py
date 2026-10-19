@@ -30,7 +30,7 @@ from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.l1_results import L1_FILENAME
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatResponse, HealthResponse
 from bcra_rag.settings import Settings
@@ -422,7 +422,6 @@ def _make_page_handlers(service: TurnService, auth: AuthModule) -> PageHandlers:
             *,
             message: str,
             session_id: str | None,
-            on_thinking: OnThinking | None = None,
             on_phase: OnPhase | None = None,
         ) -> ChatResponse:
             """Run the turn through the same `handle_turn` path as POST /chat."""
@@ -431,7 +430,6 @@ def _make_page_handlers(service: TurnService, auth: AuthModule) -> PageHandlers:
                 message=message,
                 session_id=session_id,
                 thinking=thinking_for_layout(is_staff_view),
-                on_thinking=on_thinking,
                 on_phase=on_phase,
             )
 

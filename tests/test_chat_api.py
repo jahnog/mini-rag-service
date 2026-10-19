@@ -11,7 +11,6 @@ from bcra_rag.adapters.llm_fake import FakeLlm
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.auth import AuthSettings, FakeMailer, build_auth
 from bcra_rag.composition import build_app
-from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import Finding, LlmDraft
 from bcra_rag.settings import Settings
 from tests.chat_fixtures import (
@@ -59,11 +58,10 @@ class _DelayedLlm:
         self,
         prompt: str,
         *,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
         await asyncio.sleep(self.delay_s)
-        return await self.inner.complete(prompt, on_thinking=on_thinking, thinking=thinking)
+        return await self.inner.complete(prompt, thinking=thinking)
 
 
 def test_chat_keeps_json_contract_across_proxy_keepalives(

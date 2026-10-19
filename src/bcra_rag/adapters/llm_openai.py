@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from bcra_rag.domain.guardrails.copy import NO_CLAUSE
 from bcra_rag.domain.urls import TO_DOC_ID, normalize_comm_id
-from bcra_rag.ports.llm import LlmBadJson, OnThinking
+from bcra_rag.ports.llm import LlmBadJson
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 
@@ -208,7 +208,6 @@ class LlmAdapter:
         self,
         prompt: str,
         *,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
         """Call the chat model. SYSTEM_PROMPT fixes the JSON shape and the six findings.
@@ -249,12 +248,6 @@ class LlmAdapter:
             grew = assembler.feed_chunk(chunk)
             if grew and ttft_ms == 0.0:
                 ttft_ms = (time.perf_counter() - started) * 1000
-            if grew and on_thinking is not None:
-                visible = _strip_json_payload(
-                    assembler.thinking_text(), assembler.body_text()
-                ).strip()
-                if visible:
-                    await on_thinking(visible)
         trace, raw = assembler.finish()
         if truncated:
             raise LlmBadJson("truncated")

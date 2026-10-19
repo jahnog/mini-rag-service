@@ -20,7 +20,7 @@ from bcra_rag.domain.freeze import freeze_footer, names_freeze
 from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext, RailResult, step
 from bcra_rag.domain.guardrails.copy import NO_CLAUSE, blocked_copy, detail_label
 from bcra_rag.domain.guardrails.types import first_block
-from bcra_rag.ports.llm import LlmBadJson, LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmBadJson, LlmPort
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 from bcra_rag.use_cases.citations import (
     citations_from_model,
@@ -60,7 +60,6 @@ class GeneratedFromContext:
 @dataclass(frozen=True)
 class GenerateOptions:
     timeout_s: float
-    on_thinking: OnThinking | None = None
     on_phase: OnPhase | None = None
     thinking: bool | None = None
     chunk_chars: int = 1500
@@ -82,12 +81,11 @@ async def _attempt(
     prompt: str,
     timeout_s: float,
     *,
-    on_thinking: OnThinking | None,
     thinking: bool | None,
 ) -> LlmDraft:
     try:
         async with asyncio.timeout(timeout_s):
-            return await llm.complete(prompt, on_thinking=on_thinking, thinking=thinking)
+            return await llm.complete(prompt, thinking=thinking)
     except TimeoutError as exc:
         raise LlmFailure("llm_timeout") from exc
     except LlmBadJson:
@@ -106,7 +104,6 @@ async def _complete_with_retry(
             llm,
             prompt,
             options.timeout_s,
-            on_thinking=options.on_thinking,
             thinking=options.thinking,
         )
         return draft, None
@@ -115,7 +112,7 @@ async def _complete_with_retry(
         if remaining <= 1.0:
             raise LlmFailure("llm_bad_json") from None
     try:
-        draft = await _attempt(llm, prompt, remaining, on_thinking=None, thinking=False)
+        draft = await _attempt(llm, prompt, remaining, thinking=False)
     except LlmBadJson as exc:
         raise LlmFailure("llm_bad_json") from exc
     return draft, "retry_no_thinking"

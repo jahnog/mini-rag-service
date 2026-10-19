@@ -331,7 +331,7 @@ The assistant interface SHALL provide a management control that switches between
 - **AND** a later question without Clear uses the same session
 
 ### Requirement: Thinking in the output box
-The chat stage SHALL show a thinking region in the conversation output box that is visually distinct from the assistant answer (muted relative to the answer, not the same bubble). That region SHALL appear in the staff layout. The end-user layout SHALL NOT show the thinking region. While a turn is in flight, the thinking region SHALL show live motion (a spinner and/or pulse) so the user can tell work is happening. While the language model is producing a reasoning trace, the thinking region SHALL show that trace text as it is received, before the cited answer appears — not only a title or label. After the turn completes, that region SHALL remain expanded and collapsible. Prior turns MAY keep their thinking region collapsed. The cited answer, silencio text, and `Fuente:` line MUST NOT appear inside the thinking region. When `thinking` is absent, empty, or null, the conversation SHALL NOT leave an empty thinking region; the answer or silencio text SHALL still appear. The thinking region MUST NOT replace the cited answer, the `Fuente:` line, or the abstain banner. Clear SHALL drop prior turns including any thinking region. Switching layout MUST NOT clear the thinking region of the current conversation; the end-user layout SHALL hide it and the staff layout SHALL show it again.
+The chat stage SHALL show a thinking region in the conversation output box that is visually distinct from the assistant answer (muted relative to the answer, not the same bubble). That region SHALL appear in the staff layout. The end-user layout SHALL NOT show the thinking region. While a turn is in flight, the pending region SHALL show live motion (a spinner and/or pulse) and phase progress, but MUST NOT publish reasoning trace text. When the turn completes, the interface SHALL show any completed provider trace in an expanded, collapsible thinking region alongside the final answer update. Prior turns MAY keep their thinking region collapsed. The cited answer, silencio text, and `Fuente:` line MUST NOT appear inside the thinking region. When `thinking` is absent, empty, or null, the conversation SHALL NOT leave an empty thinking region; the answer or silencio text SHALL still appear. The thinking region MUST NOT replace the cited answer, the `Fuente:` line, or the abstain banner. Clear SHALL drop prior turns including any thinking region. Switching layout MUST NOT clear the thinking region of the current conversation; the end-user layout SHALL hide it and the staff layout SHALL show it again.
 
 #### Scenario: Pending motion on send
 - **GIVEN** the interface is shown in the staff layout
@@ -347,13 +347,13 @@ The chat stage SHALL show a thinking region in the conversation output box that 
 - **AND** the thinking region and the answer are visually distinct
 - **AND** the cited clause and `Fuente:` line are not inside the thinking region
 
-#### Scenario: Trace appears as it is received
+#### Scenario: Trace appears only with the completed answer
 - **GIVEN** the index is ready
 - **AND** the language-model provider emits a reasoning trace before the cited JSON answer
 - **WHEN** the user asks an in-corpus vigente question
-- **THEN** the thinking region shows that trace text while the turn is still in flight
+- **THEN** the pending region shows phase progress without trace text while the turn is still in flight
 - **AND** the cited answer is not yet in the conversation
-- **AND** after the turn completes the thinking region stays expanded and collapsible
+- **AND** after the turn completes the completed trace appears in an expanded, collapsible thinking region
 - **AND** the cited answer appears below the thinking region, not inside it
 
 #### Scenario: Named Com. A still answers in chat
@@ -572,40 +572,32 @@ In both layouts the chat stage SHALL show a single-line phase status under the c
 - **WHEN** the notice is shown
 - **THEN** the phase line is hidden
 
-### Requirement: Thinking publish throttle
-While the language model streams a reasoning trace, the interface SHALL redraw the pending thinking region at most every 0.5 seconds on a word or punctuation break (or every second regardless of breaks) and MUST NOT redraw when the trace text is unchanged.
-
-#### Scenario: Unchanged trace is not redrawn
-- **GIVEN** the provider repeats the same trace text twice
-- **WHEN** the interface publishes
-- **THEN** only one pending redraw is produced for that text
-
 ### Requirement: Send-code mail-server status
-After the user requests a one-time secret from the login row, the assistant interface SHALL show a Spanish status for about two seconds that reports whether that secret was handed to the mail server. A successful request (including an allowlist miss and a request that does not send because a live secret already exists) SHALL use delivered wording. A failed mail-server handoff or a failed request SHALL use not-delivered wording. After that interval the idle Spanish hint SHALL return unless a later login action already replaced the line. Rate-limit, origin, and invalid-email notices SHALL remain until the next auth action. The interface MUST NOT open a second product UI. The status MUST NOT name the mailbox or the digits.
+After the user requests a one-time secret from the login row, the assistant interface SHALL show a Spanish outcome status that remains until the next auth action or page reload; it MUST NOT reset the outcome to the idle hint on a timer. A successful request (including an allowlist miss and a request that does not send because a live secret already exists) SHALL use the same truthful reuse-or-check-mail wording. A failed mail-server handoff or a failed request SHALL use failure wording. Rate-limit, origin, and invalid-email notices SHALL likewise remain until the next auth action or page reload. A later verify or logout action SHALL replace the send-code outcome with its own notice. The send control SHALL be enabled again after either success or failure, and status updates SHALL remain accessible to assistive technology. The interface MUST NOT open a second product UI. The status MUST NOT name the mailbox or the digits.
 
-#### Scenario: Successful send shows delivered then idle
+#### Scenario: Successful send keeps its outcome notice
 - **GIVEN** the interface is shown without a session
 - **AND** mail is configured
 - **AND** the email is allowlisted
 - **WHEN** the user requests a one-time secret
-- **THEN** the status reports that the secret was handed to the mail server
-- **AND** after about two seconds the idle Spanish hint is shown again
+- **THEN** the status tells the user to reuse a recent code or check their mail
+- **AND** the outcome remains visible until another auth action or page reload
 - **AND** the question input remains on the same screen
 
-#### Scenario: Failed send shows not delivered then idle
+#### Scenario: Failed send keeps its failure notice
 - **GIVEN** the interface is shown without a session
 - **AND** the email is allowlisted
 - **AND** mail delivery fails
 - **WHEN** the user requests a one-time secret
 - **THEN** the status reports that the secret was not handed to the mail server
-- **AND** after about two seconds the idle Spanish hint is shown again
+- **AND** the failure remains visible until another auth action or page reload
 - **AND** the status does not name the mailbox or the digits
 
 #### Scenario: Allowlist miss looks like delivered
 - **GIVEN** the interface is shown without a session
 - **AND** the allowlist does not include the typed email
 - **WHEN** the user requests a one-time secret
-- **THEN** the status uses the same delivered wording as a successful send
+- **THEN** the status uses the same reuse-or-check-mail wording as a successful send
 
 #### Scenario: Too-many-attempts notice stays
 - **GIVEN** the interface is shown without a session
@@ -614,9 +606,9 @@ After the user requests a one-time secret from the login row, the assistant inte
 - **THEN** a Spanish too-many-attempts notice is shown
 - **AND** that notice remains after two seconds
 
-#### Scenario: Verify before the flash ends keeps verify copy
+#### Scenario: Verify replaces the send-code notice
 - **GIVEN** the interface is shown without a session
 - **AND** the user has just requested a one-time secret
-- **WHEN** the user verifies that secret before two seconds have passed
+- **WHEN** the user verifies that secret
 - **THEN** the status reports that the session started
 - **AND** it does not return to the idle hint from that send

@@ -14,7 +14,7 @@ from bcra_rag.domain.freeze import names_freeze
 from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.logconfig import configure_logging
-from bcra_rag.ports.llm import LlmBadJson, OnThinking
+from bcra_rag.ports.llm import LlmBadJson
 from bcra_rag.schemas import ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery
@@ -495,16 +495,11 @@ class _SlowThinkingLlm:
         self,
         prompt: str,
         *,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
         del thinking
         self.calls.append(prompt)
-        acc = ""
         for _ in range(self.n):
-            acc += "pienso "
-            if on_thinking is not None:
-                await on_thinking(acc)
             await asyncio.sleep(self.chunk_s)
         return self.draft
 
@@ -566,24 +561,6 @@ async def test_in_corpus_thinking_is_copied_not_remembered(tmp_path: Path) -> No
         request_id="think-2",
     )
     assert second.citations
-
-
-@pytest.mark.asyncio
-async def test_in_corpus_thinking_callback_receives_trace(tmp_path: Path) -> None:
-    draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
-    use_case, _ = _uc(tmp_path, llm=FakeLlm(draft, think_chunks=["voy ", "voy a citar el TO"]))
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    response = await use_case.run(
-        ChatRequest(message="qué se exige hoy para liquidar el cobro de exportaciones"),
-        request_id="think-live",
-        on_thinking=on_thinking,
-    )
-    assert seen == ["voy ", "voy a citar el TO"]
-    assert response.thinking == "voy a citar el TO"
 
 
 @pytest.mark.asyncio
@@ -875,9 +852,9 @@ async def test_thinking_trace_is_not_logged(
 @pytest.mark.asyncio
 async def test_llm_timeout_reason(tmp_path: Path) -> None:
     class SlowLlm(FakeLlm):
-        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+        async def complete(self, prompt, *, thinking=None):  # type: ignore[no-untyped-def]
             await asyncio.sleep(0.3)
-            return await super().complete(prompt, on_thinking=on_thinking, thinking=thinking)
+            return await super().complete(prompt, thinking=thinking)
 
     settings, index, _ = seed_ready(tmp_path)
     settings = settings.model_copy(update={"llm_timeout_s": 0.05})
@@ -915,7 +892,7 @@ async def test_llm_bad_json_retries_without_thinking(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_llm_bad_json_twice(tmp_path: Path) -> None:
     class BadLlm(FakeLlm):
-        async def complete(self, prompt, *, on_thinking=None, thinking=None):  # type: ignore[no-untyped-def]
+        async def complete(self, prompt, *, thinking=None):  # type: ignore[no-untyped-def]
             self.thinking_args.append(thinking)
             raise LlmBadJson("bad")
 

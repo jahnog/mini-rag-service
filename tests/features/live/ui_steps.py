@@ -5,9 +5,21 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from pytest_bdd import given, then, when
+from playwright.sync_api import Route
+from pytest_bdd import given, parsers, then, when
 
-from bcra_rag.ui.config import AUTH_NOTICE, CANNED_PROMPTS, LAYOUT_STAFF, LAYOUT_USER
+from bcra_rag.ui.config import (
+    AUTH_NOTICE,
+    AUTH_STATUS_CODE_REJECTED,
+    AUTH_STATUS_INVALID_EMAIL,
+    AUTH_STATUS_INVALID_ORIGIN,
+    AUTH_STATUS_SMTP_FAIL,
+    AUTH_STATUS_SMTP_PROBLEM,
+    AUTH_STATUS_TOO_MANY_ATTEMPTS,
+    CANNED_PROMPTS,
+    LAYOUT_STAFF,
+    LAYOUT_USER,
+)
 from tests.features.live.browser import (
     NARROW,
     WIDE,
@@ -113,6 +125,62 @@ def user_login_imap(ui_world: UiWorld, live_http_session: dict[str, Any]) -> Non
     click_id(page, "auth-verify")
     page.locator("#auth-logout").wait_for()
     consume_used(mailbox, mail)
+
+
+@given(parsers.parse("the send-code endpoint returns {outcome}"))
+def stub_send_code(ui_world: UiWorld, outcome: str) -> None:
+    def respond(route: Route) -> None:
+        if outcome == "network":
+            route.abort()
+        else:
+            route.fulfill(status=int(outcome), json={})
+
+    ui_world["page"].route("**/auth/request", respond)
+
+
+@when("the user requests a stubbed observatory code")
+def request_stubbed_code(ui_world: UiWorld) -> None:
+    field(ui_world["page"], "auth-email").fill("operator@example.com")
+    click_id(ui_world["page"], "auth-send")
+
+
+@then(parsers.parse("the send-code notice for {outcome} stays beyond the old reset interval"))
+def persistent_send_notice(ui_world: UiWorld, outcome: str) -> None:
+    expected = {
+        "200": "Listo. Si pediste un código",
+        "403": AUTH_STATUS_INVALID_ORIGIN,
+        "422": AUTH_STATUS_INVALID_EMAIL,
+        "429": AUTH_STATUS_TOO_MANY_ATTEMPTS,
+        "503": AUTH_STATUS_SMTP_FAIL,
+        "500": AUTH_STATUS_SMTP_PROBLEM,
+        "network": AUTH_STATUS_SMTP_PROBLEM,
+    }[outcome]
+    page = ui_world["page"]
+    notice = page.locator("#auth-status")
+    notice.get_by_text(expected, exact=False).wait_for()
+    original = notice.inner_text()
+    page.wait_for_timeout(2200)
+    assert notice.inner_text() == original
+
+
+@then("the observatory send-code control is enabled")
+def send_code_enabled(ui_world: UiWorld) -> None:
+    root = ui_world["page"].locator("#auth-send")
+    button = root.locator("button")
+    assert (button.first if button.count() else root).is_enabled()
+
+
+@when("the user verifies a stubbed invalid observatory code")
+def verify_stubbed_code(ui_world: UiWorld) -> None:
+    page = ui_world["page"]
+    page.route("**/auth/verify", lambda route: route.fulfill(status=401, json={}))
+    field(page, "auth-code").fill("000000")
+    click_id(page, "auth-verify")
+
+
+@then("the code-rejected notice replaces the send-code notice")
+def rejected_code_notice(ui_world: UiWorld) -> None:
+    ui_world["page"].get_by_text(AUTH_STATUS_CODE_REJECTED, exact=True).wait_for()
 
 
 @when("the user logs out of the observatory")

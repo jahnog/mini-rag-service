@@ -4,7 +4,6 @@ import re
 from typing import Literal
 
 from bcra_rag.domain.urls import TO_DOC_ID
-from bcra_rag.ports.llm import OnThinking
 from bcra_rag.schemas import Citation, Finding, LlmDraft
 
 _CHUNK_ID = re.compile(r"\[(?:chunk_id|documento)=([^\s\]]+)")
@@ -15,12 +14,10 @@ class FakeLlm:
         self,
         draft: LlmDraft | None = None,
         *,
-        think_chunks: list[str] | None = None,
         fail_first: type[Exception] | None = None,
     ) -> None:
         self.calls: list[str] = []
         self.thinking_args: list[bool | None] = []
-        self.think_chunks = think_chunks
         self.fail_first = fail_first
         self.draft = draft or LlmDraft(
             answer="silencio",
@@ -32,7 +29,6 @@ class FakeLlm:
         self,
         prompt: str,
         *,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
         self.calls.append(prompt)
@@ -47,7 +43,6 @@ class FakeLlm:
             draft = _draft_for_retrieved(self.draft, ids[0], prompt)
         else:
             draft = self.draft
-        await _emit_thinking(on_thinking, draft.thinking, self.think_chunks)
         return draft
 
 
@@ -78,26 +73,8 @@ class UnavailableLlm:
         self,
         prompt: str,
         *,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
     ) -> LlmDraft:
-        del on_thinking
         self.calls.append(prompt)
         self.thinking_args.append(thinking)
         raise RuntimeError("LLM_API_KEY is not set")
-
-
-async def _emit_thinking(
-    on_thinking: OnThinking | None,
-    thinking: str,
-    chunks: list[str] | None,
-) -> None:
-    if on_thinking is None:
-        return
-    if chunks:
-        for part in chunks:
-            await on_thinking(part)
-        return
-    trace = thinking.strip()
-    if trace:
-        await on_thinking(trace)

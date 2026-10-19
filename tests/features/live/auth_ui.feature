@@ -34,3 +34,22 @@ Feature: Live observatory authentication chrome
     Then the observatory login row is visible again
     And observatory staff chrome is not shown
     And prior observatory turns remain until Clear
+
+  Scenario Outline: Send-code notice stays until another auth action
+    Given the observatory is shown without a session
+    And the send-code endpoint returns <outcome>
+    When the user requests a stubbed observatory code
+    Then the send-code notice for <outcome> stays beyond the old reset interval
+    And the observatory send-code control is enabled
+    When the user verifies a stubbed invalid observatory code
+    Then the code-rejected notice replaces the send-code notice
+
+    Examples:
+      | outcome |
+      | 200     |
+      | 403     |
+      | 422     |
+      | 429     |
+      | 503     |
+      | 500     |
+      | network |

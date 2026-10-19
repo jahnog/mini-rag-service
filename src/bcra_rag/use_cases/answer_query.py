@@ -37,7 +37,7 @@ from bcra_rag.domain.health import dump_health
 from bcra_rag.domain.manifest import Manifest
 from bcra_rag.domain.router import Router, RouteResult, named_ids
 from bcra_rag.ports.index import IndexPort
-from bcra_rag.ports.llm import LlmPort, OnThinking
+from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
 from bcra_rag.schemas import ChatRequest, ChatResponse, Finding, HealthResponse, Sidecar
 from bcra_rag.settings import Settings
@@ -95,13 +95,11 @@ class AnswerQuery:
         request: ChatRequest,
         *,
         request_id: str,
-        on_thinking: OnThinking | None = None,
         thinking: bool | None = None,
         on_phase: OnPhase | None = None,
     ) -> ChatResponse:
         options = GenerateOptions(
             timeout_s=self._settings.llm_timeout_s,
-            on_thinking=on_thinking,
             on_phase=on_phase,
             thinking=thinking,
             chunk_chars=self._settings.context_chunk_chars,

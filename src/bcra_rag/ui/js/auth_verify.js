@@ -1,5 +1,6 @@
 
 async (email, code) => {
+  document.querySelector("#auth-status")?.classList.remove("auth-status-ok", "auth-status-err");
   try {
     const response = await fetch("/auth/verify", {
       method: "POST",

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from gradio import Blocks
 
+from bcra_rag.adapters.llm_fake import FakeLlm
+from bcra_rag.schemas import ChatResponse
 from bcra_rag.ui.auth_js import (
     AUTH_LOGOUT_JS,
     AUTH_REQUEST_JS,
@@ -18,6 +22,7 @@ from bcra_rag.ui.auth_js import (
 from bcra_rag.ui.inspector_state import ChatTurnUpdate, InspectorPanels
 from bcra_rag.ui.turn_service import TurnService
 from bcra_rag.ui.turn_stream import stream_turn_updates
+from bcra_rag.use_cases.generate import OnPhase
 from tests.chat_fixtures import seed_ready
 
 
@@ -129,8 +134,8 @@ class _FatalTurnError(BaseException):
 
 
 async def test_stream_re_raises_errors_that_are_not_exceptions() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_thinking, on_phase
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id, on_phase
         raise _FatalTurnError("stop")
 
     with pytest.raises(_FatalTurnError):
@@ -138,8 +143,30 @@ async def test_stream_re_raises_errors_that_are_not_exceptions() -> None:
             pass
 
 
-def test_public_endpoint_names_are_unchanged(tmp_path: Path) -> None:
-    from bcra_rag.adapters.llm_fake import FakeLlm
+async def test_closing_stream_cancels_pending_turn() -> None:
+    cancelled = asyncio.Event()
+
+    async def run_turn(
+        *, message: str, session_id: str | None, on_phase: OnPhase | None = None
+    ) -> ChatResponse:
+        assert on_phase is not None
+        try:
+            await on_phase("generate")
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+        raise AssertionError("turn must be cancelled before completion")
+
+    updates = stream_turn_updates("question", None, None, run_turn=run_turn)
+    await anext(updates)
+    phase = await anext(updates)
+    assert phase[-1]["visible"] is True
+    await updates.aclose()
+    assert cancelled.is_set()
+
+
+@pytest.fixture
+def observatory_blocks(tmp_path: Path) -> tuple[Blocks, FakeLlm]:
     from bcra_rag.adapters.session_memory import InMemorySessionStore
     from bcra_rag.api.rate_limit import RateLimiter
     from bcra_rag.api.turn_caps import TurnCaps
@@ -148,16 +175,24 @@ def test_public_endpoint_names_are_unchanged(tmp_path: Path) -> None:
     from bcra_rag.ui.gradio_app import build_observatory_blocks
 
     settings, index, _ = seed_ready(tmp_path)
+    llm = FakeLlm()
     blocks = build_observatory_blocks(
         settings=settings,
         index=index,
-        llm=FakeLlm(),
+        llm=llm,
         sessions=InMemorySessionStore(),
         pipeline=default_pipeline(settings),
         limiter=RateLimiter(max_requests=20, window_s=60),
         turn_caps=TurnCaps(max_email=30, max_process=100),
         auth=build_auth(),
     )
+    return blocks, llm
+
+
+def test_public_endpoint_names_are_unchanged(
+    observatory_blocks: tuple[Blocks, FakeLlm],
+) -> None:
+    blocks, _ = observatory_blocks
     api_names = {str(handler.api_name) for handler in blocks.fns.values()}
     assert {
         "_turn",
@@ -169,3 +204,23 @@ def test_public_endpoint_names_are_unchanged(tmp_path: Path) -> None:
         "_after_auth",
         "_after_logout",
     } <= api_names
+
+
+def test_suggested_prompts_fill_input_without_running_turn(
+    observatory_blocks: tuple[Blocks, FakeLlm],
+) -> None:
+    from bcra_rag.ui.config import CANNED_PROMPTS
+
+    blocks, llm = observatory_blocks
+    fillers = [
+        handler
+        for handler in blocks.fns.values()
+        if handler.fn is not None and handler.fn.__name__ == "<lambda>"
+    ]
+    assert [handler.fn() for handler in fillers] == list(CANNED_PROMPTS)
+    assert all(handler.inputs == [] for handler in fillers)
+    assert all(
+        len(handler.outputs) == 1 and handler.outputs[0].elem_id == "observatory-input"
+        for handler in fillers
+    )
+    assert llm.calls == []

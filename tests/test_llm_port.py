@@ -38,35 +38,8 @@ async def test_fake_llm_keeps_thinking_trace() -> None:
             thinking="voy a citar A3500",
         )
     )
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("prompt", on_thinking=on_thinking)
+    draft = await llm.complete("prompt")
     assert draft.thinking == "voy a citar A3500"
-    assert seen == ["voy a citar A3500"]
-
-
-@pytest.mark.asyncio
-async def test_fake_llm_think_chunks_grow_callback() -> None:
-    llm = FakeLlm(
-        LlmDraft(
-            answer="Fuente: A3500",
-            finding=Finding.DEFINICION,
-            citations=[],
-            thinking="voy a citar",
-        ),
-        think_chunks=["voy ", "voy a citar"],
-    )
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("prompt", on_thinking=on_thinking)
-    assert draft.thinking == "voy a citar"
-    assert seen == ["voy ", "voy a citar"]
 
 
 @pytest.mark.asyncio
@@ -453,13 +426,7 @@ async def test_adapter_streams_reasoning_then_json() -> None:
         ],
     )
     llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("pregunta", on_thinking=on_thinking)
-    assert seen == ["pienso", "pienso el TO"]
+    draft = await llm.complete("pregunta")
     assert draft.thinking == "pienso el TO"
     assert "Fuente:" in draft.answer
     assert payload not in draft.thinking
@@ -477,30 +444,18 @@ async def test_adapter_splits_think_tags_across_chunks() -> None:
         ],
     )
     llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("pregunta", on_thinking=on_thinking)
+    draft = await llm.complete("pregunta")
     assert draft.thinking == "reviso el dump"
-    assert seen[-1] == "reviso el dump"
     assert "Fuente:" in draft.answer
     assert payload not in draft.thinking
 
 
 @pytest.mark.asyncio
-async def test_adapter_json_only_stream_does_not_callback_body() -> None:
+async def test_adapter_json_only_stream_has_no_thinking() -> None:
     payload = _cited_json()
     client = StubOpenAI(payload)
     llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("pregunta", on_thinking=on_thinking)
-    assert seen == []
+    draft = await llm.complete("pregunta")
     assert draft.thinking == ""
     assert "Fuente:" in draft.answer
 
@@ -554,18 +509,10 @@ async def test_adapter_unwraps_json_answer_in_reasoning() -> None:
         ],
     )
     llm = LlmAdapter(Settings(llm_api_key="sk-test"), client=client)
-    seen: list[str] = []
-
-    async def on_thinking(text: str) -> None:
-        seen.append(text)
-
-    draft = await llm.complete("pregunta", on_thinking=on_thinking)
+    draft = await llm.complete("pregunta")
     assert draft.thinking == clause
     assert "{" not in draft.thinking
     assert '"answer"' not in draft.thinking
-    assert seen
-    assert seen[-1] == clause
-    assert all("{" not in item and '"answer"' not in item for item in seen)
     assert "Fuente:" in draft.answer
 
 

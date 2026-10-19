@@ -22,7 +22,6 @@ from bcra_rag.ui.config import (
     AUTH_LOGOUT,
     AUTH_NOTICE,
     AUTH_SEND,
-    AUTH_STATUS_FLASH_MS,
     AUTH_STATUS_GENERIC,
     AUTH_STATUS_SENDING,
     AUTH_STATUS_SMTP_FAIL,
@@ -60,7 +59,6 @@ from bcra_rag.ui.config import (
     thinking_for_layout,
     thinking_for_staff,
     thought_markdown,
-    thought_publish_ready,
     trust_markdown,
     trust_payload,
 )
@@ -376,9 +374,7 @@ def test_append_pending_then_done_has_no_leftover_pending() -> None:
     assert pending[0] == {"role": "user", "content": "hola"}
     assert pending[1]["metadata"]["title"] == "Pensando…"
     assert pending[1]["metadata"]["status"] == "pending"
-    growing = append_pending(None, "hola", thinking="voy")
-    assert growing[1]["content"] == "voy"
-    assert growing[1]["metadata"]["status"] == "pending"
+    assert pending[1]["content"] == ""
     done = append_messages(
         None, "hola", "Fuente: A8359", thinking="voy a citar", duration=1.4
     )
@@ -412,21 +408,12 @@ def test_prior_thoughts_collapse_without_mutating_history() -> None:
     assert second[5]["content"] == "Fuente: A3500"
 
 
-def test_thought_publish_ready_waits_for_a_word_break() -> None:
-    assert thought_publish_ready("") is False
-    assert thought_publish_ready("h") is False
-    assert thought_publish_ready("hola") is False
-    assert thought_publish_ready("hola ") is True
-    assert thought_publish_ready("hola.") is True
-    assert thought_publish_ready("hola\n") is True
-
-
-def test_thought_markdown_does_not_promote_streaming_headings() -> None:
+def test_thought_markdown_does_not_promote_trace_headings() -> None:
     assert thought_markdown("# ") == "\\# "
     assert thought_markdown("## paso") == "\\## paso"
     assert thought_markdown("voy a citar") == "voy a citar"
     assert thought_markdown("#") == "\\#"
-    rows = append_pending(None, "q", thinking="# foo")
+    rows = append_messages(None, "q", "answer", thinking="# foo")
     assert rows[1]["content"] == "\\# foo"
 
 
@@ -434,16 +421,6 @@ def test_done_thought_title_formats_seconds() -> None:
     assert done_thought_title(None) == "Pensó"
     assert done_thought_title(4.2) == "Pensó 4s"
     assert done_thought_title(0.4) == "Pensó 0.4s"
-
-
-def test_turn_yields_pending_then_result() -> None:
-    import inspect
-
-    from bcra_rag.ui import gradio_app
-
-    source = inspect.getsource(gradio_app._make_page_handlers)
-    assert "stream_turn_updates" in source
-    assert "on_thinking" in source
 
 
 def _turn_response(**kwargs: object) -> ChatResponse:
@@ -465,18 +442,17 @@ def _turn_response(**kwargs: object) -> ChatResponse:
 
 
 @pytest.mark.asyncio
-async def test_iter_turn_yields_thinking_before_answer() -> None:
+async def test_iter_turn_keeps_thinking_until_completed_answer() -> None:
     async def run_turn(
         *,
         message: str,
         session_id: str | None,
-        on_thinking=None,
         on_phase=None,
     ) -> ChatResponse:
         del message, session_id
-        if on_thinking is not None:
-            await on_thinking("voy")
-            await on_thinking("voy a citar")
+        await on_phase("retrieve")
+        await on_phase("generate")
+        await on_phase("verify")
         return _turn_response()
 
     yields: list[tuple[object, ...]] = []
@@ -484,13 +460,13 @@ async def test_iter_turn_yields_thinking_before_answer() -> None:
         "hola", None, None, run_turn=run_turn
     ):
         yields.append(item)
-    assert len(yields) >= 3
+    assert len(yields) == 5
     first_rows = yields[0][0]
     assert first_rows[1]["metadata"]["status"] == "pending"
     assert first_rows[1]["content"] == ""
     live_rows = [item[0] for item in yields[1:-1]]
     assert live_rows
-    assert any("voy" in rows[1]["content"] for rows in live_rows)
+    assert all(rows[1]["content"] == "" for rows in live_rows)
     assert all(len(rows) == 2 for rows in live_rows)
     assert all("Fuente:" not in rows[1]["content"] for rows in live_rows)
     final_rows = yields[-1][0]
@@ -501,46 +477,14 @@ async def test_iter_turn_yields_thinking_before_answer() -> None:
 
 
 @pytest.mark.asyncio
-async def test_iter_turn_publishes_thinking_on_word_breaks() -> None:
-    async def run_turn(
-        *,
-        message: str,
-        session_id: str | None,
-        on_thinking=None,
-        on_phase=None,
-    ) -> ChatResponse:
-        del message, session_id
-        acc = ""
-        for char in "hola mundo":
-            acc += char
-            if on_thinking is not None:
-                await on_thinking(acc)
-        return _turn_response(thinking="hola mundo")
-
-    yields = [
-        item
-        async for item in stream_turn_updates(
-            "q", None, None, run_turn=run_turn
-        )
-    ]
-    live = [item[0][1]["content"] for item in yields[1:-1]]
-    assert "h" not in live
-    assert "ho" not in live
-    assert "hol" not in live
-    assert any(item.startswith("hola") for item in live)
-    assert yields[-1][0][1]["content"] == "hola mundo"
-
-
-@pytest.mark.asyncio
 async def test_iter_turn_http_error_drops_thought() -> None:
     async def run_turn(
         *,
         message: str,
         session_id: str | None,
-        on_thinking=None,
         on_phase=None,
     ) -> ChatResponse:
-        del message, session_id, on_thinking
+        del message, session_id
         raise HTTPException(status_code=401, detail="invalid demo key")
 
     yields = [
@@ -561,10 +505,9 @@ async def test_iter_turn_auth_required_spanish_notice() -> None:
         *,
         message: str,
         session_id: str | None,
-        on_thinking=None,
         on_phase=None,
     ) -> ChatResponse:
-        del message, session_id, on_thinking
+        del message, session_id
         raise HTTPException(status_code=401, detail="authentication required")
 
     yields = [
@@ -609,11 +552,9 @@ async def test_iter_turn_usuario_hides_thinking_but_keeps_inspector() -> None:
         *,
         message: str,
         session_id: str | None,
-        on_thinking=None,
         on_phase=None,
     ) -> ChatResponse:
         del message, session_id
-        assert on_thinking is None
         return _turn_response(
             thinking="trace secreto",
             citations=[Citation(id="A8359", tipo="A", snippet="texto citado")],
@@ -640,10 +581,9 @@ async def test_iter_turn_silencio_without_thinking_drops_thought() -> None:
         *,
         message: str,
         session_id: str | None,
-        on_thinking=None,
         on_phase=None,
     ) -> ChatResponse:
-        del message, session_id, on_thinking
+        del message, session_id
         return _turn_response(
             answer="No hay una cláusula citada en el dump CAMEX.",
             finding=Finding.SILENCIO,
@@ -993,21 +933,16 @@ def test_auth_js_posts_token_email_request() -> None:
     assert "if (response.ok)" in AUTH_REQUEST_JS
     assert "response.status === 403" in AUTH_REQUEST_JS
     assert "response.status === 422" in AUTH_REQUEST_JS
-    assert AUTH_STATUS_GENERIC in AUTH_REQUEST_JS
     assert AUTH_STATUS_SENDING in AUTH_REQUEST_JS
     assert AUTH_STATUS_SMTP_OK in AUTH_REQUEST_JS
     assert AUTH_STATUS_SMTP_FAIL in AUTH_REQUEST_JS
     assert AUTH_STATUS_SMTP_PROBLEM in AUTH_REQUEST_JS
     assert "No se pudo pedir el código." not in AUTH_REQUEST_JS
-    assert str(AUTH_STATUS_FLASH_MS) in AUTH_REQUEST_JS
     assert "auth-status-ok" in AUTH_REQUEST_JS
     assert "auth-status-err" in AUTH_REQUEST_JS
-    assert "__authSendToken" in AUTH_REQUEST_JS
-    assert "readStatusText() !== statusMessage" in AUTH_REQUEST_JS
     assert "showStatus(statusMessage, statusKind)" in AUTH_REQUEST_JS
     assert "aria-live" in AUTH_REQUEST_JS
     assert "Demasiados intentos. Probá más tarde." in AUTH_REQUEST_JS
-    assert "shouldFlashStatus = false" in AUTH_REQUEST_JS
     assert "Autenticación no configurada." not in AUTH_REQUEST_JS
     css = observatory_css_path().read_text(encoding="utf-8")
     assert "#auth-status.auth-status-ok" in css
@@ -1119,10 +1054,8 @@ def _collect_elem_ids(blocks: object) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id
-        if on_thinking is not None:
-            await on_thinking("pensando algo. ")
         return _turn_response(thinking="pensando algo. ")
 
     yields = [
@@ -1138,8 +1071,8 @@ async def test_iter_turn_first_yield_shows_pending_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_thinking
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
         raise HTTPException(status_code=429, detail="rate limited")
 
     prior = PreviousInspectorState(
@@ -1170,8 +1103,8 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_thinking
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
         raise HTTPException(status_code=401, detail="authentication required")
 
     yields = [
@@ -1182,8 +1115,8 @@ async def test_iter_turn_http_error_without_prior_resets_inspector() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_generic_error_replaces_pending_row() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_thinking
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
         raise RuntimeError("boom")
 
     yields = [
@@ -1241,8 +1174,8 @@ def test_citation_card_shows_fecha_and_url() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_phase_line_in_usuario_layout() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_thinking
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
         await on_phase("retrieve")
         await on_phase("generate")
         return _turn_response()
@@ -1262,10 +1195,9 @@ async def test_iter_turn_phase_line_in_usuario_layout() -> None:
 
 @pytest.mark.asyncio
 async def test_iter_turn_staff_pending_title_follows_phase() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
         del message, session_id
         await on_phase("generate")
-        await on_thinking("pienso. ")
         return _turn_response(thinking="pienso. ")
 
     yields = [
@@ -1276,15 +1208,17 @@ async def test_iter_turn_staff_pending_title_follows_phase() -> None:
 
 
 @pytest.mark.asyncio
-async def test_iter_turn_skips_unchanged_trace() -> None:
-    async def run_turn(*, message, session_id, on_thinking=None, on_phase=None):  # type: ignore[no-untyped-def]
-        del message, session_id, on_phase
-        await on_thinking("a ")
-        await on_thinking("a ")
-        return _turn_response(thinking="a ")
+async def test_iter_turn_skips_unchanged_phase() -> None:
+    async def run_turn(*, message, session_id, on_phase=None):  # type: ignore[no-untyped-def]
+        del message, session_id
+        await on_phase("generate")
+        await on_phase("generate")
+        return _turn_response()
 
     yields = [
         item async for item in stream_turn_updates("hola", None, None, run_turn=run_turn)
     ]
-    pending = [y for y in yields[1:-1] if y[0][-1].get("content") == "a "]
+    pending = [
+        y for y in yields[1:-1] if y[10]["value"] == "Redactando respuesta…"
+    ]
     assert len(pending) == 1
