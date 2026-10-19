@@ -54,9 +54,3 @@ Feature: BCRA mini-RAG chat
     When an unauthenticated client posts "Qué es el MULC?"
     Then the HTTP status is 401
     And the language model is not called
-
-  Scenario: Filter drop
-    Given a ready CAMEX index
-    When the user asks "qué se exige hoy para liquidar el cobro de exportaciones" with tipo A filters
-    Then remaining citations are tipo A
-    And none are texto ordenado

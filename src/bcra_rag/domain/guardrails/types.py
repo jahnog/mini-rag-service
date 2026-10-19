@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from bcra_rag.domain.models import Chunk
 from bcra_rag.schemas import Citation, Finding, GuardrailVerdict, LlmDraft
@@ -10,22 +10,6 @@ from bcra_rag.schemas import Citation, Finding, GuardrailVerdict, LlmDraft
 Stage = Literal["input", "retrieve", "generate", "output"]
 Verdict = Literal["pass", "warn", "block", "redact", "skipped"]
 ChunkAction = Literal["keep", "redact", "drop"]
-
-
-@dataclass
-class RailConfig:
-    id: str
-    stage: Stage
-    enabled: bool = True
-    enforce: bool = True
-    params: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class Policy:
-    version: int = 2
-    enforce: bool = True
-    rails: list[RailConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -41,21 +25,13 @@ class RailPatch:
 
 @dataclass
 class RailResult:
-    """One guardrail log row.
-
-    Verdicts are pass, warn, block, redact, or skipped. An unenforced block
-    is stored as pass with would_block set; see GuardrailPipeline.
-    """
+    """One guardrail log row. Verdicts are pass, warn, block, redact, or skipped."""
 
     rule: str
     stage: Stage
     verdict: Verdict
     detail: str = ""
-    enforced: bool = True
-    would_block: bool = False
     latency_ms: float = 0.0
-    metrics: dict[str, object] = field(default_factory=dict)
-    rewrite: str | None = None
     patch: RailPatch | None = None
 
     def to_verdict(self) -> GuardrailVerdict:
@@ -64,14 +40,12 @@ class RailResult:
             verdict=self.verdict,
             detail=self.detail,
             stage=self.stage,
-            enforced=self.enforced,
-            would_block=self.would_block,
         )
 
 
 def first_block(results: Sequence[RailResult]) -> RailResult | None:
-    """The first rail whose block stands (an unenforced block is only a warning)."""
-    return next((r for r in results if r.enforced and r.verdict == "block"), None)
+    """The first rail that blocked."""
+    return next((r for r in results if r.verdict == "block"), None)
 
 
 @dataclass
@@ -116,6 +90,5 @@ class RailContext:
 class Rail(Protocol):
     id: str
     stage: Stage
-    enforce: bool
 
     def run(self, ctx: RailContext) -> RailResult: ...

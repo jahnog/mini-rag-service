@@ -114,22 +114,12 @@ The system SHALL set finding to `obligacion` or `prohibicion` only when the cite
 - **AND** no second language-model call is made to fix the finding
 
 ### Requirement: HTTP chat contract
-The system SHALL expose `POST /chat` that accepts message, optional session id, optional k, and optional filters (tipo, comm_id, date range), and SHALL return the structured response including session id. `POST /chat/stream` MAY exist; if it is not implemented, `POST /chat` remains the contract. Requested `k` MUST NOT exceed the platform maximum.
+The system SHALL expose `POST /chat` that accepts message and optional session id, and SHALL return the structured response including session id. Any other request field SHALL be rejected with HTTP 422. `POST /chat/stream` MAY exist; if it is not implemented, `POST /chat` remains the contract.
 
 #### Scenario: Chat request
 - **GIVEN** a ready index
 - **WHEN** a client posts `{ "message": "Que es el MULC?" }`
 - **THEN** the response includes answer, finding, citations, guardrails, session_id, last_refresh, and to_as_of
-
-### Requirement: Requested filters constrain citations
-If the client sends tipo, comm_id, or date filters, the system SHALL drop citations that miss those filters before the response is returned. If no citation remains, finding SHALL be silencio. Filter tipo `A` SHALL keep Comunicaci贸n A citations (including reprint events) and SHALL drop texto ordenado citations.
-
-#### Scenario: Tipo filter drops mismatches
-- **GIVEN** a question that would cite both a TO clause and a Comunicaci贸n A
-- **WHEN** the client requests filters that allow only tipo A
-- **THEN** remaining citations are tipo A
-- **AND** none are texto ordenado
-- **AND** if none remain, finding is silencio
 
 ### Requirement: Session memory
 The system SHALL keep the last six messages (three exchanges) per session id. If the client omits session id, the system SHALL mint one. The prompt for a turn SHALL include the last two exchanges of that session as prior conversation that is explicitly marked as context and not a citation source; each remembered message is truncated to 300 characters. Follow-up questions SHALL still retrieve from the dump; memory MUST NOT invent a circular: citations keep requiring a dump id retrieved this turn and an anchored snippet. When the latest message starts with a follow-up prefix (`y`, `and`, `ese`, `esa`, `eso`, `that`, `el punto`) or has three words or fewer and names no Comunicaci贸n, the retrieval query SHALL be the previous user question followed by the latest message. Idle sessions SHOULD expire after one hour.
@@ -159,7 +149,7 @@ The system SHALL keep the last six messages (three exchanges) per session id. If
 - **THEN** the prompt contains no "Conversaci贸n previa" block
 
 ### Requirement: Clear session
-The system SHALL clear a session when the user sends `/clear`, uses the UI clear action, or the client posts `POST /chat/clear` with that session id. After clear, the system SHALL NOT use prior turns. The clear acknowledgement SHALL NOT retrieve.
+The system SHALL clear a session when the user sends `/clear` (in the UI or as the `POST /chat` message) or uses the UI clear action. After clear, the system SHALL NOT use prior turns. The clear acknowledgement SHALL NOT retrieve.
 
 #### Scenario: Typed /clear
 - **GIVEN** a session with prior turns
@@ -169,7 +159,7 @@ The system SHALL clear a session when the user sends `/clear`, uses the UI clear
 
 #### Scenario: HTTP clear
 - **GIVEN** a session with prior turns
-- **WHEN** a client posts `POST /chat/clear` with that session id
+- **WHEN** a client posts `POST /chat` with message `/clear` and that session id
 - **THEN** subsequent questions do not use those turns
 - **AND** the acknowledgement has no retrieved citations
 
@@ -341,7 +331,7 @@ When retrieval is a named Comunicaci贸n fetch and that dump id is in this turn鈥
 - **AND** abstain reason is `cite-or-abstain`
 
 ### Requirement: End-user layout does not pay for thinking
-A turn started from the end-user layout SHALL call the language model with thinking disabled unless `LLM_THINKING_USER_LAYOUT` is true; a turn from the staff layout SHALL use the `LLM_ENABLE_THINKING` setting. HTTP chat SHALL use the setting.
+A turn started from the end-user layout SHALL call the language model with thinking disabled; a turn from the staff layout SHALL use the `LLM_ENABLE_THINKING` setting. HTTP chat SHALL use the setting.
 
 #### Scenario: Usuario turn disables thinking
 - **GIVEN** an authenticated session in the end-user layout with default settings

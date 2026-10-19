@@ -1,4 +1,4 @@
-"""Question checks, before any search. The ordered list is guardrails/policy.yaml."""
+"""Question checks, before any search. The ordered list is registry.RAILS."""
 
 from __future__ import annotations
 
@@ -77,19 +77,13 @@ def is_advice(text: str) -> bool:
     return bool(ADVICE_CUES.search(text or "")) and not DEONTIC_VETO.search(text or "")
 
 
-class _Rail:
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
-
-class LengthRail(_Rail):
+class LengthRail:
     """Block when the raw message is over the character cap, before search."""
 
     id = "length"
     stage: Stage = "input"
 
-    def __init__(self, max_chars: int, *, enforce: bool = True) -> None:
-        super().__init__(enforce=enforce)
+    def __init__(self, max_chars: int) -> None:
         self._max = max_chars
 
     def run(self, ctx: RailContext) -> RailResult:
@@ -105,7 +99,7 @@ class LengthRail(_Rail):
         )
 
 
-class NormalizeRail(_Rail):
+class NormalizeRail:
     """NFKC-fold the message and strip invisible characters. Always applied."""
 
     id = "normalize"
@@ -122,7 +116,7 @@ class NormalizeRail(_Rail):
         )
 
 
-class SecretsRail(_Rail):
+class SecretsRail:
     """Block an API-key shape on the question or the answer. Does not rewrite it.
 
     Trace scrubbing is redact_secrets, a different function.
@@ -131,8 +125,7 @@ class SecretsRail(_Rail):
     id = "secrets"
     stage: Stage = "input"
 
-    def __init__(self, *, field: str = "text", enforce: bool = True) -> None:
-        super().__init__(enforce=enforce)
+    def __init__(self, *, field: str = "text") -> None:
         self._field = field
         if field == "answer":
             self.id = "secrets-output"
@@ -152,7 +145,7 @@ class SecretsRail(_Rail):
         )
 
 
-class NoAdviceRail(_Rail):
+class NoAdviceRail:
     """Block "should I buy dollars". Regulatory "shall" is not advice.
 
     Reads the latest utterance, not the composed search query. On the answer,
@@ -162,8 +155,7 @@ class NoAdviceRail(_Rail):
     id = "no-advice"
     stage: Stage = "input"
 
-    def __init__(self, *, field: str = "text", enforce: bool = True) -> None:
-        super().__init__(enforce=enforce)
+    def __init__(self, *, field: str = "text") -> None:
         self._field = field
         if field == "answer":
             self.id = "no-advice-output"
@@ -190,7 +182,7 @@ class NoAdviceRail(_Rail):
         )
 
 
-class InjectionRail(_Rail):
+class InjectionRail:
     """Block jailbreak phrasing. Scores text, the composed query."""
 
     id = "injection"
@@ -210,7 +202,7 @@ class InjectionRail(_Rail):
         )
 
 
-class ScopeRail(_Rail):
+class ScopeRail:
     """Keep the latest utterance inside BCRA CAMEX. The word punto alone is not enough.
 
     Denylist first, even if the utterance also has a CAMEX word. Then a CAMEX

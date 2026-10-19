@@ -305,22 +305,6 @@ def test_chroma_hybrid_finds_lexical_only_term(tmp_path) -> None:
     hits = index.search("SECOEXPO", k=1)
     assert hits and hits[0].metadata["doc_id"] == "A1"
     assert 0.0 < float(hits[0].metadata["score"]) <= 1.0
-    assert "lexical_rank" in hits[0].metadata
-
-
-def test_chroma_hybrid_off_is_dense_only(tmp_path) -> None:
-    settings = Settings(data_dir=tmp_path, retrieval_hybrid=False)
-    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
-    index.upsert("A1", [Chunk("A1:0", "texto uno", {"doc_kind": "comunicacion"})])
-    hits = index.search("texto uno", k=1)
-    assert hits and "lexical_rank" not in hits[0].metadata
-
-
-def test_chroma_floor_returns_empty_on_cosine(tmp_path) -> None:
-    settings = Settings(data_dir=tmp_path, retrieval_min_score=1.0)
-    index = ChromaIndex(settings, embedding_function=DeterministicEmbeddingFunction())
-    index.upsert("A1", [Chunk("A1:0", "texto uno", {"doc_kind": "comunicacion"})])
-    assert index.search("algo totalmente distinto y largo", k=1) == []
 
 
 def test_chroma_new_collection_is_cosine(tmp_path) -> None:

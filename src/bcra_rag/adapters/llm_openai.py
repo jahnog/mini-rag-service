@@ -230,11 +230,7 @@ class LlmAdapter:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if self._settings.llm_seed is not None:
-            kwargs["seed"] = self._settings.llm_seed
-        extra = _thinking_extra_body(
-            self._settings.llm_base_url, enabled, self._settings.llm_reasoning_budget
-        )
+        extra = _thinking_extra_body(self._settings.llm_base_url, enabled)
         if extra is not None:
             kwargs["extra_body"] = extra
         started = time.perf_counter()
@@ -298,18 +294,13 @@ def _is_xai_base(url: str) -> bool:
     return host == "x.ai" or host.endswith(".x.ai")
 
 
-def _thinking_extra_body(
-    base_url: str, enabled: bool, budget: int = 0
-) -> dict[str, Any] | None:
+def _thinking_extra_body(base_url: str, enabled: bool) -> dict[str, Any] | None:
     if _is_xai_base(base_url):
         return None
-    body: dict[str, Any] = {
+    return {
         "enable_thinking": enabled,
         "chat_template_kwargs": {"enable_thinking": enabled},
     }
-    if budget > 0:
-        body["reasoning_budget"] = budget
-    return body
 
 
 def _thinking_and_content(message: Any) -> tuple[str, str]:

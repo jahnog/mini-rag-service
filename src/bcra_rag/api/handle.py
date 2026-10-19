@@ -23,7 +23,7 @@ from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort, OnThinking
 from bcra_rag.ports.session import SessionStore
-from bcra_rag.schemas import ChatFilters, ChatRequest, ChatResponse
+from bcra_rag.schemas import ChatRequest, ChatResponse
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery
 from bcra_rag.use_cases.generate import OnPhase
@@ -40,14 +40,12 @@ class PreparedTurn:
 
 def prepare_turn(
     *,
-    settings: Settings,
     limiter: RateLimiter,
     turn_caps: TurnCaps,
     auth: AuthModule,
     request: object,
     message: str,
     session_id: str | None,
-    k: int | None,
     client_id: str,
 ) -> PreparedTurn:
     email = email_from_request(auth, request)
@@ -61,8 +59,6 @@ def prepare_turn(
             prefix = hashlib.sha256(email.encode()).hexdigest()[:8]
             _log.info("chat_cap", email_hash=prefix, outcome=blocked)
             raise HTTPException(status_code=429, detail="rate limit exceeded")
-    if k is not None and k > settings.max_k:
-        raise HTTPException(status_code=422, detail="k exceeds maximum")
     public_id = _public_session_id(session_id)
     return PreparedTurn(
         email=email,
@@ -80,8 +76,6 @@ async def run_prepared_turn(
     sessions: SessionStore,
     pipeline: GuardrailPipeline,
     message: str,
-    k: int | None,
-    filters: ChatFilters | None,
     request_id: str,
     on_thinking: OnThinking | None = None,
     thinking: bool | None = None,
@@ -90,9 +84,7 @@ async def run_prepared_turn(
 ) -> ChatResponse:
     use_case = AnswerQuery(settings, index, llm, sessions, pipeline)
     response = await use_case.run(
-        ChatRequest(
-            message=message, session_id=prepared.scoped_id, k=k, filters=filters
-        ),
+        ChatRequest(message=message, session_id=prepared.scoped_id),
         request_id=request_id,
         on_thinking=on_thinking,
         thinking=thinking,
@@ -100,7 +92,7 @@ async def run_prepared_turn(
     )
     if turn_caps is not None and (message or "").strip().lower() != "/clear":
         blocked_input = any(
-            item.stage == "input" and item.verdict == "block" and item.enforced
+            item.stage == "input" and item.verdict == "block"
             for item in response.guardrails
         )
         if blocked_input:
@@ -123,8 +115,6 @@ async def handle_turn(
     request: object,
     message: str,
     session_id: str | None,
-    k: int | None,
-    filters: ChatFilters | None,
     request_id: str,
     client_id: str,
     on_thinking: OnThinking | None = None,
@@ -132,14 +122,12 @@ async def handle_turn(
     on_phase: OnPhase | None = None,
 ) -> ChatResponse:
     prepared = prepare_turn(
-        settings=settings,
         limiter=limiter,
         turn_caps=turn_caps,
         auth=auth,
         request=request,
         message=message,
         session_id=session_id,
-        k=k,
         client_id=client_id,
     )
     return await run_prepared_turn(
@@ -150,8 +138,6 @@ async def handle_turn(
         sessions=sessions,
         pipeline=pipeline,
         message=message,
-        k=k,
-        filters=filters,
         request_id=request_id,
         on_thinking=on_thinking,
         thinking=thinking,

@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,23 +47,12 @@ class Settings(BaseSettings):
     llm_enable_thinking: bool = True
     llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=1500, ge=64)
-    llm_seed: int | None = None
-    llm_reasoning_budget: int = Field(default=0, ge=0)
-    llm_thinking_user_layout: bool = False
     max_message_chars: int = Field(default=4000, ge=1)
     max_context_chars: int = Field(default=12000, ge=256)  # retrieve budget rail
     context_chunk_chars: int = Field(default=3000, ge=500)  # clip in the prompt and get_section
-    guardrails_policy_path: Path | None = None
 
-    # Retrieval. See ChromaIndex.search and _below_floor.
-    default_k: int = Field(default=5, ge=1)  # passages when the request omits k
-    max_k: int = Field(default=8, ge=1)  # a larger k is rejected with HTTP 422
-    retrieval_hybrid: bool = True  # fuse embedding rank and BM25
-    # When hybrid is on, each ranking is asked for at least this many rows before RRF keeps k.
-    retrieval_candidates: int = Field(default=20, ge=5, le=100)
-    retrieval_min_score: float = Field(default=0.0, ge=0.0, le=1.0)  # 0 is off; cosine only
-    # Distance function recorded when the Chroma collection is created.
-    index_space: Literal["cosine", "l2", "ip"] = "cosine"
+    # Retrieval. See ChromaIndex.search.
+    default_k: int = Field(default=5, ge=1)  # passages per search
 
     # Chat rate limit
     rate_limit_requests: int = Field(default=20, ge=1)

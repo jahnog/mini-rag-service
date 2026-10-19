@@ -10,11 +10,9 @@ Silencio is a deliberate abstention: an input block, a missing or empty
 document, an empty search, a citation that does not anchor, or an output block.
 
 Guardrails are deterministic checks in stages input, retrieve, generate, and
-output. When a rail is enforced, its verdict stands and its patch is applied.
-When it is not, a block is stored as pass with would_block set, and the patch
-is dropped. normalize still applies. Input and retrieve stop after an enforced
-block and log the rest as skipped. Output rails all run; only an enforced
-block changes the answer.
+output. Each rail's verdict stands and its patch is applied. Input and
+retrieve stop after a block and log the rest as skipped. Output rails all
+run; a block there changes the answer.
 
 The turn runs as stages, each of which may end it early with silencio: gate
 (input rails, /clear, index ready), retrieve, then generate (see generate.py).
@@ -106,7 +104,6 @@ class AnswerQuery:
             on_thinking=on_thinking,
             on_phase=on_phase,
             thinking=thinking,
-            filters=request.filters,
             chunk_chars=self._settings.context_chunk_chars,
         )
         turn = await self._start(request, request_id)
@@ -138,7 +135,7 @@ class AnswerQuery:
 
         length and normalize see the raw message. Scope and no-advice still
         read raw after the follow-up is glued into text. Injection scores text.
-        An enforced block or a cleared session returns silencio before any search.
+        A block or a cleared session returns silencio before any search.
         """
         pipe = self._pipeline
         input_ids = pipe.ids_for("input")
@@ -207,7 +204,7 @@ class AnswerQuery:
             routed = await asyncio.to_thread(
                 Router(self._index, manifest).route,
                 ctx.text,
-                k=turn.request.k or self._settings.default_k,
+                k=self._settings.default_k,
                 to_as_of=manifest.to_as_of or turn.health.to_as_of,
             )
         finally:
@@ -308,7 +305,7 @@ class AnswerQuery:
         if sidecar is not None:
             self._sessions.append(turn.session_id, "user", turn.request.message)
             self._sessions.append(turn.session_id, "assistant", response.answer)
-        log_turn(turn.request, response, ctx, results, self._pipeline.policy_version)
+        log_turn(turn.request, response, ctx, results)
         return response
 
 

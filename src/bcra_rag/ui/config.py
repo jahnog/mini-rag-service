@@ -14,7 +14,6 @@ from bcra_rag.domain.l1_results import L1_FILENAME as L1_FILENAME
 from bcra_rag.domain.l1_results import is_sample_l1 as is_sample_l1
 from bcra_rag.domain.l1_results import load_l1 as load_l1
 from bcra_rag.schemas import ChatResponse, HealthResponse
-from bcra_rag.settings import Settings
 
 CANNED_PROMPTS: tuple[str, ...] = (
     "¿Cuál es la regla vigente del tipo de cambio de referencia (A 3500 vs A 8359)?",
@@ -464,11 +463,7 @@ def inspector_payload(
 
 
 def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
-    """One row per guardrail. An unenforced block is stored as pass; see would_block.
-
-    Verdicts follow GuardrailPipeline: enforcement off rewrites block to pass
-    and still sets would_block, so the panel shows both.
-    """
+    """One row per guardrail, in the order the pipeline ran them."""
     if response is None:
         return []
     return [
@@ -477,15 +472,13 @@ def trust_payload(response: ChatResponse | None) -> list[dict[str, str]]:
             "verdict": item.verdict,
             "detail": item.detail,
             "stage": item.stage,
-            "enforced": "true" if item.enforced else "false",
-            "would_block": "true" if item.would_block else "false",
         }
         for item in response.guardrails
     ]
 
 
 def trust_markdown(rows: list[dict[str, str]] | None) -> str:
-    """Render the guardrail log, including would_block next to a rewritten pass."""
+    """Render the guardrail log grouped by stage."""
     if not rows:
         return EMPTY_TRUST
     parts: list[str] = ['<div class="obs-trust">']
@@ -508,10 +501,6 @@ def trust_markdown(rows: list[dict[str, str]] | None) -> str:
         )
         if detail:
             row += f'<span class="obs-trust-detail">{detail}</span>'
-        if item.get("enforced") == "false":
-            row += '<span class="obs-trust-detail">no aplicado</span>'
-        if item.get("would_block") == "true":
-            row += '<span class="obs-trust-detail">bloquearía</span>'
         row += "</div>"
         parts.append(row)
     parts.append("</div>")
@@ -523,8 +512,6 @@ def abstain_visible(response: ChatResponse | None) -> bool:
     return bool(response and response.finding.value == "silencio")
 
 
-def thinking_for_layout(staff: bool, settings: Settings) -> bool | None:
+def thinking_for_layout(staff: bool) -> bool | None:
     """None keeps LLM_ENABLE_THINKING; False turns thinking off for a Usuario turn."""
-    if staff or settings.llm_thinking_user_layout:
-        return None
-    return False
+    return None if staff else False

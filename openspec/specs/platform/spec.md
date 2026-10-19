@@ -24,8 +24,8 @@ Every answer and the interface footer SHALL state that the extract is unofficial
 - **WHEN** it is shown
 - **THEN** the unofficial-extract wording and last_refresh appear
 
-### Requirement: Message size and k caps
-The system SHALL reject a message longer than the configured maximum (default 4000 characters) and SHALL cap retrieval k at the configured maximum (default 8). Oversized messages MUST NOT retrieve, MUST NOT call the language model, and MUST NOT produce invented CAMEX text.
+### Requirement: Message size cap
+The system SHALL reject a message longer than the configured maximum (default 4000 characters). Retrieval SHALL use the configured k (default 5); a client cannot request another k. Oversized messages MUST NOT retrieve, MUST NOT call the language model, and MUST NOT produce invented CAMEX text.
 
 #### Scenario: Oversized message
 - **GIVEN** a message longer than the configured maximum
@@ -50,7 +50,7 @@ The system SHALL apply a crude per-client rate limit (default 20 chat requests p
 - **AND** a later authenticated request is not rejected solely because of those three
 
 ### Requirement: Unauthenticated chat is rejected
-`POST /chat` and `POST /chat/clear` SHALL require a valid session. Without one they SHALL return HTTP 401, MUST NOT retrieve, MUST NOT call the language model, MUST NOT write chat session memory, and MUST NOT produce invented CAMEX text. An optional shared demo secret, when configured, SHALL still be required in addition to the session (not instead of it). The existing per-client chat rate limit SHALL apply only after the session is accepted.
+`POST /chat` SHALL require a valid session, including for a `/clear` message. Without one it SHALL return HTTP 401, MUST NOT retrieve, MUST NOT call the language model, MUST NOT write chat session memory, and MUST NOT produce invented CAMEX text. An optional shared demo secret, when configured, SHALL still be required in addition to the session (not instead of it). The existing per-client chat rate limit SHALL apply only after the session is accepted.
 
 #### Scenario: Repeated unauthenticated posts do not call the model
 - **GIVEN** no session credential
@@ -209,7 +209,7 @@ The system SHALL bound a language-model call with a configured timeout (default 
 - **AND** the serving process still returns a structured chat response
 
 ### Requirement: Daily language-model turn caps
-The system SHALL count an authenticated chat question that passes the session check, the demo-secret check when that secret is configured, and the per-client burst rate limit toward daily caps; the burst limit SHALL be checked before the daily caps so a burst-refused request does not count. Chat-clear MUST NOT count. Unauthenticated requests MUST NOT count. After 30 counted turns in the current UTC day for that normalized email, or 100 counted turns in the current UTC day for the serving process, whichever happens first, a further counted question SHALL be HTTP 429, MUST NOT call the language model, and MUST NOT produce CAMEX clauses. A refused cap turn MUST NOT itself increment either cap. A counted question that an enforced input guardrail blocks (length, secrets, no-advice, injection, scope) SHALL be refunded to both caps once the turn completes, and the process SHALL log the refund with the same hashed email prefix. The process SHALL log that the email cap or the process cap was reached without persisting the full email, the session credential, or message text. Plus-tags SHALL share the email cap of the collapsed mailbox.
+The system SHALL count an authenticated chat question that passes the session check, the demo-secret check when that secret is configured, and the per-client burst rate limit toward daily caps; the burst limit SHALL be checked before the daily caps so a burst-refused request does not count. Chat-clear MUST NOT count. Unauthenticated requests MUST NOT count. After 30 counted turns in the current UTC day for that normalized email, or 100 counted turns in the current UTC day for the serving process, whichever happens first, a further counted question SHALL be HTTP 429, MUST NOT call the language model, and MUST NOT produce CAMEX clauses. A refused cap turn MUST NOT itself increment either cap. A counted question that an input guardrail blocks (length, secrets, no-advice, injection, scope) SHALL be refunded to both caps once the turn completes, and the process SHALL log the refund with the same hashed email prefix. The process SHALL log that the email cap or the process cap was reached without persisting the full email, the session credential, or message text. Plus-tags SHALL share the email cap of the collapsed mailbox.
 
 #### Scenario: Thirty-first turn for one mailbox is refused
 - **GIVEN** an authenticated session for `ops@example.com`
@@ -292,7 +292,7 @@ The project SHALL provide a production-smoke command, separate from the default 
 - **THEN** production smoke scenarios against the public origin do not execute
 
 ### Requirement: Packaged static assets exist
-Every static asset the wheel build force-includes MUST exist in the source tree, and the assets the serving process routes (`favicon.ico`, `favicon.svg`, `apple-touch-icon.png`, `og.png`, `weblab.css`, `observatory.css`, `guardrails/policy.yaml`) SHALL be included. The editable install (`uv sync`) MUST succeed on a clean checkout.
+Every static asset the wheel build force-includes MUST exist in the source tree, and the assets the serving process routes (`favicon.ico`, `favicon.svg`, `apple-touch-icon.png`, `og.png`, `weblab.css`, `observatory.css`) SHALL be included. The editable install (`uv sync`) MUST succeed on a clean checkout.
 
 #### Scenario: Editable install builds
 - **GIVEN** a clean checkout
@@ -305,19 +305,13 @@ Every static asset the wheel build force-includes MUST exist in the source tree,
 - **THEN** a test asserts each listed source path is an existing file
 
 ### Requirement: Language-model generation settings
-The system SHALL expose generation controls as settings: `LLM_TEMPERATURE` (default 0.1, 0–2), `LLM_MAX_TOKENS` (default 1500, at least 64), `LLM_SEED` (unset by default), `LLM_REASONING_BUDGET` (default 0 meaning provider default; sent to the provider only when greater than 0 and never to x.ai hosts) and `LLM_THINKING_USER_LAYOUT` (default false). Every language-model call SHALL send temperature and max tokens; it SHALL send the seed only when set. A call MAY override the thinking flag per turn; when no override is given the `LLM_ENABLE_THINKING` setting applies.
+The system SHALL expose generation controls as settings: `LLM_TEMPERATURE` (default 0.1, 0–2) and `LLM_MAX_TOKENS` (default 1500, at least 64). Every language-model call SHALL send temperature and max tokens, and SHALL NOT send a seed or a reasoning budget. A call MAY override the thinking flag per turn; when no override is given the `LLM_ENABLE_THINKING` setting applies.
 
 #### Scenario: Defaults reach the provider
 - **GIVEN** default settings against a local provider
 - **WHEN** a turn calls the language model
 - **THEN** the request carries temperature 0.1 and max tokens 1500
 - **AND** it carries no seed and no reasoning budget
-
-#### Scenario: Budget and seed when configured
-- **GIVEN** `LLM_SEED=7` and `LLM_REASONING_BUDGET=512` against a local provider
-- **WHEN** a turn calls the language model
-- **THEN** the request carries seed 7
-- **AND** the provider extra body carries reasoning budget 512
 
 #### Scenario: Per-call thinking override wins
 - **GIVEN** `LLM_ENABLE_THINKING=true`

@@ -10,9 +10,8 @@ from bcra_rag.domain.guardrails.input import redact_secrets
 from bcra_rag.domain.guardrails.output import _quote_ok, anchor_span
 from bcra_rag.domain.models import Chunk
 from bcra_rag.domain.router import named_ids
-from bcra_rag.domain.urls import TO_DOC_ID, TO_PDF_URL, normalize_comm_id
+from bcra_rag.domain.urls import TO_DOC_ID, TO_PDF_URL
 from bcra_rag.schemas import (
-    ChatFilters,
     Citation,
     Finding,
     HitScore,
@@ -85,30 +84,6 @@ def enrich_citations(
             update["punto"] = str(hit.metadata["punto"])
         out.append(item.model_copy(update=update) if update else item)
     return out
-
-
-def apply_http_filters(citations: list[Citation], filters: ChatFilters) -> list[Citation]:
-    return [item for item in citations if _passes(item, filters)]
-
-
-def _passes(citation: Citation, filters: ChatFilters) -> bool:
-    if filters.tipo and citation.tipo not in filters.tipo:
-        return False
-    if filters.comm_id and not _comm_id_matches(citation.id, filters.comm_id):
-        return False
-    fecha = citation.fecha or ""
-    if filters.date_from and (not fecha or fecha < filters.date_from):
-        return False
-    return not (filters.date_to and (not fecha or fecha > filters.date_to))
-
-
-def _comm_id_matches(citation_id: str, comm_id: str) -> bool:
-    if citation_id == comm_id:
-        return True
-    try:
-        return normalize_comm_id(citation_id) == normalize_comm_id(comm_id)
-    except ValueError:
-        return False
 
 
 def cite_failures(

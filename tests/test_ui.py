@@ -813,28 +813,6 @@ def test_inspector_copy_id_and_trust() -> None:
     assert 'class="obs-chip warn"' in trust_markdown(
         [{"rule": "x", "verdict": "warn", "detail": ""}]
     )
-    assert "no aplicado" in trust_markdown(
-        [
-            {
-                "rule": "injection",
-                "verdict": "pass",
-                "detail": "",
-                "enforced": "false",
-                "would_block": "true",
-            }
-        ]
-    )
-    assert "bloquearía" in trust_markdown(
-        [
-            {
-                "rule": "injection",
-                "verdict": "pass",
-                "detail": "",
-                "enforced": "false",
-                "would_block": "true",
-            }
-        ]
-    )
     assert EMPTY_CITATION_CARD == citation_card_markdown(None)
     assert "obs-empty" in trust_markdown(None)
     assert "controles" in EMPTY_TRUST.lower()
@@ -1172,8 +1150,6 @@ async def test_iter_turn_http_error_keeps_prior_inspector() -> None:
                 "verdict": "pass",
                 "stage": "input",
                 "detail": "",
-                "enforced": "true",
-                "would_block": "false",
             }
         ],
         cards=[{"id": "A8359", "copy_id": "A8359", "snippet": "texto"}],
@@ -1227,8 +1203,6 @@ def test_trust_markdown_unknown_verdict_is_skipped_style() -> None:
                 "verdict": "weird",
                 "stage": "input",
                 "detail": "",
-                "enforced": "true",
-                "would_block": "false",
             }
         ]
     )
@@ -1247,15 +1221,9 @@ def test_auth_status_smtp_ok_names_window() -> None:
     assert "hace menos de 7 minutos" in auth_request_js(auth_status_smtp_ok(420))
 
 
-def test_thinking_for_layout(tmp_path: Path) -> None:
-    from bcra_rag.settings import Settings
-
-    assert thinking_for_layout(False, Settings(data_dir=tmp_path)) is False
-    assert thinking_for_layout(True, Settings(data_dir=tmp_path)) is None
-    assert (
-        thinking_for_layout(False, Settings(data_dir=tmp_path, llm_thinking_user_layout=True))
-        is None
-    )
+def test_thinking_for_layout() -> None:
+    assert thinking_for_layout(False) is False
+    assert thinking_for_layout(True) is None
 
 
 def test_citation_card_shows_fecha_and_url() -> None:

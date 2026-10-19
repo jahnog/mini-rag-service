@@ -33,7 +33,6 @@ packages = ["src/bcra_rag"]
 "src/bcra_rag/ui/js/auth_request.js" = "bcra_rag/ui/js/auth_request.js"
 "src/bcra_rag/ui/js/auth_verify.js" = "bcra_rag/ui/js/auth_verify.js"
 "src/bcra_rag/ui/js/auth_logout.js" = "bcra_rag/ui/js/auth_logout.js"
-"src/bcra_rag/guardrails/policy.yaml" = "bcra_rag/guardrails/policy.yaml"
 
 [dependency-groups]
 dev = [

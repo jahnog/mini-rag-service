@@ -143,7 +143,7 @@ In the staff layout the interface SHALL show citation cards as the visible inspe
 - **THEN** citation cards, copy-id, and the inspector are not shown
 
 ### Requirement: Trust panel and abstain banner
-The staff layout SHALL show the per-query guardrail log as chips grouped by stage (`input`, `retrieve`, `generate`, `output`) with verdicts `pass`, `warn`, `block`, `redact`, or `skipped`, and SHALL show whether each rule was enforced and whether it would have blocked. A verdict outside that set SHALL render with the `skipped` style. While a turn is in progress the citation card SHALL read "Buscando citas…" and the trust panel "Guardrails en curso…" until the answer arrives; the previous turn's chips MUST NOT remain under the pending row. In both layouts the interface SHALL show an abstain banner in the chat stage when finding is silencio. The end-user layout SHALL NOT show the guardrail log.
+The staff layout SHALL show the per-query guardrail log as chips grouped by stage (`input`, `retrieve`, `generate`, `output`) with verdicts `pass`, `warn`, `block`, `redact`, or `skipped`. A verdict outside that set SHALL render with the `skipped` style. While a turn is in progress the citation card SHALL read "Buscando citas…" and the trust panel "Guardrails en curso…" until the answer arrives; the previous turn's chips MUST NOT remain under the pending row. In both layouts the interface SHALL show an abstain banner in the chat stage when finding is silencio. The end-user layout SHALL NOT show the guardrail log.
 
 #### Scenario: Silencio banner
 - **GIVEN** the staff layout
@@ -183,14 +183,6 @@ The staff layout SHALL show the per-query guardrail log as chips grouped by stag
 - **WHEN** the user selects the end-user layout
 - **THEN** the guardrail log is not shown
 - **AND** the conversation still shows the answer
-
-#### Scenario: Shadow would-block is visible to staff
-- **GIVEN** the staff layout
-- **AND** a rule is configured not to enforce
-- **AND** that rule would have blocked
-- **WHEN** the answer is rendered
-- **THEN** the trust panel shows that the rule was not enforced
-- **AND** that it would have blocked
 
 ### Requirement: L1 accordion
 In the staff layout the interface SHALL include a “Calidad L1” section that starts collapsed and renders the last static L1 results when expanded. It MUST NOT run evals in the browser. The expanded section SHALL show two headings, retrieval and generation, each naming the sample size `n` of that suite when present. Rates SHALL be shown with three decimals and latencies as whole milliseconds with a `ms` suffix; raw floating-point noise MUST NOT be shown. A skipped suite SHALL be labeled skipped and MUST NOT be shown as a score of 0. If the stored file is labeled unpublished or sample, the expanded section SHALL say the numbers are a sample and not an operator run. That banner SHALL remain whenever the stored file is labeled unpublished or sample. After the serving process reloads, the expanded section SHALL show the stored document as-is. The end-user layout SHALL NOT show Calidad L1.

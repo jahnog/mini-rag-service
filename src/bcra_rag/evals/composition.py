@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from bcra_rag.adapters.index_chroma import ChromaIndex
 from bcra_rag.adapters.llm_fake import UnavailableLlm
 from bcra_rag.adapters.llm_openai import LlmAdapter
-from bcra_rag.adapters.policy_yaml import default_policy_path, load_policy
 from bcra_rag.domain.guardrails import GuardrailPipeline
 from bcra_rag.domain.guardrails.registry import assemble_pipeline
 from bcra_rag.ports.index import IndexPort
@@ -33,9 +32,5 @@ def build_evals(
         settings=resolved,
         index=index or ChromaIndex(resolved),
         llm=llm or (LlmAdapter(resolved) if resolved.llm_api_key else UnavailableLlm()),
-        pipeline=pipeline
-        or assemble_pipeline(
-            load_policy(resolved.guardrails_policy_path or default_policy_path()),
-            resolved,
-        ),
+        pipeline=pipeline or assemble_pipeline(resolved),
     )

@@ -17,7 +17,7 @@ def llm_called(response: ChatResponse) -> bool:
 
 def blocked_by(response: ChatResponse) -> str | None:
     return next(
-        (item.rule for item in response.guardrails if item.verdict == "block" and item.enforced),
+        (item.rule for item in response.guardrails if item.verdict == "block"),
         None,
     )
 
@@ -27,7 +27,6 @@ def log_turn(
     response: ChatResponse,
     ctx: RailContext,
     results: list[RailResult],
-    policy_version: int,
 ) -> None:
     payload = response.model_dump()
     payload.pop("thinking", None)
@@ -40,11 +39,8 @@ def log_turn(
     log.info(
         "chat_turn",
         message=redact_secrets(request.message or ""),
-        k=request.k,
-        filters=None if request.filters is None else request.filters.model_dump(),
         llm_called=llm_called(response),
         blocked_by=blocked_by(response),
-        policy_version=policy_version,
         guardrail_latency_ms={item.rule: round(item.latency_ms, 3) for item in results},
         survived_ids=sorted(id_ for id_ in ctx.turn_ids if id_),
         dropped_ids=list(ctx.dropped_ids),

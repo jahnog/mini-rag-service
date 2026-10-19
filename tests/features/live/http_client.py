@@ -138,9 +138,9 @@ def post_chat(client: httpx.Client, message: str) -> httpx.Response:
 def post_chat_clear(
     client: httpx.Client, session_id: str | None = None
 ) -> httpx.Response:
-    payload = {"session_id": session_id or str(uuid.uuid4())}
-    response = client.post("/chat/clear", json=payload)
-    raise_for_limiter(response, what="POST /chat/clear")
+    payload = {"message": "/clear", "session_id": session_id or str(uuid.uuid4())}
+    response = client.post("/chat", json=payload)
+    raise_for_limiter(response, what="POST /chat /clear")
     return response
 
 

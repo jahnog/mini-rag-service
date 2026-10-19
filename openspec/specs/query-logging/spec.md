@@ -95,7 +95,7 @@ After an L1 run writes the static results document the assistant interface alrea
 - **THEN** the earlier run’s metrics remain in the log file
 
 ### Requirement: Guardrail decision fields on the chat turn
-Each completed chat turn record SHALL include the policy version, and for every guardrail log row: stage, enforced flag, would-block flag, and latency. It SHALL include dump ids that survived retrieval scanning and dump ids dropped by a document rule. It MUST NOT echo secret-shaped tokens in `message`, `answer`, or details. It MUST NOT include the language-model prompt.
+Each completed chat turn record SHALL include, for every guardrail log row, its stage and latency. It SHALL include dump ids that survived retrieval scanning and dump ids dropped by a document rule. It MUST NOT echo secret-shaped tokens in `message`, `answer`, or details. It MUST NOT include the language-model prompt.
 
 #### Scenario: Blocked injection is reconstructable
 - **GIVEN** the user submits a jailbreak

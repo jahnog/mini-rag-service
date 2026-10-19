@@ -10,9 +10,9 @@ MAX_LINES = 400
 # Existing offenders mapped to their current ceiling. Lower or delete an entry
 # when the file shrinks; never add one.
 CEILING = {
-    "bcra_rag/adapters/llm_openai.py": 549,
-    "bcra_rag/ui/config.py": 530,
-    "bcra_rag/ui/gradio_app.py": 680,
+    "bcra_rag/adapters/llm_openai.py": 540,
+    "bcra_rag/ui/config.py": 517,
+    "bcra_rag/ui/gradio_app.py": 677,
 }
 
 

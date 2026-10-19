@@ -20,7 +20,6 @@ from bcra_rag.adapters.extractor_pdftotext import PdfExtractor
 from bcra_rag.adapters.index_chroma import ChromaIndex
 from bcra_rag.adapters.llm_fake import UnavailableLlm
 from bcra_rag.adapters.llm_openai import LlmAdapter
-from bcra_rag.adapters.policy_yaml import default_policy_path, load_policy
 from bcra_rag.adapters.session_memory import InMemorySessionStore
 from bcra_rag.api.routes import create_fastapi
 from bcra_rag.auth import AuthModule, build_auth
@@ -54,11 +53,7 @@ class ChatApp:
 
 
 def default_pipeline(settings: Settings | None = None) -> GuardrailPipeline:
-    resolved = settings or Settings()
-    return assemble_pipeline(
-        load_policy(resolved.guardrails_policy_path or default_policy_path()),
-        resolved,
-    )
+    return assemble_pipeline(settings or Settings())
 
 
 def build_ingest(settings: Settings | None = None) -> IngestApp:
@@ -86,10 +81,7 @@ def build_app(
         LlmAdapter(resolved) if resolved.llm_api_key else UnavailableLlm()
     )
     resolved_sessions = sessions or InMemorySessionStore()
-    resolved_pipeline = pipeline or assemble_pipeline(
-        load_policy(resolved.guardrails_policy_path or default_policy_path()),
-        resolved,
-    )
+    resolved_pipeline = pipeline or default_pipeline(resolved)
     resolved_auth = auth or build_auth()
     api = create_fastapi(
         settings=resolved,

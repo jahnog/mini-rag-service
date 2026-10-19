@@ -59,8 +59,6 @@ class TurnService:
             request=gradio_request,
             message=message,
             session_id=session_id or None,
-            k=None,
-            filters=None,
             request_id=new_request_id(),
             client_id=client_id_for(
                 gradio_request, trusted_proxy=self.auth.settings.trust_proxy

@@ -108,14 +108,6 @@ def test_normalize_strips_bidi_marks() -> None:
     assert "\u202e" not in ctx.raw
 
 
-def test_normalize_always_applies_when_not_enforced() -> None:
-    ctx = _ctx("liquidar\u200b")
-    rail = NormalizeRail(enforce=False)
-    verdict = _run(rail, ctx)
-    assert verdict.enforced is False
-    assert "\u200b" not in ctx.raw
-
-
 def test_normalize_already_clean_stays_pass() -> None:
     ctx = _ctx("liquidar el cobro")
     before = ctx.raw
@@ -220,15 +212,8 @@ def test_secrets_block_names_rule_and_input_stage() -> None:
     verdict = _run(SecretsRail(), _ctx(f"mi clave es {SK}"))
     assert verdict.rule == "secrets"
     assert verdict.stage == "input"
-    assert verdict.enforced is True
-    assert verdict.would_block is True
-
-
-def test_secrets_clean_pass_does_not_would_block() -> None:
-    verdict = _run(SecretsRail(), _ctx("liquidar el cobro de exportaciones"))
-    assert verdict.verdict == "pass"
-    assert verdict.rule == "secrets"
-    assert verdict.would_block is False
+    assert verdict.verdict == "block"
+    assert SK not in verdict.detail
 
 
 def test_secrets_does_not_rewrite_text_on_block() -> None:
@@ -237,17 +222,6 @@ def test_secrets_does_not_rewrite_text_on_block() -> None:
     _run(SecretsRail(), ctx)
     assert ctx.text == before
     assert ctx.raw == before
-
-
-def test_secrets_shadow_does_not_enforce_or_echo() -> None:
-    ctx = _ctx(f"mi clave es {SK}")
-    verdict = _run(SecretsRail(enforce=False), ctx)
-    assert verdict.verdict == "pass"
-    assert verdict.enforced is False
-    assert verdict.would_block is True
-    assert SK not in verdict.detail
-    assert "sk-" not in verdict.detail
-    assert ctx.text == f"mi clave es {SK}"
 
 
 def test_secrets_hyphen_token_blocks_at_eight_chars() -> None:
@@ -711,23 +685,6 @@ def test_cite_or_abstain_silencio_finding_passes_and_clears_citations() -> None:
     assert ctx.citations == []
 
 
-def test_shadow_cite_or_abstain_keeps_draft() -> None:
-    ctx = _ctx(
-        "q",
-        finding=Finding.DEFINICION,
-        answer="draft stays",
-        citations=[Citation(id="A9999", tipo="A", snippet="nope")],
-        hits=[],
-        turn_ids=set(),
-    )
-    pipe = GuardrailPipeline([CiteOrAbstainRail(enforce=False)])
-    result = pipe.run_named(["cite-or-abstain"], ctx)[0]
-    assert result.would_block is True
-    assert result.verdict == "pass"
-    assert ctx.finding is Finding.DEFINICION
-    assert ctx.answer == "draft stays"
-
-
 # --- freeze-honesty ---
 
 
@@ -934,19 +891,17 @@ def test_secrets_output_names_rule_and_output_stage() -> None:
     verdict = _run(SecretsRail(field="answer"), ctx)
     assert verdict.rule == "secrets-output"
     assert verdict.stage == "output"
-    assert verdict.enforced is True
-    assert verdict.would_block is True
+    assert verdict.verdict == "block"
     assert GHP not in verdict.detail
     assert "ghp_" not in verdict.detail
 
 
-def test_secrets_output_clean_pass_does_not_would_block() -> None:
+def test_secrets_output_clean_pass() -> None:
     ctx = _ctx("q", answer="Los residentes deberán liquidar")
     verdict = _run(SecretsRail(field="answer"), ctx)
     assert verdict.verdict == "pass"
     assert verdict.rule == "secrets-output"
     assert verdict.stage == "output"
-    assert verdict.would_block is False
 
 
 def test_secrets_output_ignores_token_in_citation_snippet() -> None:
@@ -969,18 +924,6 @@ def test_secrets_output_does_not_rewrite_answer_on_block() -> None:
     ctx = _ctx("q", answer=answer)
     _run(SecretsRail(field="answer"), ctx)
     assert ctx.answer == answer
-
-
-def test_secrets_output_shadow_does_not_enforce_or_echo() -> None:
-    ctx = _ctx("q", answer=f"clave {SK}")
-    verdict = _run(SecretsRail(field="answer", enforce=False), ctx)
-    assert verdict.verdict == "pass"
-    assert verdict.enforced is False
-    assert verdict.would_block is True
-    assert verdict.rule == "secrets-output"
-    assert SK not in verdict.detail
-    assert "sk-" not in verdict.detail
-    assert ctx.answer == f"clave {SK}"
 
 
 # --- prompt-leak ---
@@ -1112,24 +1055,8 @@ def test_markdown_sanitize_already_clean_passes() -> None:
 # --- registry / packaging ---
 
 
-def test_unknown_rail_id_fails_at_build(tmp_path) -> None:
-    from bcra_rag.domain.guardrails.registry import assemble_pipeline
-    from bcra_rag.domain.guardrails.types import Policy, RailConfig
-
-    policy = Policy(
-        rails=[RailConfig(id="not-a-rail", stage="input")],
-    )
-    try:
-        assemble_pipeline(policy, Settings(data_dir=tmp_path))
-    except ValueError as exc:
-        assert "unknown rail id" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_default_pipeline_loads_packaged_policy() -> None:
+def test_default_pipeline_builds_the_rail_list() -> None:
     pipe = default_pipeline(Settings())
     assert "injection" in pipe.ids_for("input")
     assert pipe.ids_for("retrieve")[0] == "chunk-injection"
-    assert pipe.policy_version == 3
 

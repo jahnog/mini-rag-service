@@ -21,9 +21,8 @@ from bcra_rag.domain.guardrails import GuardrailPipeline, RailContext, RailResul
 from bcra_rag.domain.guardrails.copy import NO_CLAUSE, blocked_copy, detail_label
 from bcra_rag.domain.guardrails.types import first_block
 from bcra_rag.ports.llm import LlmBadJson, LlmPort, OnThinking
-from bcra_rag.schemas import ChatFilters, Citation, Finding, LlmDraft
+from bcra_rag.schemas import Citation, Finding, LlmDraft
 from bcra_rag.use_cases.citations import (
-    apply_http_filters,
     citations_from_model,
     cite_failures,
     enrich_citations,
@@ -64,7 +63,6 @@ class GenerateOptions:
     on_thinking: OnThinking | None = None
     on_phase: OnPhase | None = None
     thinking: bool | None = None
-    filters: ChatFilters | None = None
     chunk_chars: int = 1500
     doc_meta: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     history: str = ""
@@ -160,7 +158,7 @@ async def generate_from_context(
     _adopt_draft(ctx, draft, options)
 
     await emit(options.on_phase, PHASE_VERIFY)
-    # Every output rail logs. Only an enforced block changes the answer.
+    # Every output rail logs. A block changes the answer.
     output_log = pipeline.run_named(pipeline.ids_for("output"), ctx, short_circuit=False)
     _demote(ctx)
     blocked = first_block(output_log)
@@ -182,10 +180,6 @@ def _adopt_draft(ctx: RailContext, draft: LlmDraft, options: GenerateOptions) ->
     ctx.draft_citation_ids = [item.id for item in draft.citations]
     ctx.cite_failures = cite_failures(draft.citations, ctx.turn_ids, ctx.hits)
     ctx.salvage = salvage_named(ctx)
-    if options.filters is not None:
-        ctx.citations = apply_http_filters(ctx.citations, options.filters)
-        if not ctx.citations:
-            ctx.finding = Finding.SILENCIO
 
 
 def _demote(ctx: RailContext) -> None:

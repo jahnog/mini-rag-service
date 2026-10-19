@@ -1,4 +1,4 @@
-"""Checks on the passages search returned. The ordered list is guardrails/policy.yaml."""
+"""Checks on the passages search returned. The ordered list is registry.RAILS."""
 
 from __future__ import annotations
 
@@ -26,9 +26,6 @@ class ChunkHygieneRail(ChunkMappingRail):
     id = "chunk-hygiene"
     stage: Stage = "retrieve"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def inspect(self, chunk: Chunk, ctx: RailContext) -> ChunkResult:
         del ctx
         cleaned = ROLE_NOISE.sub("", chunk.text).strip()
@@ -49,9 +46,6 @@ class ChunkInjectionRail(ChunkMappingRail):
     id = "chunk-injection"
     stage: Stage = "retrieve"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def inspect(self, chunk: Chunk, ctx: RailContext) -> ChunkResult:
         del ctx
         hit, detail = injection_check(chunk.text)
@@ -66,8 +60,7 @@ class ContextBudgetRail:
     id = "context-budget"
     stage: Stage = "retrieve"
 
-    def __init__(self, max_chars: int, *, enforce: bool = True) -> None:
-        self.enforce = enforce
+    def __init__(self, max_chars: int) -> None:
         self._max = max_chars
 
     def run(self, ctx: RailContext) -> RailResult:
@@ -87,7 +80,6 @@ class ContextBudgetRail:
                 stage=self.stage,
                 verdict="redact",
                 detail=f"se descartaron {dropped} fragmentos del final",
-                enforced=self.enforce,
                 patch=RailPatch(hits=kept),
             )
         return RailResult(
@@ -95,6 +87,5 @@ class ContextBudgetRail:
             stage=self.stage,
             verdict="pass",
             detail=f"se conservaron {len(kept)} fragmentos",
-            enforced=self.enforce,
             patch=RailPatch(hits=kept),
         )

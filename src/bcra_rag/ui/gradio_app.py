@@ -6,9 +6,8 @@ numbers. Usuario hides that column. The phase labels (retrieve, generate,
 verify) are progress text, not extra models.
 
 The bubbles on the page are not what a follow-up searches. That memory is
-the session store. Usuario turns the model's thinking trace off unless
-LLM_THINKING_USER_LAYOUT is set; the trace is not the answer. Calidad L1 is
-a file from an offline run.
+the session store. Usuario turns run with the model's thinking off; the
+trace is not the answer. Calidad L1 is a file from an offline run.
 
 `build_observatory_blocks` builds the page in three steps: lay out the
 widgets, create the event handlers, and wire the handlers to the widgets.
@@ -392,10 +391,8 @@ def _chrome_updates(selected_layout: str | None, email: str | None) -> tuple[Any
     return freeze_chips, side_panel, page_shell, login_fields, session_row, signed_in_label
 
 
-def _make_page_handlers(
-    service: TurnService, auth: AuthModule, settings: Settings
-) -> PageHandlers:
-    """Create the handlers that need the turn service, auth, or settings."""
+def _make_page_handlers(service: TurnService, auth: AuthModule) -> PageHandlers:
+    """Create the handlers that need the turn service or auth."""
 
     async def submit_question(
         question: str,
@@ -433,7 +430,7 @@ def _make_page_handlers(
                 gradio_request=gradio_request,
                 message=message,
                 session_id=session_id,
-                thinking=thinking_for_layout(is_staff_view, settings),
+                thinking=thinking_for_layout(is_staff_view),
                 on_thinking=on_thinking,
                 on_phase=on_phase,
             )
@@ -671,7 +668,7 @@ def build_observatory_blocks(
         turn_caps=turn_caps,
         auth=auth,
     )
-    handlers = _make_page_handlers(service, auth, settings)
+    handlers = _make_page_handlers(service, auth)
 
     with gr.Blocks(title=PAGE_TITLE) as observatory_blocks:
         widgets = _build_layout(health, l1_results)

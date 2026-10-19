@@ -1,6 +1,6 @@
 """Checks on the model's draft before the page shows it.
 
-The ordered list is guardrails/policy.yaml.
+The ordered list is registry.RAILS.
 """
 
 from __future__ import annotations
@@ -50,9 +50,6 @@ class CiteOrAbstainRail:
     id = "cite-or-abstain"
     stage: Stage = "output"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def run(self, ctx: RailContext) -> RailResult:
         if ctx.finding is Finding.SILENCIO:
             return RailResult(
@@ -60,7 +57,6 @@ class CiteOrAbstainRail:
                 stage=self.stage,
                 verdict="pass",
                 detail="silencio no lleva citas",
-                enforced=self.enforce,
                 patch=RailPatch(citations=[]),
             )
         allowed = ctx.turn_ids or {
@@ -87,7 +83,6 @@ class CiteOrAbstainRail:
                     stage=self.stage,
                     verdict="warn",
                     detail=f"cita ajustada ({adjusted})",
-                    enforced=self.enforce,
                     patch=RailPatch(citations=valid),
                 )
             return RailResult(
@@ -95,7 +90,6 @@ class CiteOrAbstainRail:
                 stage=self.stage,
                 verdict="pass",
                 detail="hay citas de esta consulta",
-                enforced=self.enforce,
                 patch=RailPatch(citations=valid),
             )
         return RailResult(
@@ -103,7 +97,6 @@ class CiteOrAbstainRail:
             stage=self.stage,
             verdict="block",
             detail="no hay identificador ni cita de esta consulta",
-            enforced=self.enforce,
             patch=RailPatch(
                 finding=Finding.SILENCIO,
                 citations=[],
@@ -122,9 +115,6 @@ class FreezeHonestyRail:
     id = "freeze-honesty"
     stage: Stage = "output"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def run(self, ctx: RailContext) -> RailResult:
         if names_freeze(ctx.answer, ctx.last_refresh, ctx.to_as_of):
             return RailResult(
@@ -132,7 +122,6 @@ class FreezeHonestyRail:
                 stage=self.stage,
                 verdict="pass",
                 detail="la respuesta ya nombra la fecha del extracto",
-                enforced=self.enforce,
             )
         if VIGENTE_CLAIM.search(ctx.answer):
             rewritten = ctx.answer.rstrip() + " " + freeze_footer(ctx.last_refresh, ctx.to_as_of)
@@ -141,7 +130,6 @@ class FreezeHonestyRail:
                 stage=self.stage,
                 verdict="warn",
                 detail="se reescribió la respuesta para nombrar la fecha del extracto",
-                enforced=self.enforce,
                 patch=RailPatch(answer=rewritten),
             )
         return RailResult(
@@ -149,7 +137,6 @@ class FreezeHonestyRail:
             stage=self.stage,
             verdict="pass",
             detail="no aparece «vigente hoy» sin fecha",
-            enforced=self.enforce,
         )
 
 
@@ -163,9 +150,6 @@ class PromptLeakRail:
     id = "prompt-leak"
     stage: Stage = "output"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def run(self, ctx: RailContext) -> RailResult:
         blob = ctx.answer or ""
         if ctx.delimiter and ctx.delimiter in blob:
@@ -174,7 +158,6 @@ class PromptLeakRail:
                 stage=self.stage,
                 verdict="block",
                 detail="se filtró el delimitador",
-                enforced=self.enforce,
             )
         for finger in PROMPT_FINGERPRINTS:
             if finger in blob:
@@ -183,7 +166,6 @@ class PromptLeakRail:
                     stage=self.stage,
                     verdict="block",
                     detail="se filtró una instrucción interna",
-                    enforced=self.enforce,
                 )
         return RailResult(
             rule=self.id, stage=self.stage, verdict="pass", detail="sin filtración"
@@ -196,9 +178,6 @@ class UnsafeOutputRail:
     id = "unsafe-output"
     stage: Stage = "output"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def run(self, ctx: RailContext) -> RailResult:
         original = ctx.answer
         cleaned = ANSI.sub("", original)
@@ -209,7 +188,6 @@ class UnsafeOutputRail:
                 stage=self.stage,
                 verdict="redact",
                 detail="se quitaron marcas de formato o de herramientas",
-                enforced=self.enforce,
                 patch=RailPatch(answer=cleaned),
             )
         return RailResult(
@@ -228,9 +206,6 @@ class MarkdownSanitizeRail:
     id = "markdown-sanitize"
     stage: Stage = "output"
 
-    def __init__(self, *, enforce: bool = True) -> None:
-        self.enforce = enforce
-
     def run(self, ctx: RailContext) -> RailResult:
         original = ctx.answer
         cleaned = _sanitize_markup(original)
@@ -244,7 +219,6 @@ class MarkdownSanitizeRail:
                 stage=self.stage,
                 verdict="redact",
                 detail="se limpió el marcado",
-                enforced=self.enforce,
                 patch=RailPatch(answer=cleaned, citations=citations),
             )
         return RailResult(

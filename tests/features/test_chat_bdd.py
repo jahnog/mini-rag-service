@@ -6,7 +6,7 @@ from pathlib import Path
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from bcra_rag.domain.freeze import names_freeze
-from bcra_rag.schemas import ChatFilters, ChatRequest
+from bcra_rag.schemas import ChatRequest
 from bcra_rag.use_cases.answer_query import AnswerQuery
 from tests.chat_fixtures import make_client, seed_ready
 from tests.test_answer_query import _uc
@@ -46,22 +46,6 @@ def user_asks(world: dict[str, object], message: str) -> None:
     )
     world["response"] = response
     world["session_id"] = response.session_id  # type: ignore[union-attr]
-
-
-@when(
-    parsers.parse(
-        'the user asks "{message}" with tipo A filters'
-    )
-)
-def user_asks_filtered(world: dict[str, object], message: str) -> None:
-    use_case = world["use_case"]
-    assert isinstance(use_case, AnswerQuery)
-    world["response"] = _await(
-        use_case.run(
-            ChatRequest(message=message, filters=ChatFilters(tipo=["A"])),
-            request_id="bdd-f",
-        )
-    )
 
 
 @when(parsers.parse('an unauthenticated client posts "{message}"'))
@@ -169,16 +153,6 @@ def names_dates(world: dict[str, object]) -> None:
 @then("the clear response has no citations")
 def clear_no_citations(world: dict[str, object]) -> None:
     assert world["response"].citations == []  # type: ignore[union-attr]
-
-
-@then("remaining citations are tipo A")
-def tipo_a(world: dict[str, object]) -> None:
-    assert all(c.tipo == "A" for c in world["response"].citations)  # type: ignore[union-attr]
-
-
-@then("none are texto ordenado")
-def no_to(world: dict[str, object]) -> None:
-    assert all(c.id != "texto_ordenado" for c in world["response"].citations)  # type: ignore[union-attr]
 
 
 def _rule(world: dict[str, object], name: str, verdict: str) -> None:

@@ -89,49 +89,12 @@ def test_chat_clear_http(tmp_path: Path) -> None:
     first = client.post(
         "/chat", json={"message": "qué se exige hoy para liquidar el cobro de exportaciones"}
     ).json()
-    cleared = client.post("/chat/clear", json={"session_id": first["session_id"]})
+    cleared = client.post("/chat", json={"message": "/clear", "session_id": first["session_id"]})
     assert cleared.status_code == 200
     body = cleared.json()
     assert body["citations"] == []
     assert body["finding"] == Finding.SILENCIO.value
     assert len(llm.calls) == 1
-
-
-def test_k_cap_422(tmp_path: Path) -> None:
-    client, llm, _, _ = make_client(tmp_path)
-    response = client.post(
-        "/chat",
-        json={"message": "Qué es el MULC?", "k": 9},
-    )
-    assert response.status_code == 422
-    assert llm.calls == []
-
-
-def test_filter_comm_id_normalizes(tmp_path: Path) -> None:
-    client, _, _, _ = make_client(tmp_path)
-    body = client.post(
-        "/chat",
-        json={
-            "message": "Qué dice la Comunicación A 3500?",
-            "filters": {"comm_id": "A 3500"},
-        },
-    ).json()
-    assert body["finding"] != "silencio" or body["citations"] == []
-    if body["citations"]:
-        assert all(c["id"] == "A3500" for c in body["citations"])
-
-
-def test_filter_tipo_a(tmp_path: Path) -> None:
-    client, _, _, _ = make_client(tmp_path)
-    body = client.post(
-        "/chat",
-        json={
-            "message": "qué se exige hoy para liquidar el cobro de exportaciones",
-            "filters": {"tipo": ["A"]},
-        },
-    ).json()
-    assert all(c["tipo"] == "A" for c in body["citations"])
-    assert all(c["id"] != "texto_ordenado" for c in body["citations"])
 
 
 def test_unauthenticated_chat_is_401(tmp_path: Path) -> None:
@@ -141,13 +104,6 @@ def test_unauthenticated_chat_is_401(tmp_path: Path) -> None:
     assert response.json()["detail"] == "authentication required"
     assert llm.calls == []
     assert sessions.get("missing") == []
-
-
-def test_unauthenticated_clear_is_401(tmp_path: Path) -> None:
-    client, llm, _, _ = make_client(tmp_path, authenticate=False)
-    response = client.post("/chat/clear", json={"session_id": "x"})
-    assert response.status_code == 401
-    assert llm.calls == []
 
 
 def test_session_id_is_not_shared_across_mailboxes(tmp_path: Path) -> None:
@@ -305,7 +261,9 @@ def test_clear_does_not_consume_email_cap(tmp_path: Path) -> None:
     client, llm, _, _ = make_client(tmp_path, settings=settings, index=index)
     first = client.post("/chat", json={"message": "Qué es el MULC?"})
     client.post("/chat", json={"message": "Qué es el MULC?"})
-    cleared = client.post("/chat/clear", json={"session_id": first.json()["session_id"]})
+    cleared = client.post(
+        "/chat", json={"message": "/clear", "session_id": first.json()["session_id"]}
+    )
     assert cleared.status_code == 200
     assert len(llm.calls) == 2
     assert client.post("/chat", json={"message": "Qué es el MULC?"}).status_code == 429

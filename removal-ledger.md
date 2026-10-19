@@ -28,6 +28,12 @@ Required differentiator. It redraws fields the chat response already has.
 
 Same abuse gate as login. A request that is allowed still gets the same answer.
 
+### Dev command TUI
+
+`scripts/devtui.py`, `scripts/commands.toml`, `run.sh`, and the `<!-- commands:… -->` README blocks it syncs.
+
+Developer convenience. It never runs inside the service and adds nothing to ingest, retrieve, cite, or silencio.
+
 ## Removed
 
 ### ONNX MiniLM embedding backend
@@ -41,3 +47,15 @@ Same abuse gate as login. A request that is allowed still gets the same answer.
 ### Durable chat log file
 
 `data/logs/chat.log` duplicated the `chat_turn` line that stdout already writes. The staff trust panel reads the response, not the file. `l1.log` remains. The service unit does not set `StandardOutput`, so journald keeps the stdout stream. An existing `data/logs/chat.log` is left on disk and is no longer appended.
+
+### HTTP chat options: `k`, `filters`, and `POST /chat/clear`
+
+`POST /chat` accepted a per-request `k` (capped by `MAX_K`) and `filters` (`tipo`, `comm_id`, date range) that dropped citations after the model had answered, which could turn a grounded answer into silencio. `POST /chat/clear` cleared a session. The UI never sent `k` or `filters` and clears with the `/clear` message, so its answers are unchanged; retrieval always uses `DEFAULT_K`. `ChatRequest` still forbids unknown fields, so a client that sends `k` or `filters` now gets HTTP 422 and must drop them. A client that posted `/chat/clear` must post `/chat` with `{"message": "/clear", "session_id": ...}`. A leftover `MAX_K` in an env file is ignored.
+
+### Configurable guardrail policy and shadow mode
+
+`guardrails/policy.yaml`, its hand-written parser `adapters/policy_yaml.py`, and `GUARDRAILS_POLICY_PATH` let an operator reorder, disable, or un-enforce rails; an un-enforced rail logged a block as `pass` with `would_block`. Every rail shipped enabled and enforced, and nothing read the `params` entries, so the order now lives in `domain/guardrails/registry.py` as `RAILS` and every rail always applies. The same rails run in the same order, so the cited clause or silencio is unchanged. The staff trust panel keeps every row, stage, verdict, and detail; it drops the "no aplicado" tag, which never appeared, and the "bloquearía" tag, which only repeated a `block` chip. The `/chat` guardrail rows drop `enforced` and `would_block`, and the `chat_turn` log drops `policy_version`.
+
+### Retrieval and generation tuning settings
+
+`RETRIEVAL_MIN_SCORE` (a cosine floor, 0 = off), `RETRIEVAL_HYBRID=false` (dense-only search), `RETRIEVAL_CANDIDATES`, `INDEX_SPACE`, `LLM_SEED`, `LLM_REASONING_BUDGET`, and `LLM_THINKING_USER_LAYOUT` were all left at their defaults in every env file. Search is now always dense plus BM25 with 20 candidates per side, new collections are always cosine, no seed or reasoning budget is sent, and Usuario turns always run without thinking, which is exactly what the defaults did, so the cited clause or silencio is unchanged. Hits no longer carry the unread `dense_score` and `lexical_rank` metadata. Settings ignore unknown keys, so check the dump host's `.env` for these names: a leftover value is silently dropped. On llama.cpp, raise `LLM_MAX_TOKENS` instead of setting a reasoning budget. An index created with another space keeps it until it is deleted and re-ingested.

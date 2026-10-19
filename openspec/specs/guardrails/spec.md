@@ -7,7 +7,7 @@ Apply a small set of deterministic rules to every query so a reviewer can see pa
 ## Requirements
 
 ### Requirement: Per-query guardrail log
-Every chat response SHALL include a guardrail log listing each enabled rule for that turn with verdict `pass`, `warn`, `block`, `redact`, or `skipped`, a short detail, a stage (`input`, `retrieve`, `generate`, or `output`), whether the rule was enforced, and whether it would have blocked if enforced. Work that did not run SHALL be `skipped` and MUST NOT be stamped `pass`. The staff assistant interface MUST show that log next to the answer, including enforced and would-block.
+Every chat response SHALL include a guardrail log listing each rule for that turn with verdict `pass`, `warn`, `block`, `redact`, or `skipped`, a short detail, and a stage (`input`, `retrieve`, `generate`, or `output`). Every rule is enforced; there is no per-rule or global switch. Work that did not run SHALL be `skipped` and MUST NOT be stamped `pass`. The staff assistant interface MUST show that log next to the answer.
 
 #### Scenario: Demo lights different rules
 - **GIVEN** an in-corpus question, a jailbreak, and “should I buy dollars”
@@ -219,24 +219,6 @@ The system SHALL block secret-shaped tokens (API keys) in the question and in th
 - **AND** the language model is not called
 - **AND** the guardrail detail does not contain that token
 
-### Requirement: Shadow mode
-A rule MAY be configured not to enforce. The system SHALL still run it, SHALL record `would_block` when it would have blocked, SHALL keep the enforced verdict `pass`, and MUST NOT change the user-visible answer, citations, finding, or retrieved documents solely because of that rule.
-
-#### Scenario: Shadow injection does not block
-- **GIVEN** injection is configured not to enforce
-- **AND** the user submits a jailbreak
-- **WHEN** the request is processed
-- **THEN** the injection log row has `would_block` true
-- **AND** the enforced verdict is not `block`
-
-#### Scenario: Shadow cite-or-abstain keeps the draft
-- **GIVEN** cite-or-abstain is configured not to enforce
-- **AND** generation would answer without a usable this-turn citation
-- **WHEN** the response is finalized
-- **THEN** the cite-or-abstain log row has `would_block` true
-- **AND** the enforced verdict is not `block`
-- **AND** the draft is still shown
-
 ### Requirement: Follow-up is railed
 Input rules other than length SHALL run on the composed follow-up text used for retrieval, not only the raw latest message.
 
@@ -247,11 +229,10 @@ Input rules other than length SHALL run on the composed follow-up text used for 
 - **AND** the language model is not called
 
 ### Requirement: Unicode normalize always runs
-The system SHALL Unicode-normalize the latest user utterance (compatibility form and hidden-character strip) before secrets, no-advice, injection, and scope. That normalize step MUST run even when the normalize rule is configured not to enforce.
+The system SHALL Unicode-normalize the latest user utterance (compatibility form and hidden-character strip) before secrets, no-advice, injection, and scope.
 
 #### Scenario: Hidden-character jailbreak is still normalized
 - **GIVEN** a jailbreak wrapped in zero-width characters
-- **AND** normalize is configured not to enforce
 - **WHEN** it is submitted
 - **THEN** the injection rule is `block`
 - **AND** the language model is not called

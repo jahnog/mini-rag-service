@@ -112,13 +112,14 @@ def test_chat_429_names_process_limiter(matching_origin: None) -> None:
 
 @respx.mock
 def test_unauthenticated_clear_always_sends_session_id(matching_origin: None) -> None:
-    route = respx.post(f"{BASE}/chat/clear").mock(
+    route = respx.post(f"{BASE}/chat").mock(
         return_value=httpx.Response(401, json={"detail": "authentication required"})
     )
     client = make_client(BASE)
     response = post_chat_clear(client)
     assert response.status_code == 401
     payload = json.loads(route.calls[0].request.content)
+    assert payload["message"] == "/clear"
     assert payload["session_id"]
 
 

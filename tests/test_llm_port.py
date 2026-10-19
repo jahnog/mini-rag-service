@@ -572,22 +572,10 @@ async def test_adapter_unwraps_json_answer_in_reasoning() -> None:
 @pytest.mark.asyncio
 async def test_adapter_sends_generation_settings() -> None:
     client = StubOpenAI(_cited_json())
-    llm = LlmAdapter(_local_settings(llm_seed=7, llm_reasoning_budget=512), client=client)
-    await llm.complete("pregunta")
+    await LlmAdapter(_local_settings(), client=client).complete("pregunta")
     kwargs = client.chat.completions.kwargs[0]
     assert kwargs["temperature"] == 0.1
     assert kwargs["max_tokens"] == 1500
-    assert kwargs["seed"] == 7
-    assert kwargs["extra_body"]["reasoning_budget"] == 512
-
-
-@pytest.mark.asyncio
-async def test_adapter_default_has_no_seed_or_budget() -> None:
-    client = StubOpenAI(_cited_json())
-    await LlmAdapter(_local_settings(), client=client).complete("pregunta")
-    kwargs = client.chat.completions.kwargs[0]
-    assert "seed" not in kwargs
-    assert "reasoning_budget" not in kwargs["extra_body"]
 
 
 @pytest.mark.asyncio

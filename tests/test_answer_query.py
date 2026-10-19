@@ -15,7 +15,7 @@ from bcra_rag.domain.guardrails.types import RailContext
 from bcra_rag.domain.models import Chunk
 from bcra_rag.logconfig import configure_logging
 from bcra_rag.ports.llm import LlmBadJson, OnThinking
-from bcra_rag.schemas import ChatFilters, ChatRequest, Citation, Finding, LlmDraft
+from bcra_rag.schemas import ChatRequest, Citation, Finding, LlmDraft
 from bcra_rag.settings import Settings
 from bcra_rag.use_cases.answer_query import AnswerQuery
 from bcra_rag.use_cases.generate import GenerateOptions, generate_from_context
@@ -547,43 +547,6 @@ async def test_thinking_past_timeout_is_silencio_not_partial_draft(
 
 
 @pytest.mark.asyncio
-async def test_date_filter_drops_missing_fecha(tmp_path: Path) -> None:
-    from bcra_rag.domain.manifest import Manifest
-    from bcra_rag.domain.models import Chunk
-
-    settings, index, _ = seed_ready(tmp_path)
-    manifest = Manifest.load(settings.manifest_path)
-    manifest.documents["A3500"]["fecha"] = None
-    manifest.save()
-    index.upsert(
-        "A3500",
-        [
-            Chunk(
-                "A3500:1",
-                "Tipo de cambio de referencia. Comunicación A 3500.",
-                {"doc_kind": "comunicacion", "numero": "A3500"},
-            )
-        ],
-    )
-    use_case = AnswerQuery(
-        settings,
-        index,
-        FakeLlm(IN_CORPUS_DRAFT),
-        InMemorySessionStore(),
-        default_pipeline(settings),
-    )
-    response = await use_case.run(
-        ChatRequest(
-            message="Qué dice la Comunicación A 3500?",
-            filters=ChatFilters(date_from="2000-01-01"),
-        ),
-        request_id="df",
-    )
-    assert response.finding is Finding.SILENCIO
-    assert response.citations == []
-
-
-@pytest.mark.asyncio
 async def test_in_corpus_thinking_is_copied_not_remembered(tmp_path: Path) -> None:
     sessions = InMemorySessionStore()
     draft = IN_CORPUS_DRAFT.model_copy(update={"thinking": "voy a citar el TO"})
@@ -670,20 +633,6 @@ async def test_typed_clear_does_not_retrieve(tmp_path: Path) -> None:
     assert sessions.get(first.session_id) == []
     assert len(llm.calls) == 1
     assert cleared.thinking is None
-
-
-@pytest.mark.asyncio
-async def test_tipo_a_filter_drops_to(tmp_path: Path) -> None:
-    use_case, _ = _uc(tmp_path)
-    response = await use_case.run(
-        ChatRequest(
-            message="qué se exige hoy para liquidar el cobro de exportaciones",
-            filters=ChatFilters(tipo=["A"]),
-        ),
-        request_id="r-f",
-    )
-    assert all(c.tipo == "A" for c in response.citations)
-    assert all(c.id != "texto_ordenado" for c in response.citations)
 
 
 @pytest.mark.asyncio
@@ -852,7 +801,6 @@ async def test_secret_token_is_redacted_in_chat_log(
     dumped, event = _stdout_turn(capsys)
     assert token not in dumped
     assert "[secret]" in event["message"]
-    assert event["policy_version"] == 3
     assert llm.calls == []
 
 

@@ -25,6 +25,8 @@ from bcra_rag.settings import Settings
 log = structlog.get_logger(__name__)
 
 COLLECTION = "bcra_camex"
+# Rows asked of each ranking (embedding and BM25) before RRF keeps k.
+CANDIDATES = 20
 
 
 def _clean_meta(metadata: dict[str, Any]) -> dict[str, str | int | float | bool]:
@@ -53,7 +55,6 @@ class ChromaIndex:
         self._lexicon_index: Bm25Index | None = None
         self._lexicon_rows: dict[str, tuple[str, dict[str, Any]]] = {}
         self._lock = threading.Lock()
-        self._floor_warned = False
 
     def _get_collection(self) -> Any:
         if self._collection is None:
@@ -75,7 +76,7 @@ class ChromaIndex:
             self._collection = client.get_or_create_collection(
                 name=COLLECTION,
                 embedding_function=ef,
-                metadata={"hnsw:space": self._settings.index_space},
+                metadata={"hnsw:space": "cosine"},
             )
         return self._collection
 
@@ -142,10 +143,6 @@ class ChromaIndex:
             log.info("index_lexicon_built", chunks=len(docs))
             return self._lexicon_index
 
-    def _space(self, collection: Any) -> str:
-        meta = getattr(collection, "metadata", None) or {}
-        return str(meta.get("hnsw:space") or "l2")
-
     def search(
         self,
         query: str,
@@ -153,27 +150,24 @@ class ChromaIndex:
         k: int = 5,
         filters: Mapping[str, object] | None = None,
     ) -> list[Chunk]:
-        """Embedding search plus BM25, fused with RRF when retrieval_hybrid is on.
+        """Embedding search plus BM25, fused with RRF.
 
         An embedding is a vector for the meaning of the text; closer vectors
-        are more similar. BM25 is the keyword ranking. The score floor, when
-        set, can drop every hit before that fusion.
+        are more similar. BM25 is the keyword ranking. Each ranking is asked
+        for at least CANDIDATES rows before RRF keeps k.
         """
         collection = self._get_collection()
         count = int(collection.count() or 0)
         if count <= 0:
             return []
-        hybrid = self._settings.retrieval_hybrid
         n_results = max(k, 1)
-        over_fetch = n_results * 3 if filters else n_results
-        if hybrid:
-            over_fetch = max(over_fetch, self._settings.retrieval_candidates)
+        over_fetch = max(n_results * 3 if filters else n_results, CANDIDATES)
         n_results = min(over_fetch, count)
         where = chroma_where(filters)
         kwargs: dict[str, Any] = {
             "query_texts": [query],
             "n_results": n_results,
-            "include": ["documents", "metadatas", "distances"],
+            "include": ["documents", "metadatas"],
         }
         if where:
             kwargs["where"] = where
@@ -184,7 +178,7 @@ class ChromaIndex:
             retry = {
                 "query_texts": [query],
                 "n_results": min(max(k, 1), count),
-                "include": ["documents", "metadatas", "distances"],
+                "include": ["documents", "metadatas"],
             }
             try:
                 raw = collection.query(**retry)
@@ -194,25 +188,11 @@ class ChromaIndex:
         ids = (raw.get("ids") or [[]])[0]
         documents = (raw.get("documents") or [[]])[0]
         metadatas = (raw.get("metadatas") or [[]])[0]
-        distances = (raw.get("distances") or [[]])[0]
-        dense: list[tuple[str, str, dict[str, Any], float]] = []
-        for chunk_id, text, meta, distance in zip(
-            ids, documents, metadatas, distances, strict=False
-        ):
+        dense: dict[str, tuple[str, dict[str, Any]]] = {}
+        for chunk_id, text, meta in zip(ids, documents, metadatas, strict=False):
             metadata = dict(meta or {})
-            if not metadata_matches(metadata, filters):
-                continue
-            dense.append((str(chunk_id), str(text), metadata, float(distance or 0.0)))
-        if not hybrid:
-            hits: list[Chunk] = []
-            for chunk_id, text, metadata, distance in dense:
-                metadata["score"] = 1.0 / (1.0 + distance)
-                hits.append(Chunk(chunk_id, text, metadata))
-                if len(hits) >= k:
-                    break
-            return hits
-        if self._below_floor(collection, dense):
-            return []
+            if metadata_matches(metadata, filters):
+                dense[str(chunk_id)] = (str(text), metadata)
         lexicon = self._lexicon(collection, count)
         lexical_ids: list[str] = []
         for chunk_id, _score in lexicon.search(query, n_results) if lexicon else []:
@@ -220,49 +200,17 @@ class ChromaIndex:
             if row is None or not metadata_matches(row[1], filters):
                 continue
             lexical_ids.append(chunk_id)
-        dense_by_id = {chunk_id: (text, meta, dist) for chunk_id, text, meta, dist in dense}
-        fused = rrf([[item[0] for item in dense], lexical_ids])
+        fused = rrf([list(dense), lexical_ids])
         if not fused:
             return []
         top_score = fused[0][1]
-        lexical_rank = {chunk_id: rank for rank, chunk_id in enumerate(lexical_ids, start=1)}
-        hits = []
+        hits: list[Chunk] = []
         for chunk_id, score in fused[:k]:
-            if chunk_id in dense_by_id:
-                text, metadata, distance = dense_by_id[chunk_id]
-                metadata = dict(metadata)
-                metadata["dense_score"] = 1.0 / (1.0 + distance)
-            else:
-                text, metadata = self._lexicon_rows[chunk_id]
-                metadata = dict(metadata)
-                metadata["dense_score"] = 0.0
+            text, metadata = dense.get(chunk_id) or self._lexicon_rows[chunk_id]
+            metadata = dict(metadata)
             metadata["score"] = score / top_score if top_score else 0.0
-            metadata["lexical_rank"] = lexical_rank.get(chunk_id, -1)
             hits.append(Chunk(chunk_id, text, metadata))
         return hits
-
-    def _below_floor(
-        self, collection: Any, dense: list[tuple[str, str, dict[str, Any], float]]
-    ) -> bool:
-        """True when retrieval_min_score is set and the best cosine hit is under it.
-
-        The default floor is 0, which is off. Non-cosine collections ignore it.
-        A true result returns no hits before BM25 fusion; the turn abstains
-        with empty_hits.
-        """
-        floor = self._settings.retrieval_min_score
-        if floor <= 0 or not dense:
-            return False
-        if self._space(collection) != "cosine":
-            if not self._floor_warned:
-                log.warning("retrieval_floor_ignored_space", space=self._space(collection))
-                self._floor_warned = True
-            return False
-        best = 1.0 - min(item[3] for item in dense)
-        if best < floor:
-            log.info("retrieval_below_floor", best_similarity=round(best, 4), floor=floor)
-            return True
-        return False
 
     def get_section(self, doc_id: str, punto: str | None = None) -> str:
         collection = self._get_collection()

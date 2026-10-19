@@ -1,8 +1,9 @@
 """HTTP surface on the same process as the page.
 
 GET /health reports whether the local index is loaded. GET /l1 reads the
-stored eval file and does not score a question. POST /chat and
-POST /chat/clear go through handle.py. The Gradio page is mounted here too.
+stored eval file and does not score a question. POST /chat goes through
+handle.py; the message "/clear" clears the session. The Gradio page is
+mounted here too.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from bcra_rag.api.chat_stream import json_chat_chunks
 from bcra_rag.api.handle import (
     client_id_for,
-    handle_turn,
     prepare_turn,
     run_prepared_turn,
 )
@@ -31,7 +31,7 @@ from bcra_rag.domain.l1_results import L1_FILENAME, load_l1
 from bcra_rag.ports.index import IndexPort
 from bcra_rag.ports.llm import LlmPort
 from bcra_rag.ports.session import SessionStore
-from bcra_rag.schemas import ChatClearRequest, ChatRequest, ChatResponse, HealthResponse
+from bcra_rag.schemas import ChatRequest, ChatResponse, HealthResponse
 from bcra_rag.settings import Settings
 
 
@@ -87,14 +87,12 @@ def create_fastapi(
     @api.post("/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest, request: Request) -> StreamingResponse:
         prepared = prepare_turn(
-            settings=settings,
             limiter=api.state.limiter,
             turn_caps=api.state.turn_caps,
             auth=resolved_auth,
             request=request,
             message=payload.message,
             session_id=payload.session_id,
-            k=payload.k,
             client_id=client_id_for(
                 request, trusted_proxy=resolved_auth.settings.trust_proxy
             ),
@@ -109,35 +107,11 @@ def create_fastapi(
                     sessions=sessions,
                     pipeline=pipeline,
                     message=payload.message,
-                    k=payload.k,
-                    filters=payload.filters,
                     request_id=getattr(request.state, "request_id", "unknown"),
                     turn_caps=api.state.turn_caps,
                 )
             ),
             media_type="application/json",
-        )
-
-    @api.post("/chat/clear", response_model=ChatResponse)
-    async def chat_clear(payload: ChatClearRequest, request: Request) -> ChatResponse:
-        return await handle_turn(
-            settings=settings,
-            index=index,
-            llm=llm,
-            sessions=sessions,
-            pipeline=pipeline,
-            limiter=api.state.limiter,
-            turn_caps=api.state.turn_caps,
-            auth=resolved_auth,
-            request=request,
-            message="/clear",
-            session_id=payload.session_id,
-            k=None,
-            filters=None,
-            request_id=getattr(request.state, "request_id", "unknown"),
-            client_id=client_id_for(
-                request, trusted_proxy=resolved_auth.settings.trust_proxy
-            ),
         )
 
     from bcra_rag.ui.gradio_app import build_observatory_blocks

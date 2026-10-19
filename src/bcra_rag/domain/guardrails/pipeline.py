@@ -1,12 +1,8 @@
 """Run the ordered guardrail checks for one turn.
 
-A rail is one check. run_named runs a named list in order. When the global
-flag and the rail are both enforced, the verdict stands and the patch is
-applied. When either is off, a block is rewritten to pass, would_block stays
-true, and the patch is not applied. would_block means this rail's own verdict
-was block, not that enforcement is currently off. normalize is always applied.
-The default short-circuit logs later rails as skipped after an enforced block
-and does not run them. Output calls this with short-circuit off.
+A rail is one check. run_named runs a named list in order and applies each
+rail's patch. The default short-circuit logs later rails as skipped after a
+block and does not run them. Output calls this with short-circuit off.
 """
 
 from __future__ import annotations
@@ -27,23 +23,10 @@ from bcra_rag.domain.guardrails.types import (
 )
 from bcra_rag.domain.models import Chunk
 
-_ALWAYS_APPLY = frozenset({"normalize"})
-
 
 class GuardrailPipeline:
-    def __init__(
-        self,
-        rails: Sequence[Rail],
-        *,
-        global_enforce: bool = True,
-        policy_version: int = 2,
-    ) -> None:
+    def __init__(self, rails: Sequence[Rail]) -> None:
         self._rails = list(rails)
-        self._global_enforce = global_enforce
-        self.policy_version = policy_version
-
-    def enabled(self) -> list[Rail]:
-        return list(self._rails)
 
     def ids_for(self, stage: Stage) -> list[str]:
         return [rail.id for rail in self._rails if rail.stage == stage]
@@ -67,12 +50,10 @@ class GuardrailPipeline:
                 results.append(_skipped(rail, detail_label(f"blocked by {blocked_by}")))
                 continue
             started = time.perf_counter()
-            raw = replace(rail.run(ctx), latency_ms=(time.perf_counter() - started) * 1000)
-            result = _apply_enforce(raw, rail, self._global_enforce)
-            if rail.id in _ALWAYS_APPLY or result.enforced:
-                _apply_patch(ctx, raw.patch)
+            result = replace(rail.run(ctx), latency_ms=(time.perf_counter() - started) * 1000)
+            _apply_patch(ctx, result.patch)
             results.append(result)
-            if result.enforced and result.verdict == "block":
+            if result.verdict == "block":
                 blocked_by = result.rule
         return results
 
@@ -108,24 +89,12 @@ def _apply_patch(ctx: RailContext, patch: RailPatch | None) -> None:
         ctx.dropped_ids.extend(patch.dropped_ids)
 
 
-def _apply_enforce(result: RailResult, rail: Rail, global_enforce: bool) -> RailResult:
-    # Enforcement off rewrites block to pass and keeps would_block. The patch is not applied.
-    enforced = bool(global_enforce and rail.enforce)
-    would_block = result.verdict == "block" or result.would_block
-    if enforced:
-        return replace(result, enforced=True, would_block=would_block)
-    verdict = "pass" if result.verdict == "block" else result.verdict
-    return replace(result, enforced=False, verdict=verdict, would_block=would_block)
-
-
 def _skipped(rail: Rail, reason: str) -> RailResult:
     return RailResult(
         rule=rail.id,
         stage=rail.stage,
         verdict="skipped",
         detail=reason,
-        enforced=rail.enforce,
-        would_block=False,
     )
 
 
@@ -134,7 +103,6 @@ class ChunkMappingRail:
 
     id: str
     stage: Stage = "retrieve"
-    enforce: bool = True
 
     def inspect(self, chunk: Chunk, ctx: RailContext) -> ChunkResult:
         raise NotImplementedError
@@ -172,9 +140,6 @@ class ChunkMappingRail:
             stage="retrieve",
             verdict=verdict,  # type: ignore[arg-type]
             detail=detail,
-            enforced=self.enforce,
-            would_block=bool(dropped and not kept),
-            metrics={"scanned": scanned, "dropped": dropped, "redacted": redacted},
             patch=RailPatch(hits=kept, dropped_ids=dropped_ids),
         )
 
@@ -184,14 +149,10 @@ def step(
     stage: Stage,
     verdict: str,
     detail: str,
-    *,
-    enforced: bool = True,
 ) -> RailResult:
     return RailResult(
         rule=rule,
         stage=stage,
         verdict=verdict,  # type: ignore[arg-type]
         detail=detail,
-        enforced=enforced,
-        would_block=verdict == "block",
     )

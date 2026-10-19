@@ -39,7 +39,7 @@ class Citation(BaseModel):
 
 
 class GuardrailVerdict(BaseModel):
-    """One guardrail log row. Enforce and would_block follow GuardrailPipeline."""
+    """One guardrail log row."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -47,8 +47,6 @@ class GuardrailVerdict(BaseModel):
     verdict: Literal["pass", "warn", "block", "redact", "skipped"]
     detail: str = ""
     stage: Literal["input", "retrieve", "generate", "output"] = "input"
-    enforced: bool = True
-    would_block: bool = False
 
 
 class HitScore(BaseModel):
@@ -71,28 +69,11 @@ class Sidecar(BaseModel):
     grounded: bool = False
 
 
-class ChatFilters(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tipo: list[str] | None = None
-    comm_id: str | None = None
-    date_from: str | None = None
-    date_to: str | None = None
-
-
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str
     session_id: str | None = None
-    k: int | None = None
-    filters: ChatFilters | None = None
-
-
-class ChatClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str
 
 
 class LlmDraft(BaseModel):
